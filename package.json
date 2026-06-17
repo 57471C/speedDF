@@ -14,20 +14,28 @@
   "license": "MIT",
   "dependencies": {
     "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2"
+    "@tauri-apps/plugin-opener": "^2",
+    "fabric": "^7.4.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.0.227"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.0",
     "@sveltejs/adapter-static": "^3.0.6",
     "@sveltejs/kit": "^2.9.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@tailwindcss/postcss": "^4.3.1",
     "@tauri-apps/cli": "^2",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.15",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
+    "tailwindcss": "^4.3.1",
     "typescript": "~5.6.2",
     "vite": "^6.0.3"
   },
   "allowScripts": {
-    "esbuild@0.25.12": true
+    "esbuild@0.25.12": true,
+    "canvas@3.2.3": true
   }
 }
