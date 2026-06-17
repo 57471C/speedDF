@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { activeDoc } from "../pdfStore.svelte.ts";
+  import { activeDoc } from "../pdfStore.svelte";
   import * as pdfjsLib from 'pdfjs-dist';
 
   let zoomScale = $state(100);
