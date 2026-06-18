@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import * as pdfjsLib from "pdfjs-dist";
-  import { activeDoc } from "../pdfStore.svelte.ts"; // ⚡ Enforced your mandatory .ts extension
+  import { activeDoc } from "../pdfStore.svelte"; // ⚡ Enforced your mandatory .ts extension
 
   let { darkMode = $bindable(), onMinimize, onMaximize, onClose } = $props();
 
@@ -23,6 +23,7 @@
       activeDoc.rawBytes = typedBytes;
       activeDoc.pageCount = pdfDocument.numPages;
       activeDoc.currentPage = 1;
+      (activeDoc as any).scrollTop = 0;
 
       console.log(`Document successfully bound to reactive store! Pages: ${pdfDocument.numPages}`);
     } catch (err) {
@@ -43,8 +44,10 @@
     }
   }
 </script>
-
-<div class="h-10 w-full bg-[#090d16] border-b border-slate-900 flex items-center justify-between px-4 select-none">
+<div 
+  data-tauri-drag-region 
+  class="h-10 w-full bg-[#090d16] border-b border-slate-900 flex items-center justify-between px-4 select-none cursor-default"
+>
   <div class="flex items-center gap-6">
     <span class="text-[#00d2ff] font-bold text-sm tracking-wide">speedDF ⚡</span>
     

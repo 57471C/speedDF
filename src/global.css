@@ -1,3 +1,24 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* 1. Define the physical track boundaries */
+::-webkit-scrollbar {
+  width: 6px;  /* Slimmer, high-fidelity profile width */
+  height: 6px; /* Profile height for horizontal track channels */
+}
+
+/* 2. Blend the background tray straight into your slate panels */
+::-webkit-scrollbar-track {
+  background-color: #090d16; 
+}
+
+/* 3. Style the interactive scrolling thumb slider */
+::-webkit-scrollbar-thumb {
+  background-color: #1e293b; /* Matches your slate-800 tone */
+  border-radius: 9999px;     /* Smoothly rounded edges */
+  transition: background-color 0.2s ease;
+}
+
+/* 4. Soft highlight effect when you hover over the rails */
+::-webkit-scrollbar-thumb:hover {
+  background-color: #334155; /* Bumps up to a slate-700 glow */
+}
