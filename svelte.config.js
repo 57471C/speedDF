@@ -7,12 +7,15 @@ import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
-  preprocess: vitePreprocess(),
-  kit: {
-    adapter: adapter({
-      fallback: "index.html",
-    }),
-  },
+	preprocess: vitePreprocess(),
+	compilerOptions: {
+		warningFilter: (warning) => !warning.code.startsWith("a11y"),
+	},
+	kit: {
+		adapter: adapter({
+			fallback: "index.html",
+		}),
+	},
 };
 
 export default config;

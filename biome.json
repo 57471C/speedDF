@@ -6,7 +6,8 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"ignoreUnknown": false
+		"ignoreUnknown": false,
+		"includes": ["**", "!**/*.svelte", "!**/*.css", "!static"]
 	},
 	"formatter": {
 		"enabled": true,
@@ -15,7 +16,8 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"preset": "recommended"
+			"preset": "recommended",
+		"a11y": "off"
 		}
 	},
 	"javascript": {

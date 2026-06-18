@@ -1,12 +1,18 @@
 <script lang="ts">
-  import { slide } from 'svelte/transition';
+import { slide } from "svelte/transition";
 
-  export type ToolType = 'select' | 'text' | 'shape' | 'signature' | 'stamp' | null;
-  let { activeTool = $bindable() } = $props();
+type ToolType =
+	| "select"
+	| "text"
+	| "shape"
+	| "signature"
+	| "stamp"
+	| null;
+let { activeTool = $bindable() } = $props();
 
-  let textSize = $state(24);
-  let stamps = ['APPROVED', 'DRAFT', 'URGENT', 'VOID'];
-  let shapes = ['Square', 'Circle', 'Triangle', 'Line', 'Arrow', 'Star'];
+let textSize = $state(24);
+let stamps = ["APPROVED", "DRAFT", "URGENT", "VOID"];
+let shapes = ["Square", "Circle", "Triangle", "Line", "Arrow", "Star"];
 </script>
 
 <div class="flex h-full border-r border-slate-900 bg-[#090d16]">

@@ -1,15 +1,21 @@
 <script lang="ts">
-  import TitleBar from "../components/TitleBar.svelte";
-  import ToolSidebar from "../components/ToolSidebar.svelte";
-  import Workspace from "../components/Workspace.svelte";
-  import PageSidebar from "../components/PageSidebar.svelte";
+import PageSidebar from "../components/PageSidebar.svelte";
+import TitleBar from "../components/TitleBar.svelte";
+import ToolSidebar from "../components/ToolSidebar.svelte";
+import Workspace from "../components/Workspace.svelte";
 
-  let activeTool = $state(null);
-  let darkMode = $state(true); 
+let activeTool = $state(null);
+let darkMode = $state(true);
 
-  function minimizeApp() { console.log("Minimize"); }
-  function maximizeApp() { console.log("Maximize"); }
-  function closeApp() { console.log("Close"); }
+function minimizeApp() {
+	console.log("Minimize");
+}
+function maximizeApp() {
+	console.log("Maximize");
+}
+function closeApp() {
+	console.log("Close");
+}
 </script>
 
 <div class={darkMode ? "dark" : ""}>
