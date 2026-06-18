@@ -1,21 +1,24 @@
 <script lang="ts">
-import PageSidebar from "../components/PageSidebar.svelte";
-import TitleBar from "../components/TitleBar.svelte";
-import ToolSidebar from "../components/ToolSidebar.svelte";
-import Workspace from "../components/Workspace.svelte";
+  // Pull the official window actions directly from Tauri's window manager module ⚡
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  
+  import TitleBar from "../components/TitleBar.svelte";
+  import ToolSidebar from "../components/ToolSidebar.svelte";
+  import Workspace from "../components/Workspace.svelte";
+  import PageSidebar from "../components/PageSidebar.svelte";
 
-let activeTool = $state(null);
-let darkMode = $state(true);
+  let activeTool = $state(null);
+  let darkMode = $state(true); 
 
-function minimizeApp() {
-	console.log("Minimize");
-}
-function maximizeApp() {
-	console.log("Maximize");
-}
-function closeApp() {
-	console.log("Close");
-}
+  function minimizeApp() { 
+    getCurrentWindow().minimize(); 
+  }
+  function maximizeApp() { 
+    getCurrentWindow().toggleMaximize(); 
+  }
+  function closeApp() { 
+    getCurrentWindow().close(); 
+  }
 </script>
 
 <div class={darkMode ? "dark" : ""}>

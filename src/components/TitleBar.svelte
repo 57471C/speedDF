@@ -1,38 +1,50 @@
 <script lang="ts">
-import { invoke } from "@tauri-apps/api/core";
-import * as pdfjsLib from "pdfjs-dist";
-import { activeDoc } from "../pdfStore.svelte.ts";
+  import { invoke } from "@tauri-apps/api/core";
+  import * as pdfjsLib from "pdfjs-dist";
+  import { activeDoc } from "../pdfStore.svelte.ts"; // ⚡ Enforced your mandatory .ts extension
 
-let { darkMode = $bindable(), onMinimize, onMaximize, onClose } = $props();
+  let { darkMode = $bindable(), onMinimize, onMaximize, onClose } = $props();
 
-async function triggerFileOpen() {
-	try {
-		console.log("Invoking native Windows file dialog...");
-		const rawPdfBytes: number[] = await invoke("native_open_file");
-		console.log(`Successfully captured ${rawPdfBytes.length} file bytes!`);
+  async function triggerFileOpen() {
+    try {
+      console.log("Invoking native Windows file dialog...");
+      const rawPdfBytes: number[] = await invoke("native_open_file");
+      
+      if (!rawPdfBytes || rawPdfBytes.length === 0) return;
+      
+      const typedBytes = new Uint8Array(rawPdfBytes);
+      console.log(`Successfully captured ${typedBytes.length} file bytes!`);
 
-		// TODO: Pipe these bytes straight into PDF.js to render them in the viewport!
-	} catch (err) {
-		console.warn("Open File Action aborted or failed:", err);
-	}
-}
+      // ⚡ FIX: Pass a shallow memory slice clone so the background worker doesn't detach our original buffer!
+      const loadingTask = pdfjsLib.getDocument({ data: typedBytes.slice(0) });
+      const pdfDocument = await loadingTask.promise;
 
-async function triggerFileSaveAs() {
-	try {
-		// Temporary placeholder: Sending empty bytes until pdf-lib compilation is active
-		const dummyBytes = new Uint8Array([0, 1, 2, 3]);
-		const response = await invoke("native_save_as_file", {
-			fileBytes: Array.from(dummyBytes),
-		});
-		console.log(response);
-	} catch (err) {
-		console.warn("Save As Action aborted or failed:", err);
-	}
-}
+      // BROADCAST SECURE, INTACT BYTES TO THE STORE
+      activeDoc.rawBytes = typedBytes;
+      activeDoc.pageCount = pdfDocument.numPages;
+      activeDoc.currentPage = 1;
+
+      console.log(`Document successfully bound to reactive store! Pages: ${pdfDocument.numPages}`);
+    } catch (err) {
+      console.warn("Open File Action aborted or failed:", err);
+    }
+  }
+
+  async function triggerFileSaveAs() {
+    try {
+      if (!activeDoc.rawBytes) return console.warn("No active document data to save.");
+      
+      const response = await invoke("native_save_as_file", {
+        fileBytes: Array.from(activeDoc.rawBytes),
+      });
+      console.log(response);
+    } catch (err) {
+      console.warn("Save As Action aborted or failed:", err);
+    }
+  }
 </script>
 
 <div class="h-10 w-full bg-[#090d16] border-b border-slate-900 flex items-center justify-between px-4 select-none">
-  
   <div class="flex items-center gap-6">
     <span class="text-[#00d2ff] font-bold text-sm tracking-wide">speedDF ⚡</span>
     

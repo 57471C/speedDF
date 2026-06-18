@@ -1,51 +1,58 @@
 <script lang="ts">
-import * as pdfjsLib from "pdfjs-dist";
-import { activeDoc } from "../pdfStore.svelte";
+  import * as pdfjsLib from "pdfjs-dist";
+  import { activeDoc } from "../pdfStore.svelte.ts"; // Enforces your mandatory .ts extension format
 
-let zoomScale = $state(100);
-let canvasElement = $state<HTMLCanvasElement | null>(null);
-let rendering = $state(false);
+  let zoomScale = $state(100);
+  let canvasElement = $state<HTMLCanvasElement | null>(null);
+  
+  // ⚡ FIX 1: Turn this into a standard variable so it acts as a lock without creating reactive loop side-effects
+  let rendering = false; 
 
-// Automatically watch for changes to rawBytes or the active page index runically
-$effect(() => {
-	if (activeDoc.rawBytes && canvasElement) {
-		renderPdfPage(activeDoc.currentPage);
-	}
-});
+  // ⚡ FIX 2: Explicitly capture all active updates synchronously inside the effect block
+  $effect(() => {
+    const bytes = activeDoc.rawBytes;
+    const pageNum = activeDoc.currentPage;
+    const currentScale = zoomScale;
+    const canvas = canvasElement;
 
-async function renderPdfPage(pageNumber: number) {
-	if (!activeDoc.rawBytes || !canvasElement || rendering) return;
-	rendering = true;
+    if (bytes && canvas) {
+      renderPdfPage(bytes, pageNum, currentScale, canvas);
+    }
+  });
 
-	try {
-		const loadingTask = pdfjsLib.getDocument({ data: activeDoc.rawBytes });
-		const pdfDocument = await loadingTask.promise;
-		const page = await pdfDocument.getPage(pageNumber);
+  async function renderPdfPage(bytes: Uint8Array, pageNumber: number, scale: number, canvas: HTMLCanvasElement) {
+    if (rendering) return;
+    rendering = true;
 
-		// Map scale factor accounting for design retina dpi scaling metrics
-		const viewport = page.getViewport({ scale: zoomScale / 100 });
-		const context = canvasElement.getContext("2d");
+    try {
+      // Stream a clean, sliced memory buffer copy down to the Web Worker pipeline
+      const loadingTask = pdfjsLib.getDocument({ data: bytes.slice(0) });
+      const pdfDocument = await loadingTask.promise;
+      const page = await pdfDocument.getPage(pageNumber);
 
-		if (context) {
-			canvasElement.height = viewport.height;
-			canvasElement.width = viewport.width;
+      // Map scale factor accounting for design retina metrics
+      const viewport = page.getViewport({ scale: scale / 100 });
+      const context = canvas.getContext("2d");
 
-			// Modern PDF.js API parameter configuration object standard ⚡
-			const renderContext = {
-				canvas: canvasElement,
-				canvasContext: context,
-				viewport: viewport,
-			};
+      if (context) {
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
 
-			await page.render(renderContext).promise;
-			console.log(`Render complete for document page index: ${pageNumber}`);
-		}
-	} catch (error) {
-		console.error("PDF.js canvas rendering failed:", error);
-	} finally {
-		rendering = false;
-	}
-}
+        // Modern PDF.js API single canvas parameters signature block ⚡
+        const renderContext = {
+          canvas: canvas,
+          viewport: viewport,
+        };
+
+        await page.render(renderContext).promise;
+        console.log(`Render complete for document page index: ${pageNumber}`);
+      }
+    } catch (error) {
+      console.error("PDF.js canvas rendering failed:", error);
+    } finally {
+      rendering = false; // Safely unlocks the execution track without re-triggering the effect
+    }
+  }
 </script>
 
 <div class="flex-1 bg-[#0f172a] relative overflow-hidden flex flex-col items-center justify-center p-8">
