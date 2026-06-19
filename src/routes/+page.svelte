@@ -1,11 +1,16 @@
 <script lang="ts">
-  // Pull the official window actions directly from Tauri's window manager module ⚡
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import * as pdfjsLib from "pdfjs-dist";
+  // ⚡ Load the worker path exactly ONCE at the absolute root level of the app
+  import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
   
   import TitleBar from "../components/TitleBar.svelte";
   import ToolSidebar from "../components/ToolSidebar.svelte";
   import Workspace from "../components/Workspace.svelte";
   import PageSidebar from "../components/PageSidebar.svelte";
+
+  // Configure the global worker source once here to prevent Vite's HMR watcher reload loop
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
   let activeTool = $state(null);
   let darkMode = $state(true); 

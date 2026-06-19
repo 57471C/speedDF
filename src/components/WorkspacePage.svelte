@@ -10,11 +10,12 @@
 
   $effect(() => {
     if (bytes && canvasElement && zoomScale) {
-      renderPageSheet(bytes, pageNumber, zoomScale, canvasElement);
+      const degrees = activeDoc.rotations[pageNumber] ?? 0;
+      renderPageSheet(bytes, pageNumber, zoomScale, canvasElement, degrees);
     }
   });
 
-  async function renderPageSheet(pdfBytes: Uint8Array, pageNum: number, scale: number, canvas: HTMLCanvasElement) {
+  async function renderPageSheet(pdfBytes: Uint8Array, pageNum: number, scale: number, canvas: HTMLCanvasElement, rotationAngle: number) {
     if (rendering) return;
     rendering = true;
 
@@ -23,7 +24,10 @@
       const pdfDocument = await loadingTask.promise;
       const page = await pdfDocument.getPage(pageNum);
 
-      const viewport = page.getViewport({ scale: scale / 100 });
+      const viewport = page.getViewport({ 
+        scale: scale / 100,
+        rotation: (page.rotate + rotationAngle) % 360 
+      });
       const context = canvas.getContext("2d");
 
       if (context) {
@@ -38,11 +42,8 @@
     }
   }
 
-  // 🔄 WATCH SCROLL: Updates the active side highlights natively as the document scrolls
- onMount(() => {
+  onMount(() => {
     if (!pageContainer) return;
-
-    // ⚡ FIX: Step up twice to lock onto the true scroll container layout element
     const trueScrollViewport = pageContainer.parentElement?.parentElement;
 
     const observer = new IntersectionObserver(
@@ -59,10 +60,7 @@
           }
         }
       },
-      {
-        root: trueScrollViewport || null, // Connects directly to the scrolling view bounds
-        threshold: 0.4, 
-      }
+      { root: trueScrollViewport || null, threshold: 0.4 }
     );
 
     observer.observe(pageContainer);
@@ -81,7 +79,7 @@
 
 <div 
   bind:this={pageContainer}
-  class="bg-white relative rounded-sm mb-12 select-none"
+  class="bg-white relative rounded-sm mb-12 select-none origin-center transition-transform duration-200"
   style="box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.65);"
 >
   <canvas bind:this={canvasElement} class="block max-w-full h-auto rounded-sm"></canvas>

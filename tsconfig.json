@@ -12,7 +12,13 @@
 		"moduleResolution": "bundler",
 		"allowImportingTsExtensions": true,
 		"noEmit": true
-	}
+	},
+	"exclude": [
+    "./node_modules/**",
+    "./.svelte-kit/**",
+    "./build/**",
+    "./src-tauri/target/**" 
+  ]
 	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
 	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files
 	//

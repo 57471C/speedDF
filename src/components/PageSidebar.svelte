@@ -1,54 +1,63 @@
 <script lang="ts">
-  import { activeDoc } from "../pdfStore.svelte"; 
+  import { onMount } from "svelte";
+  import { activeDoc, rotatePageAction } from "../pdfStore.svelte"; 
   import ThumbnailCanvas from "./ThumbnailCanvas.svelte"; 
 
   let totalPages = $derived(activeDoc.pageCount);
   let activeIndex = $derived(activeDoc.currentPage);
 
   function handleSelectPage(pageNumber: number) {
-    (activeDoc as any).isClickScrolling = true; 
+    (activeDoc as any).isClickScrolling = true; // Sets manual click scroll animation lock
     activeDoc.currentPage = pageNumber; 
   }
 
-  // ⚡ AUTOMATIC SIDEBAR SCROLLING: Keep the thumbnails moving alongside the main viewport
+  // Global keyboard listener macro hotkey loops
+  onMount(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!activeDoc.rawBytes || totalPages === 0) return;
+
+      if (event.ctrlKey && (event.key === "ArrowRight" || event.key === "ArrowLeft")) {
+        event.preventDefault(); 
+        const direction = event.key === "ArrowRight" ? "clockwise" : "counter";
+        
+        rotatePageAction(activeIndex, direction);
+        console.log(`Keyboard hotkey triggered rotation: Page ${activeIndex} ${direction}`);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
+  // AUTOMATIC THUMBNAIL TRACK LIST SCROLL SYNCING
   $effect(() => {
     if (activeIndex) {
-      // Look up the unique page element data attribute currently active
       const activeThumbEl = document.querySelector(`[data-page-thumb="${activeIndex}"]`);
       if (activeThumbEl) {
         activeThumbEl.scrollIntoView({
           behavior: "smooth",
-          block: "nearest" // Gracefully brings it into frame only if it slides off bounds
+          block: "nearest"
         });
       }
     }
   });
 
-  // Math: Calculate positioning offsets for the minimap view indicator frame
+  // Minimap viewport calculation engines
   let viewportTopPercent = $derived.by(() => {
     const top = (activeDoc as any).scrollTop ?? 0;
     const totalHeight = (activeDoc as any).scrollHeight ?? 0;
     const count = activeDoc.pageCount ?? 1;
-
     if (!totalHeight || !count) return 0;
-    
     const pageSlotHeight = totalHeight / count;
-    const currentPageTop = (activeDoc.currentPage - 1) * pageSlotHeight;
-    const relativeTop = top - currentPageTop;
-
-    return Math.max(0, Math.min(100, (relativeTop / pageSlotHeight) * 100));
+    return Math.max(0, Math.min(100, ((top - (activeDoc.currentPage - 1) * pageSlotHeight) / pageSlotHeight) * 100));
   });
 
-  // Math: Scale the tracker's internal structural height dynamically relative to zoom index
   let viewportHeightPercent = $derived.by(() => {
     const viewHeight = (activeDoc as any).clientHeight ?? 0;
     const totalHeight = (activeDoc as any).scrollHeight ?? 0;
     const count = activeDoc.pageCount ?? 1;
-
     if (!totalHeight || !count) return 100;
-    
-    const pageSlotHeight = totalHeight / count;
-    return Math.max(15, Math.min(100, (viewHeight / pageSlotHeight) * 100));
+    return Math.max(15, Math.min(100, (viewHeight / (totalHeight / count)) * 100));
   });
 </script>
 
@@ -59,13 +68,13 @@
     <span class="text-[10px] font-bold tracking-widest uppercase">Pages ({totalPages})</span>
   </div>
 
-  <div class="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
+  <div class="flex-1 overflow-y-auto p-4 space-y-5 scroll-smooth">
     {#if totalPages > 0}
       {#each Array(totalPages) as _, i}
         {@const pageNumber = i + 1}
         <div 
           data-page-thumb={pageNumber}
-          class="group flex flex-col gap-1.5 relative {activeIndex === pageNumber ? 'z-20' : 'z-10'}" 
+          class="flex flex-col gap-1.5 relative {activeIndex === pageNumber ? 'z-20' : 'z-10'}" 
           onclick={() => handleSelectPage(pageNumber)}
         >
           <div class="aspect-[3/4] bg-[#1a2333]/40 border rounded relative cursor-pointer transition-all overflow-hidden flex items-center justify-center p-1
@@ -77,16 +86,35 @@
 
             {#if activeIndex === pageNumber}
               <div 
-                class="absolute left-0 right-0 border-2 border-red-500 bg-transparent pointer-events-none rounded-sm shadow-[0_0_15px_rgba(239,68,68,0.4)] z-50 transition-[top,height] duration-75"
+                class="absolute left-0 right-0 border-2 border-red-500 bg-transparent pointer-events-none rounded-sm shadow-[0_0_15px_rgba(239,68,68,0.4)] z-30 transition-[top,height] duration-75"
                 style="top: {viewportTopPercent}%; height: {viewportHeightPercent}%;"
               ></div>
             {/if}
           </div>
           
-          <span class="text-[9px] font-semibold text-center uppercase tracking-wider
-            {activeIndex === pageNumber ? 'text-[#00d2ff]' : 'text-slate-500'}">
-            Page {pageNumber}
-          </span>
+          <div class="flex items-center justify-between px-1 text-[9px] font-bold uppercase tracking-wider select-none">
+            <span class={activeIndex === pageNumber ? 'text-[#00d2ff]' : 'text-slate-400'}>
+              Page {pageNumber}
+            </span>
+            
+            <div class="flex items-center gap-1 opacity-40 hover:opacity-100 transition-opacity duration-150">
+              <button 
+                onclick={(e) => { e.stopPropagation(); rotatePageAction(pageNumber, 'counter'); }}
+                class="p-1 bg-[#1a2333]/80 border border-slate-800 hover:border-slate-600 text-slate-300 hover:text-white rounded transition-colors"
+                title="Rotate Left"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><polyline points="3 3 3 8 8 8"/></svg>
+              </button>
+              <button 
+                onclick={(e) => { e.stopPropagation(); rotatePageAction(pageNumber, 'clockwise'); }}
+                class="p-1 bg-[#1a2333]/80 border border-slate-800 hover:border-[#00d2ff]/60 text-slate-300 hover:text-[#00d2ff] rounded transition-colors"
+                title="Rotate Right"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
+              </button>
+            </div>
+          </div>
+          
         </div>
       {/each}
     {:else}
