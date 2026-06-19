@@ -8,38 +8,34 @@
   let pageContainer = $state<HTMLDivElement | null>(null);
   let rendering = false;
 
-  // Layout parameters
+  // Drawing state metrics
   let isDrawing = $state(false);
   let startX = $state(0);
   let startY = $state(0);
   let currentX = $state(0);
   let currentY = $state(0);
 
-  // Text state context tracking metrics
-  let activelyEditingIndex = $state<number | null>(null);
+  // Live reactive array accumulating active freehand highlight coordinates
+  let liveHighlightPoints = $state<{ x: number; y: number }[]>([]);
 
-  // Resize snapshot states
+  // Selection states
+  let activelyEditingIndex = $state<number | null>(null);
   let draggingHandle = $state<string | null>(null);
   let initialShapeState = $state<{ x: number; y: number; width: number; height: number } | null>(null);
-
-  // Drag re-position move parameters
   let isMovingShape = $state(false);
   let moveAnchorPct = $state({ x: 0, y: 0 });
 
-  // ⚡ NEW GHOST PACKAGES: Tracks hover presence metrics natively across Svelte runes
+  // Hover alignment coordinates
   let isMouseOverPage = $state(false);
   let hoverPctX = $state(0);
   let hoverPctY = $state(0);
 
-  // ⚡ GHOST DIMENSION RESOLUTION CALCULATOR
   let ghostDimensions = $derived.by(() => {
     const tool = activeDoc.activeTool;
     if (tool !== 'signature' && tool !== 'initial') return { w: 0, h: 0 };
-    
     const isSig = tool === 'signature';
     const cachedWidth = localStorage.getItem(`speeddf_stamp_${tool}_w`);
     const cachedHeight = localStorage.getItem(`speeddf_stamp_${tool}_h`);
-    
     return {
       w: cachedWidth ? parseFloat(cachedWidth) : (isSig ? 18 : 6),
       h: cachedHeight ? parseFloat(cachedHeight) : (isSig ? 8 : 6)
@@ -64,10 +60,8 @@
       const loadingTask = pdfjsLib.getDocument({ data: pdfBytes.slice(0) });
       const pdfDocument = await loadingTask.promise;
       const page = await pdfDocument.getPage(pageNum);
-
       const viewport = page.getViewport({ scale: scale / 100, rotation: (page.rotate + rotationAngle) % 360 });
       const context = canvas.getContext("2d");
-
       if (context) {
         canvas.height = viewport.height;
         canvas.width = viewport.width;
@@ -80,7 +74,7 @@
     }
   }
 
-  // 🖱️ MOUSE PRESS HANDLER
+  // MOUSE EVENT CONTROLLER
   function handleMouseDown(e: MouseEvent) {
     if (!pageContainer) return;
     const targetElement = e.target as HTMLElement;
@@ -96,27 +90,22 @@
       return;
     }
 
+    if (activeDoc.activeTool === 'highlight') {
+      e.preventDefault();
+      isDrawing = true;
+      liveHighlightPoints = [{ x: mousePctX, y: mousePctY }];
+      return;
+    }
+
     if ((activeDoc.activeTool === 'signature' || activeDoc.activeTool === 'initial') && activeDoc.activeStampDataUrl) {
       e.preventDefault();
-      
       const toolType = activeDoc.activeTool as "signature" | "initial";
       const dims = ghostDimensions;
-
       const newSignatureStamp: AnnotationShape = {
-        type: toolType,
-        x: mousePctX - (dims.w / 2),
-        y: mousePctY - (dims.h / 2),
-        width: dims.w,
-        height: dims.h,
-        dataUrl: activeDoc.activeStampDataUrl
+        type: toolType, x: mousePctX - (dims.w / 2), y: mousePctY - (dims.h / 2), width: dims.w, height: dims.h, dataUrl: activeDoc.activeStampDataUrl
       };
-
       const existing = activeDoc.shapes[pageNumber] || [];
-      activeDoc.shapes = {
-        ...activeDoc.shapes,
-        [pageNumber]: [...existing, newSignatureStamp]
-      };
-      
+      activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: [...existing, newSignatureStamp] };
       activeDoc.selectedShape = { pageNumber, index: existing.length };
       return;
     }
@@ -131,13 +120,8 @@
       const targetHeight = cachedHeight ? parseFloat(cachedHeight) : (isTick ? 4 : 2);
 
       const newStampShape: AnnotationShape = {
-        type: toolType,
-        x: mousePctX - (targetWidth / 2),
-        y: mousePctY - (targetHeight / 2),
-        width: targetWidth,   
-        height: targetHeight  
+        type: toolType, x: mousePctX - (targetWidth / 2), y: mousePctY - (targetHeight / 2), width: targetWidth, height: targetHeight
       };
-
       const existing = activeDoc.shapes[pageNumber] || [];
       activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: [...existing, newStampShape] };
       activeDoc.selectedShape = { pageNumber, index: existing.length };
@@ -173,7 +157,6 @@
     const rect = pageContainer.getBoundingClientRect();
     const mousePctX = ((e.clientX - rect.left) / rect.width) * 100;
     const mousePctY = ((e.clientY - rect.top) / rect.height) * 100;
-    
     const shape = activeDoc.shapes[pageNumber][index];
     if (shape) {
       isMovingShape = true;
@@ -188,15 +171,18 @@
     const mousePctX = ((e.clientX - rect.left) / rect.width) * 100;
     const mousePctY = ((e.clientY - rect.top) / rect.height) * 100;
 
-    // ⚡ NEW PREVIEW HOVER CONTINUOUS UPDATER: Tracks alignment position frame counts
     hoverPctX = mousePctX;
     hoverPctY = mousePctY;
+
+    if (isDrawing && activeDoc.activeTool === 'highlight') {
+      liveHighlightPoints = [...liveHighlightPoints, { x: mousePctX, y: mousePctY }];
+      return;
+    }
 
     if (isMovingShape && activeDoc.selectedShape) {
       const shapesList = [...(activeDoc.shapes[pageNumber] || [])];
       const index = activeDoc.selectedShape.index;
       const shape = shapesList[index];
-      
       if (shape) {
         shape.x = Math.max(0, Math.min(100, mousePctX - moveAnchorPct.x));
         shape.y = Math.max(0, Math.min(100, mousePctY - moveAnchorPct.y));
@@ -251,6 +237,22 @@
   }
 
   function handleMouseUp() {
+    if (isDrawing && activeDoc.activeTool === 'highlight') {
+      isDrawing = false;
+      if (liveHighlightPoints.length > 1) {
+        const newHighlight: AnnotationShape = {
+          type: "highlight",
+          x: liveHighlightPoints[0].x,
+          y: liveHighlightPoints[0].y,
+          points: [...liveHighlightPoints]
+        };
+        const existing = activeDoc.shapes[pageNumber] || [];
+        activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: [...existing, newHighlight] };
+      }
+      liveHighlightPoints = [];
+      return;
+    }
+
     isMovingShape = false;
     if (draggingHandle) { draggingHandle = null; initialShapeState = null; return; }
     if (!isDrawing || !pageContainer || activeDoc.activeTool !== 'rect') return;
@@ -274,13 +276,9 @@
   }
 
   function initHandleDrag(e: MouseEvent, index: number, handleType: string) {
-    e.stopPropagation();
-    e.preventDefault();
-    draggingHandle = handleType;
+    e.stopPropagation(); e.preventDefault(); draggingHandle = handleType;
     const shape = activeDoc.shapes[pageNumber][index];
-    if (shape) {
-      initialShapeState = { x: shape.x, y: shape.y, width: shape.width || 0, height: shape.height || 0 };
-    }
+    if (shape) initialShapeState = { x: shape.x, y: shape.y, width: shape.width || 0, height: shape.height || 0 };
   }
 
   function finalizeTextEdit(index: number, element: HTMLInputElement) {
@@ -344,7 +342,7 @@
   onmousemove={handleMouseMove}
   onmouseup={handleMouseUp}
   onmouseenter={() => isMouseOverPage = true}
-  onmouseleave={() => isMouseOverPage = false}
+  onmouseleave={() => { isMouseOverPage = false; isDrawing = false; }}
   class="bg-white relative rounded-sm mb-12 select-none"
   style="box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.65);"
 >
@@ -352,27 +350,54 @@
 
   <div 
     class="absolute inset-0 overflow-hidden rounded-sm select-none z-30
-      {['rect','text','select','tick','dash','signature','initial'].includes(activeDoc.activeTool || '') ? 'pointer-events-auto' : 'pointer-events-none'}
-      {activeDoc.activeTool === 'rect' ? 'cursor-crosshair' : ''}
-      {activeDoc.activeTool === 'text' ? 'cursor-text' : ''}
-      {['tick','dash','signature','initial'].includes(activeDoc.activeTool || '') ? 'cursor-pointer' : ''}"
+      {['rect','text','select','tick','dash','signature','initial','highlight'].includes(activeDoc.activeTool || '') ? 'pointer-events-auto' : 'pointer-events-none'}
+      {activeDoc.activeTool === 'rect' || activeDoc.activeTool === 'highlight' ? 'cursor-crosshair' : ''}
+      {activeDoc.activeTool === 'text' ? 'cursor-text' : ''}"
   >
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="absolute inset-0 w-full h-full pointer-events-none z-10">
+      {#each activeDoc.shapes[pageNumber] || [] as shape, idx}
+        {#if shape.type === "highlight" && shape.points}
+          <polyline 
+            onclick={(e) => { e.stopPropagation(); if (activeDoc.activeTool === 'select') activeDoc.selectedShape = { pageNumber, index: idx }; }}
+            points={shape.points.map(p => `${p.x},${p.y}`).join(' ')} 
+            stroke="#eab308" 
+            stroke-width="3.5" 
+            stroke-opacity="0.38" 
+            fill="none" 
+            stroke-linecap="round" 
+            stroke-linejoin="round" 
+            class="cursor-pointer pointer-events-auto hover:stroke-yellow-400 transition-colors
+              {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke-yellow-300 stroke-opacity-60 drop-shadow-[0_0_4px_rgba(234,179,8,0.4)]' : ''}"
+          />
+        {/if}
+      {/each}
+
+      {#if liveHighlightPoints.length > 1 && activeDoc.activeTool === 'highlight'}
+        <polyline 
+          points={liveHighlightPoints.map(p => `${p.x},${p.y}`).join(' ')} 
+          stroke="#eab308" 
+          stroke-width="3.5" 
+          stroke-opacity="0.45" 
+          fill="none" 
+          stroke-linecap="round" 
+          stroke-linejoin="round" 
+        />
+      {/if}
+    </svg>
+
     {#each activeDoc.shapes[pageNumber] || [] as shape, idx}
-      
       {#if shape.type === "rect"}
         <div 
           onmousedown={(e) => initShapeMove(e, idx)}
-          class="absolute border-2 rounded-sm transition-shadow duration-150 cursor-move
-            {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx 
-              ? 'border-[#00d2ff] bg-[#00d2ff]/12 shadow-[0_0_12px_rgba(0,210,255,0.3)] z-40' 
-              : 'border-[#00d2ff] bg-[#00d2ff]/5 hover:border-[#00d2ff]/80 z-20'}"
+          class="absolute border-2 rounded-sm transition-shadow duration-150 cursor-move z-20
+            {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'border-[#00d2ff] bg-[#00d2ff]/12 shadow-[0_0_12px_rgba(0,210,255,0.3)]' : 'border-[#00d2ff] bg-[#00d2ff]/5 hover:border-[#00d2ff]/80'}"
           style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%;"
         >
           {#if activeDoc.activeTool === 'select' && activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx}
-            <div onmousedown={(e) => initHandleDrag(e, idx, 'tl')} class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 border-[#00d2ff] -top-1.5 -left-1.5 cursor-nwse-resize rounded-full shadow-md z-50"></div>
-            <div onmousedown={(e) => initHandleDrag(e, idx, 'tr')} class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 border-[#00d2ff] -top-1.5 -right-1.5 cursor-nesw-resize rounded-full shadow-md z-50"></div>
-            <div onmousedown={(e) => initHandleDrag(e, idx, 'bl')} class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 border-[#00d2ff] -bottom-1.5 -left-1.5 cursor-nesw-resize rounded-full shadow-md z-50"></div>
-            <div onmousedown={(e) => initHandleDrag(e, idx, 'br')} class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 border-[#00d2ff] -bottom-1.5 -right-1.5 cursor-nwse-resize rounded-full shadow-md z-50"></div>
+            <div onmousedown={(e) => initHandleDrag(e, idx, 'tl')} class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 border-[#00d2ff] -top-1.5 -left-1.5 cursor-nwse-resize rounded-full shadow-md"></div>
+            <div onmousedown={(e) => initHandleDrag(e, idx, 'tr')} class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 border-[#00d2ff] -top-1.5 -right-1.5 cursor-nesw-resize rounded-full shadow-md"></div>
+            <div onmousedown={(e) => initHandleDrag(e, idx, 'bl')} class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 border-[#00d2ff] -bottom-1.5 -left-1.5 cursor-nesw-resize rounded-full shadow-md"></div>
+            <div onmousedown={(e) => initHandleDrag(e, idx, 'br')} class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 border-[#00d2ff] -bottom-1.5 -right-1.5 cursor-nwse-resize rounded-full shadow-md"></div>
           {/if}
         </div>
       
@@ -434,7 +459,7 @@
           {/if}
         </div>
 
-      {:else}
+      {:else if shape.type === "signature" || shape.type === "initial"}
         <div 
           onmousedown={(e) => initShapeMove(e, idx)}
           class="absolute pointer-events-auto z-40 flex items-center justify-center border rounded-sm transition-all cursor-move p-0.5 overflow-hidden mix-blend-multiply bg-transparent
@@ -450,19 +475,11 @@
           {/if}
         </div>
       {/if}
-
     {/each}
 
     {#if isMouseOverPage && ['signature', 'initial'].includes(activeDoc.activeTool || '') && activeDoc.activeStampDataUrl}
-      <div 
-        class="absolute pointer-events-none opacity-45 mix-blend-multiply transform -translate-x-1/2 -translate-y-1/2 border border-dashed border-[#00d2ff] bg-cyan-500/5 flex items-center justify-center p-0.5 rounded-xs"
-        style="
-          left: {hoverPctX}%; 
-          top: {hoverPctY}%; 
-          width: {ghostDimensions.w}%; 
-          height: {ghostDimensions.h}%;
-        "
-      >
+      <div class="absolute pointer-events-none opacity-45 mix-blend-multiply transform -translate-x-1/2 -translate-y-1/2 border border-dashed border-[#00d2ff] bg-cyan-500/5 flex items-center justify-center p-0.5 rounded-xs"
+        style="left: {hoverPctX}%; top: {hoverPctY}%; width: {ghostDimensions.w}%; height: {ghostDimensions.h}%;">
         <img src={activeDoc.activeStampDataUrl} alt="Ghost Alignment Helper" class="w-full h-full object-contain filter brightness-95 contrast-105" />
       </div>
     {/if}

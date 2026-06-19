@@ -1,11 +1,12 @@
 export interface AnnotationShape {
-  type: "rect" | "text" | "tick" | "dash" | "signature" | "initial"; 
-  x: number;       // Percentage coordinate left (0-100)
-  y: number;       // Percentage coordinate top (0-100)
-  width?: number;  // Percentage width 
-  height?: number; // Percentage height 
-  text?: string;   // Text payload (for text boxes)
-  dataUrl?: string; // ⚡ Base64 Image Payload (for signatures & initials)
+  type: "rect" | "text" | "tick" | "dash" | "signature" | "initial" | "highlight"; 
+  x: number;                            // Percentage coordinate left (0-100)
+  y: number;                            // Percentage coordinate top (0-100)
+  width?: number;                       // Percentage width layout bounds
+  height?: number;                      // Percentage height layout bounds
+  text?: string;                        // Text payload string (for text boxes)
+  dataUrl?: string;                     // Base64 PNG image stream string (for signatures)
+  points?: { x: number; y: number }[];  // Array of percentage nodes tracking freehand highlighters
 }
 
 export interface SignatureSet {
@@ -23,7 +24,7 @@ export interface SharedDocumentState {
   clientHeight: number;
   isClickScrolling: boolean;
   rotations: Record<number, number>;
-  activeTool: "select" | "text" | "rect" | "tick" | "dash" | "signature" | "initial" | "rotate" | null; 
+  activeTool: "select" | "text" | "rect" | "tick" | "dash" | "signature" | "initial" | "highlight" | "rotate" | null; 
   shapes: Record<number, AnnotationShape[]>; 
   selectedShape: { pageNumber: number; index: number } | null;
   savedSignatureSets: SignatureSet[];
@@ -32,7 +33,7 @@ export interface SharedDocumentState {
   fileName: string | null;
 }
 
-// Helper tracking wrapper to safely populate baseline memory slots from localStorage on boot
+// Safely pull previous signature profiles from disk storage map on startup
 const loadSavedSets = (): SignatureSet[] => {
   try {
     const raw = localStorage.getItem("speeddf_signature_sets");
@@ -42,6 +43,7 @@ const loadSavedSets = (): SignatureSet[] => {
   }
 };
 
+// Global reactive single-source of truth state engine
 export const activeDoc = $state<SharedDocumentState>({
   rawBytes: null,
   pageCount: 0,
@@ -60,12 +62,17 @@ export const activeDoc = $state<SharedDocumentState>({
   fileName: null
 });
 
-// Watcher method to persist signature data slots onto disk space dynamically
+/**
+ * Commits a newly drawn signature set template profile straight to reactive state and local disk storage memory
+ */
 export function saveSignatureSetAction(newSet: SignatureSet) {
   activeDoc.savedSignatureSets = [...activeDoc.savedSignatureSets, newSet];
   localStorage.setItem("speeddf_signature_sets", JSON.stringify(activeDoc.savedSignatureSets));
 }
 
+/**
+ * Applies or advances rotation attributes matching target page numbers dynamically
+ */
 export function rotatePageAction(pageNumber: number, direction: "clockwise" | "counter") {
   const currentRotation = activeDoc.rotations[pageNumber] ?? 0;
   const degreeShift = direction === "clockwise" ? 90 : -90;

@@ -133,7 +133,17 @@
       {activeDoc.activeTool === 'rect' ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}" title="Draw Rectangle">
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
   </button>
-
+<button 
+  onclick={() => activeDoc.activeTool = 'highlight'} 
+  class="w-8 h-8 flex items-center justify-center rounded transition-all
+    {activeDoc.activeTool === 'highlight' ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]' : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+  title="Highlighter (Yellow)"
+>
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21" opacity="0.4"/>
+    <path d="M14 10l5-5 2 2-5 5z" fill="currentColor" />
+  </svg>
+</button>
   <div class="w-6 h-[1px] bg-slate-800 my-1"></div>
 
   <button onclick={() => activeDoc.activeTool = 'tick'} 

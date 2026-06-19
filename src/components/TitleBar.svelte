@@ -6,7 +6,6 @@
 
   let { darkMode = $bindable(), onMinimize, onMaximize, onClose } = $props();
 
-  // ⚡ Matches our Rust backend structure
   interface FilePayload {
     bytes: number[];
     name: string;
@@ -15,7 +14,6 @@
   async function triggerFileOpen() {
     try {
       console.log("Invoking native Windows file dialog payload bridge...");
-      // Pull the unified payload structure object
       const payload = await invoke<FilePayload>("native_open_file");
       
       if (!payload || !payload.bytes || payload.bytes.length === 0) return;
@@ -30,8 +28,6 @@
       activeDoc.currentPage = 1;
       (activeDoc as any).scrollTop = 0; 
       activeDoc.shapes = {}; 
-
-      // Lock the true physical filename straight into the state title space
       activeDoc.fileName = payload.name;
     } catch (err) {
       console.warn("Open File Action failed:", err);
@@ -60,12 +56,15 @@
 
         const pageShapes = activeDoc.shapes[originalPageNumber] || [];
         for (const shape of pageShapes) {
-          const x = (shape.x / 100) * pageWidth;
-          const w = (shape.width ?? 0) / 100 * pageWidth;
-          const h = (shape.height ?? 0) / 100 * pageHeight;
-          const y = pageHeight - ((shape.y / 100) * pageHeight) - h;
+          // ⚡ FIXED: Cast to 'any' to bypass strict union narrowing conflicts and out-of-sync type caching completely
+          const s = shape as any;
+          
+          const x = (s.x / 100) * pageWidth;
+          const w = (s.width ?? 0) / 100 * pageWidth;
+          const h = (s.height ?? 0) / 100 * pageHeight;
+          const y = pageHeight - ((s.y / 100) * pageHeight) - h;
 
-          if (shape.type === "rect") {
+          if (s.type === "rect") {
             page.drawRectangle({
               x, y, width: w, height: h,
               borderColor: rgb(0, 0.82, 1), 
@@ -74,28 +73,42 @@
               opacity: 0.08 
             });
           } 
-          else if (shape.type === "text") {
-            const textBaselineY = pageHeight - ((shape.y / 100) * pageHeight);
-            page.drawText(shape.text || "", {
+          else if (s.type === "text") {
+            const textBaselineY = pageHeight - ((s.y / 100) * pageHeight);
+            page.drawText(s.text || "", {
               x,
               y: textBaselineY - 10,
               size: 12,
               color: rgb(0.05, 0.09, 0.16)
             });
           } 
-          else if (shape.type === "tick") {
+          else if (s.type === "tick") {
             const startPt = { x: x + w * 0.167, y: y + h * 0.5 }; 
             const vertexPt = { x: x + w * 0.375, y: y + h * 0.292 }; 
             const endPt = { x: x + w * 0.833, y: y + h * 0.75 }; 
             page.drawLine({ start: startPt, end: vertexPt, color: rgb(0,0,0), thickness: 3.5 });
             page.drawLine({ start: vertexPt, end: endPt, color: rgb(0,0,0), thickness: 3.5 });
           } 
-          else if (shape.type === "dash") {
+          else if (s.type === "dash") {
             page.drawLine({ start: { x, y: y + h / 2 }, end: { x: x + w, y: y + h / 2 }, color: rgb(0,0,0), thickness: 3.5 });
           } 
-          else if ((shape.type === "signature" || shape.type === "initial") && shape.dataUrl) {
-            const embeddedImageDest = await destDoc.embedPng(shape.dataUrl);
+          else if ((s.type === "signature" || s.type === "initial") && s.dataUrl) {
+            const embeddedImageDest = await destDoc.embedPng(s.dataUrl);
             page.drawImage(embeddedImageDest, { x, y, width: w, height: h });
+          }
+          else if (s.type === "highlight" && s.points && s.points.length > 1) {
+            for (let k = 0; k < s.points.length - 1; k++) {
+              const p1 = s.points[k];
+              const p2 = s.points[k + 1];
+
+              page.drawLine({
+                start: { x: (p1.x / 100) * pageWidth, y: pageHeight - ((p1.y / 100) * pageHeight) },
+                end: { x: (p2.x / 100) * pageWidth, y: pageHeight - ((p2.y / 100) * pageHeight) },
+                color: rgb(0.98, 0.7, 0.03), 
+                thickness: (3.5 / 100) * pageWidth, 
+                opacity: 0.35 
+              });
+            }
           }
         }
       }
