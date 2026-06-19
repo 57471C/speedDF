@@ -1,9 +1,16 @@
 use std::fs::File;
 use std::io::{Read, Write};
 
+// ⚡ NEW: Shared payload structure to wrap both the byte array and filename together
+#[derive(serde::Serialize)]
+pub struct FilePayload {
+    bytes: Vec<u8>,
+    name: String,
+}
+
 // 1. NATIVE WINDOWS FILE OPEN DIALOG
 #[tauri::command]
-async fn native_open_file() -> Result<Vec<u8>, String> {
+async fn native_open_file() -> Result<FilePayload, String> {
     // Native Windows system dialog abstraction via rfd (Tauri default engine)
     let file_path = rfd::AsyncFileDialog::new()
         .add_filter("PDF Document", &["pdf"])
@@ -13,10 +20,18 @@ async fn native_open_file() -> Result<Vec<u8>, String> {
     match file_path {
         Some(handle) => {
             let path = handle.path();
+            // ⚡ EXTRACT THE TRUE FILENAME directly from the async dialog handle
+            let file_name = handle.file_name();
+
             let mut file = File::open(path).map_err(|e| e.to_string())?;
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
-            Ok(buffer) // Send the clean, raw binary byte stream to Svelte!
+
+            // Return the unified payload object back across the Tauri bridge
+            Ok(FilePayload {
+                bytes: buffer,
+                name: file_name,
+            })
         }
         None => Err("User cancelled file selection".to_string()),
     }
@@ -45,10 +60,11 @@ async fn native_save_as_file(file_bytes: Vec<u8>) -> Result<String, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        // Swapped out the old shell reference to use your modern default template plugin!
         .plugin(tauri_plugin_opener::init())
-        // Register our file utilities so the frontend can invoke them!
-        .invoke_handler(tauri::generate_handler![native_open_file, native_save_as_file])
+        .invoke_handler(tauri::generate_handler![
+            native_open_file,
+            native_save_as_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

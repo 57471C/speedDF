@@ -1,9 +1,8 @@
 <script lang="ts">
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import * as pdfjsLib from "pdfjs-dist";
-  // ⚡ Load the worker path exactly ONCE at the absolute root level of the app
+  // Load the worker path exactly ONCE at the absolute root level of the app
   import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
-  
   import TitleBar from "../components/TitleBar.svelte";
   import ToolSidebar from "../components/ToolSidebar.svelte";
   import Workspace from "../components/Workspace.svelte";
@@ -12,17 +11,18 @@
   // Configure the global worker source once here to prevent Vite's HMR watcher reload loop
   pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
-  let activeTool = $state(null);
   let darkMode = $state(true); 
+  // ⚡ NEW STATE: Master zoom metrics container passed down to view sheets
+  let zoomScale = $state(100);
 
   function minimizeApp() { 
-    getCurrentWindow().minimize(); 
+    getCurrentWindow().minimize();
   }
   function maximizeApp() { 
     getCurrentWindow().toggleMaximize(); 
   }
   function closeApp() { 
-    getCurrentWindow().close(); 
+    getCurrentWindow().close();
   }
 </script>
 
@@ -37,8 +37,8 @@
     />
 
     <div class="flex flex-1 w-full overflow-hidden">
-      <ToolSidebar bind:activeTool={activeTool} />
-      <Workspace />
+      <ToolSidebar />
+      <Workspace {zoomScale} />
       <PageSidebar />
     </div>
   </div>
