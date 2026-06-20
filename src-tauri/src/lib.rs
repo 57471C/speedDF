@@ -8,6 +8,31 @@ pub struct FilePayload {
     name: String,
 }
 
+#[tauri::command]
+async fn check_startup_file() -> Option<FilePayload> {
+    // Loop through command line parameters skipping index 0 (the executable location itself)
+    for arg in std::env::args().skip(1) {
+        if arg.to_lowercase().ends_with(".pdf") {
+            let path = std::path::Path::new(&arg);
+            if path.exists() && path.is_file() {
+                if let Some(file_name) = path.file_name() {
+                    let name = file_name.to_string_lossy().into_owned();
+                    if let Ok(mut file) = File::open(path) {
+                        let mut buffer = Vec::new();
+                        if file.read_to_end(&mut buffer).is_ok() {
+                            return Some(FilePayload {
+                                bytes: buffer,
+                                name,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 // 1. NATIVE WINDOWS FILE OPEN DIALOG
 #[tauri::command]
 async fn native_open_file() -> Result<FilePayload, String> {
@@ -63,7 +88,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             native_open_file,
-            native_save_as_file
+            native_save_as_file,
+            check_startup_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

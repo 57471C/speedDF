@@ -355,35 +355,29 @@
       {activeDoc.activeTool === 'text' ? 'cursor-text' : ''}"
   >
     <svg viewBox="0 0 100 100" preserveAspectRatio="none" class="absolute inset-0 w-full h-full pointer-events-none z-10">
-      {#each activeDoc.shapes[pageNumber] || [] as shape, idx}
-        {#if shape.type === "highlight" && shape.points}
-          <polyline 
-            onclick={(e) => { e.stopPropagation(); if (activeDoc.activeTool === 'select') activeDoc.selectedShape = { pageNumber, index: idx }; }}
-            points={shape.points.map(p => `${p.x},${p.y}`).join(' ')} 
-            stroke="#eab308" 
-            stroke-width="3.5" 
-            stroke-opacity="0.38" 
-            fill="none" 
-            stroke-linecap="round" 
-            stroke-linejoin="round" 
-            class="cursor-pointer pointer-events-auto hover:stroke-yellow-400 transition-colors
-              {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke-yellow-300 stroke-opacity-60 drop-shadow-[0_0_4px_rgba(234,179,8,0.4)]' : ''}"
-          />
-        {/if}
-      {/each}
+  {#each activeDoc.shapes[pageNumber] || [] as shape, idx}
+    {#if shape.type === "highlight" && shape.points}
+      <polyline 
+        onclick={(e) => { e.stopPropagation(); if (activeDoc.activeTool === 'select') activeDoc.selectedShape = { pageNumber, index: idx }; }}
+        points={shape.points.map(p => `${p.x},${p.y}`).join(' ')} 
+        stroke="#fff200" stroke-width="2.0" stroke-opacity="0.42" fill="none" 
+        stroke-linecap="round" 
+        stroke-linejoin="round" 
+        class="cursor-pointer pointer-events-auto hover:stroke-yellow-300 transition-colors"
+      />
+    {/if}
+  {/each}
 
-      {#if liveHighlightPoints.length > 1 && activeDoc.activeTool === 'highlight'}
-        <polyline 
-          points={liveHighlightPoints.map(p => `${p.x},${p.y}`).join(' ')} 
-          stroke="#eab308" 
-          stroke-width="3.5" 
-          stroke-opacity="0.45" 
-          fill="none" 
-          stroke-linecap="round" 
-          stroke-linejoin="round" 
-        />
-      {/if}
-    </svg>
+  {#if liveHighlightPoints.length > 1 && activeDoc.activeTool === 'highlight'}
+    <polyline 
+      points={liveHighlightPoints.map(p => `${p.x},${p.y}`).join(' ')} 
+      stroke="#fff200" stroke-width="2.0" stroke-opacity="0.48" 
+      fill="none" 
+      stroke-linecap="round" 
+      stroke-linejoin="round" 
+    />
+  {/if}
+</svg>
 
     {#each activeDoc.shapes[pageNumber] || [] as shape, idx}
       {#if shape.type === "rect"}

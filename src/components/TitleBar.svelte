@@ -34,6 +34,20 @@
     }
   }
 
+  // ⚡ NEW PIPELINE: Clears out all current document instances and resets memory parameters cleanly
+  function closeActiveDocument() {
+    activeDoc.rawBytes = null;
+    activeDoc.pageCount = 0;
+    activeDoc.pageOrder = [];
+    activeDoc.currentPage = 1;
+    activeDoc.shapes = {};
+    activeDoc.fileName = null;
+    activeDoc.activeTool = "select";
+    activeDoc.activeStampDataUrl = null;
+    activeDoc.rotations = {};
+    (activeDoc as any).scrollTop = 0;
+  }
+
   async function compileAnnotatedPdf(): Promise<Uint8Array | null> {
     if (!activeDoc.rawBytes || activeDoc.pageOrder.length === 0) return null;
 
@@ -56,7 +70,6 @@
 
         const pageShapes = activeDoc.shapes[originalPageNumber] || [];
         for (const shape of pageShapes) {
-          // ⚡ FIXED: Cast to 'any' to bypass strict union narrowing conflicts and out-of-sync type caching completely
           const s = shape as any;
           
           const x = (s.x / 100) * pageWidth;
@@ -139,12 +152,20 @@
   <div data-tauri-drag-region class="absolute inset-0 z-0"></div>
 
   {#if activeDoc.rawBytes && activeDoc.fileName}
-    <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none text-[11px] font-bold text-slate-400 font-sans tracking-wide truncate max-w-[35%] text-center z-20">
-      {activeDoc.fileName}
+    <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none flex items-center gap-2 bg-[#121824]/60 border border-slate-800/40 px-2.5 py-1 rounded-md text-[11px] font-bold text-slate-300 font-sans tracking-wide max-w-[35%] text-center z-20 backdrop-blur-xs">
+      <span class="truncate">{activeDoc.fileName}</span>
+      <button 
+        onclick={closeActiveDocument}
+        class="pointer-events-auto text-slate-500 hover:text-red-400 font-bold font-mono transition-colors text-xs pl-1.5 border-l border-slate-800/50 flex items-center justify-center h-3"
+        title="Close Document"
+      >
+        ✕
+      </button>
     </div>
   {/if}
 
   <div class="relative z-10 w-full h-full flex items-center justify-between pointer-events-none">
+    
     <div class="flex items-center gap-5 h-full pointer-events-auto">
       <div class="flex items-center gap-2">
         <svg width="20" height="20" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" class="block">
