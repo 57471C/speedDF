@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as pdfjsLib from "pdfjs-dist";
   import { onMount } from "svelte";
-  import { activeDoc, type AnnotationShape } from "../pdfStore.svelte";
+  import { activeDoc, type AnnotationShape, pushHistorySnapshot } from "../pdfStore.svelte";
 
   let { bytes, pageNumber, zoomScale } = $props<{
     bytes: Uint8Array;
@@ -107,6 +107,8 @@
       targetElement.closest(".resize-handle-node")
     )
       return;
+
+pushHistorySnapshot();
 
     const rect = pageContainer.getBoundingClientRect();
     const mousePctX = ((e.clientX - rect.left) / rect.width) * 100;
@@ -215,6 +217,7 @@
       return;
     e.stopPropagation();
     activeDoc.selectedShape = { pageNumber, index };
+    pushHistorySnapshot();
     if (!pageContainer) return;
     const rect = pageContainer.getBoundingClientRect();
     const mousePctX = ((e.clientX - rect.left) / rect.width) * 100;
@@ -397,6 +400,7 @@
         activeDoc.selectedShape
       ) {
         if (document.activeElement?.tagName === "INPUT") return;
+        pushHistorySnapshot();
         const { pageNumber: targetPage, index: targetIdx } =
           activeDoc.selectedShape;
         const existingList = [...(activeDoc.shapes[targetPage] || [])];

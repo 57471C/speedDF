@@ -8,26 +8,32 @@
   import ToolSidebar from "../components/ToolSidebar.svelte";
   import Workspace from "../components/Workspace.svelte";
   import PageSidebar from "../components/PageSidebar.svelte";
-  import { activeDoc } from "../pdfStore.svelte";
+  import { activeDoc, executeUndoAction, executeRedoAction, rotatePageAction } from "../pdfStore.svelte";
 
-  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
-
-  let darkMode = $state(true); 
+  let darkMode = $state(true);
   let zoomScale = $state(100);
 
-  interface FilePayload {
+  const appWindow = getCurrentWindow();
+  
+  // ⚡ FIXED: Aligned exactly to the variable names expected by your HTML markup code
+  const minimizeApp = () => appWindow.minimize();
+  const maximizeApp = () => appWindow.toggleMaximize();
+  const closeApp = () => appWindow.close();
+
+  interface StartupPayload {
     bytes: number[];
     name: string;
   }
 
-  // ⚡ NEW LOGIC: Checks for OS double-clicks on load instantly
   onMount(async () => {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+
     try {
-      const payload = await invoke<FilePayload | null>("check_startup_file");
+      console.log("Checking for startup single-file execution arguments handshake...");
+      const payload = await invoke<StartupPayload | null>("check_startup_file");
       
       if (payload && payload.bytes && payload.bytes.length > 0) {
-        console.log(`OS Launch Intercepted! Loading: ${payload.name}`);
-        
+        console.log(`Loading single-file payload launch: ${payload.name}`);
         const typedBytes = new Uint8Array(payload.bytes);
         const loadingTask = pdfjsLib.getDocument({ data: typedBytes.slice(0) });
         const pdfDocument = await loadingTask.promise;
@@ -36,24 +42,46 @@
         activeDoc.pageCount = pdfDocument.numPages;
         activeDoc.pageOrder = Array.from({ length: pdfDocument.numPages }, (_, idx) => idx + 1);
         activeDoc.currentPage = 1;
-        (activeDoc as any).scrollTop = 0; 
-        activeDoc.shapes = {}; 
+        activeDoc.shapes = {};
         activeDoc.fileName = payload.name;
       }
     } catch (err) {
       console.warn("Startup file handshake processing failed:", err);
     }
-  });
 
-  function minimizeApp() { 
-    getCurrentWindow().minimize();
-  }
-  function maximizeApp() { 
-    getCurrentWindow().toggleMaximize(); 
-  }
-  function closeApp() { 
-    getCurrentWindow().close();
-  }
+    window.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") {
+        return;
+      }
+
+      const isCtrl = event.ctrlKey || event.metaKey;
+
+      if (isCtrl) {
+        switch (event.key.toLowerCase()) {
+          case "z":
+            event.preventDefault();
+            executeUndoAction();
+            break;
+          case "y":
+            event.preventDefault();
+            executeRedoAction();
+            break;
+          case "arrowleft":
+            event.preventDefault();
+            if (activeDoc.currentPage) {
+              rotatePageAction(activeDoc.currentPage, "counter");
+            }
+            break;
+          case "arrowright":
+            event.preventDefault();
+            if (activeDoc.currentPage) {
+              rotatePageAction(activeDoc.currentPage, "clockwise");
+            }
+            break;
+        }
+      }
+    });
+  });
 </script>
 
 <div class={darkMode ? "dark" : ""}>

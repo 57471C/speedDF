@@ -63,6 +63,74 @@ export const activeDoc = $state<SharedDocumentState>({
   activeColor: "#000000"
 });
 
+// ⚡ SURGICAL INSERTION: Append this directly below your "export const activeDoc = ..." declaration block
+
+interface HistorySnapshot {
+  shapes: Record<number, AnnotationShape[]>;
+  pageOrder: number[];
+}
+
+// Memory-tracked transaction arrays
+let undoStack: HistorySnapshot[] = [];
+let redoStack: HistorySnapshot[] = [];
+
+/**
+ * ⏳ Commits a deep-cloned historical snapshot of the current canvas layout state onto the undo stack.
+ * Call this immediately BEFORE executing any document mutation (drawing, deleting, reordering).
+ */
+export function pushHistorySnapshot() {
+  const snapshot: HistorySnapshot = {
+    shapes: JSON.parse(JSON.stringify(activeDoc.shapes)),
+    pageOrder: [...activeDoc.pageOrder]
+  };
+  undoStack.push(snapshot);
+  
+  // A new user action always invalidates and clears the forward redo stack path
+  if (redoStack.length > 0) {
+    redoStack = [];
+  }
+}
+
+/**
+ * 🔄 Pops the last committed snapshot out of the undo stack and restores it safely.
+ */
+export function executeUndoAction() {
+  if (undoStack.length === 0) return;
+
+  const currentStatus: HistorySnapshot = {
+    shapes: JSON.parse(JSON.stringify(activeDoc.shapes)),
+    pageOrder: [...activeDoc.pageOrder]
+  };
+  redoStack.push(currentStatus);
+
+  const previousState = undoStack.pop();
+  if (previousState) {
+    activeDoc.shapes = previousState.shapes;
+    activeDoc.pageOrder = previousState.pageOrder;
+    activeDoc.selectedShape = null;
+  }
+}
+
+/**
+ * ➡️ Pops the last state out of the redo stack and shifts the application forward.
+ */
+export function executeRedoAction() {
+  if (redoStack.length === 0) return;
+
+  const currentStatus: HistorySnapshot = {
+    shapes: JSON.parse(JSON.stringify(activeDoc.shapes)),
+    pageOrder: [...activeDoc.pageOrder]
+  };
+  undoStack.push(currentStatus);
+
+  const nextState = redoStack.pop();
+  if (nextState) {
+    activeDoc.shapes = nextState.shapes;
+    activeDoc.pageOrder = nextState.pageOrder;
+    activeDoc.selectedShape = null;
+  }
+}
+
 export function saveSignatureSetAction(newSet: SignatureSet) {
   activeDoc.savedSignatureSets = [...activeDoc.savedSignatureSets, newSet];
   localStorage.setItem("speeddf_signature_sets", JSON.stringify(activeDoc.savedSignatureSets));
