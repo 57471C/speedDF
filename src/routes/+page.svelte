@@ -4,7 +4,6 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import * as pdfjsLib from "pdfjs-dist";
   import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
-  
   import TitleBar from "../components/TitleBar.svelte";
   import ToolSidebar from "../components/ToolSidebar.svelte";
   import Workspace from "../components/Workspace.svelte";
