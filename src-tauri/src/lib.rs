@@ -6,6 +6,7 @@ use std::io::{Read, Write};
 pub struct FilePayload {
     bytes: Vec<u8>,
     name: String,
+    path: String,
 }
 
 #[tauri::command]
@@ -17,12 +18,14 @@ async fn check_startup_file() -> Option<FilePayload> {
             if path.exists() && path.is_file() {
                 if let Some(file_name) = path.file_name() {
                     let name = file_name.to_string_lossy().into_owned();
+                    let path_str = path.to_string_lossy().into_owned();
                     if let Ok(mut file) = File::open(path) {
                         let mut buffer = Vec::new();
                         if file.read_to_end(&mut buffer).is_ok() {
                             return Some(FilePayload {
                                 bytes: buffer,
                                 name,
+                                path: path_str,
                             });
                         }
                     }
@@ -45,6 +48,7 @@ async fn native_open_file() -> Result<FilePayload, String> {
     match file_path {
         Some(handle) => {
             let path = handle.path();
+            let path_str = path.to_string_lossy().into_owned();
             // ⚡ EXTRACT THE TRUE FILENAME directly from the async dialog handle
             let file_name = handle.file_name();
 
@@ -56,6 +60,7 @@ async fn native_open_file() -> Result<FilePayload, String> {
             Ok(FilePayload {
                 bytes: buffer,
                 name: file_name,
+                path: path_str,
             })
         }
         None => Err("User cancelled file selection".to_string()),
@@ -74,12 +79,20 @@ async fn native_save_as_file(file_bytes: Vec<u8>) -> Result<String, String> {
     match file_path {
         Some(handle) => {
             let path = handle.path();
+            let path_str = path.to_string_lossy().into_owned();
             let mut file = File::create(path).map_err(|e| e.to_string())?;
             file.write_all(&file_bytes).map_err(|e| e.to_string())?;
-            Ok("File saved successfully".to_string())
+            Ok(path_str)
         }
         None => Err("User cancelled save layout".to_string()),
     }
+}
+
+#[tauri::command]
+async fn native_overwrite_file(path: String, file_bytes: Vec<u8>) -> Result<String, String> {
+    let mut file = File::create(&path).map_err(|e| e.to_string())?;
+    file.write_all(&file_bytes).map_err(|e| e.to_string())?;
+    Ok("File saved successfully".to_string())
 }
 
 #[tauri::command]
@@ -103,6 +116,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             native_open_file,
             native_save_as_file,
+            native_overwrite_file,
             check_startup_file,
             unprotect_pdf
         ])

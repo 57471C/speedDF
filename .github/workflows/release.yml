@@ -2,7 +2,7 @@ name: Release Compilation Engine
 on:
   push:
     tags:
-      - 'v*' # Triggers automatically on v0.4.0, v0.4.1, v1.0.0, etc.
+      - 'v*' # Triggers automatically on v0.4.1, v0.4.1, v1.0.0, etc.
 
 jobs:
   publish-tauri:

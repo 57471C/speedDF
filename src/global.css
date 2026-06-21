@@ -39,3 +39,12 @@
 ::-webkit-scrollbar-thumb:hover {
   background-color: #334155; /* Bumps up to a slate-700 glow */
 }
+
+html, body {
+  background-color: #090d16 !important;
+  overscroll-behavior: none !important;
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+

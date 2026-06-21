@@ -28,6 +28,7 @@
   interface StartupPayload {
     bytes: number[];
     name: string;
+    path: string;
   }
 
   onMount(async () => {
@@ -54,6 +55,7 @@
         activeDoc.currentPage = 1;
         activeDoc.shapes = {};
         activeDoc.fileName = payload.name;
+        activeDoc.filePath = payload.path;
       }
     } catch (err) {
       console.warn("Startup file handshake processing failed:", err);
@@ -140,7 +142,7 @@
           >
           <span
             class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v0.4.0</span
+            >v0.4.2</span
           >
         </div>
         <button

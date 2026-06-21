@@ -32,6 +32,7 @@ export interface SharedDocumentState {
   activeStampDataUrl: string | null;
   pageOrder: number[];
   fileName: string | null;
+  filePath: string | null;
   activeColor: string;
 }
 
@@ -60,6 +61,7 @@ export const activeDoc = $state<SharedDocumentState>({
   activeStampDataUrl: null,
   pageOrder: [],
   fileName: null,
+  filePath: null,
   activeColor: "#000000"
 });
 

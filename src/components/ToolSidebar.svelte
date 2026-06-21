@@ -1,6 +1,7 @@
 <script lang="ts">
   import { activeDoc, saveSignatureSetAction } from "../pdfStore.svelte";
 
+  // ⚡ FIXED: This explicitly sets up the missing property mapping for line 118 in +page.svelte
   let { zoomScale = $bindable() }: { zoomScale: number } = $props();
 
   const doc = activeDoc as any;
@@ -8,7 +9,7 @@
   let isMenuOpen = $state(false);
   let isModalOpen = $state(false);
   let isColorMenuOpen = $state(false);
-  let isShapeMenuOpen = $state(false); // ⚡ NEW STATE: Tracks hidden context shape menu tray
+  let isShapeMenuOpen = $state(false);
   let setPendingDeletion = $state<string | null>(null);
 
   let sigCanvas = $state<HTMLCanvasElement | null>(null);
@@ -27,7 +28,6 @@
     { name: "Yellow", hex: "#ffea00" },
   ];
 
-  // ⚡ NEW PARAMETER: Matrix array of supported vector shapes
   const shapeVariants = [
     {
       id: "rect",
@@ -61,7 +61,6 @@
     },
   ];
 
-  // Gets current active sub-icon state to draw on primary toolbar strip button
   let activeShapeIcon = $derived(() => {
     const matched = shapeVariants.find((s) => s.id === doc.activeTool);
     return matched ? matched.icon : shapeVariants[0].icon;
@@ -129,6 +128,7 @@
     if (target === "sig") sigDrawing = false;
     else initDrawing = false;
   }
+
   function clearCanvas(target: "sig" | "init") {
     const canvas = target === "sig" ? sigCanvas : initCanvas;
     if (canvas)
@@ -295,7 +295,7 @@
       stroke-linecap="round"
       stroke-linejoin="round"
       ><path
-        d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21"
+        d="m12 3-1.912 5.813a2 2 0 0 0-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21"
         opacity="0.4"
       /><path d="M14 10l5-5 2 2-5 5z" fill="currentColor" /></svg
     >
