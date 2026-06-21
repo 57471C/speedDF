@@ -1,6 +1,6 @@
 [package]
 name = "speeddf"
-version = "0.3.3"
+version = "0.4.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -23,4 +23,5 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rfd = "0.17.2"
+lopdf = "0.41"
 

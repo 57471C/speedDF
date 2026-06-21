@@ -1,9 +1,34 @@
 <script lang="ts">
   import * as pdfjsLib from "pdfjs-dist";
-  import { activeDoc, rotatePageAction } from "../pdfStore.svelte";
+  import { PDFDocument } from "pdf-lib";
+  import { invoke } from "@tauri-apps/api/core";
+  import {
+    activeDoc,
+    rotatePageAction,
+    pushHistorySnapshot,
+  } from "../pdfStore.svelte";
 
   let sidebarContainer = $state<HTMLDivElement | null>(null);
   let thumbnailElements = $state<Record<number, HTMLDivElement>>({});
+  let appendFileInput = $state<HTMLInputElement | null>(null);
+  let insertAfterPageNum = $state<number | null>(null);
+
+  // ⚡ Visibility Tracking State: Fully hides the red box until an actual scroll happens
+  let hasUserScrolled = $state(false);
+
+  // Keep the viewfinder safely hidden whenever a new document initializes
+  $effect(() => {
+    if (activeDoc.rawBytes) {
+      hasUserScrolled = false;
+    }
+  });
+
+  // Reveal the viewfinder only after crossing a true vertical scroll threshold
+  $effect(() => {
+    if (activeDoc.scrollTop > 5) {
+      hasUserScrolled = true;
+    }
+  });
 
   // Viewport viewfinder box percentage calculations
   let viewportBoxTop = $derived.by(() => {
@@ -19,23 +44,6 @@
     );
   });
 
-  // ⚡ Add this new state variable
-  let isTrackerReady = $state(false);
-
-  // ⚡ Add this effect to manage the timing
-  $effect(() => {
-    if (activeDoc.pageOrder.length > 0 && activeDoc.scrollHeight > 0) {
-      // Wait 1000ms for PDF.js to finish rendering canvases and pushing the height down
-      const timer = setTimeout(() => {
-        isTrackerReady = true;
-      }, 1000);
-      return () => clearTimeout(timer);
-    } else {
-      isTrackerReady = false;
-    }
-  });
-
-  // ⚡ FIXED: Parametrized to accept 'canvas: node' to perfectly align with your RenderParameters type signatures
   function renderThumbnail(
     node: HTMLCanvasElement,
     { pageNum, rotation }: { pageNum: number; rotation: number },
@@ -68,15 +76,10 @@
           rotation: currentRotation,
         });
 
-        // Resize element boundary domains prior to rendering
         node.height = viewport.height;
         node.width = viewport.width;
 
-        // ⚡ FIXED: Passed 'canvas: node' instead of canvasContext to clear the type compilation block
-        await page.render({
-          canvas: node,
-          viewport: viewport,
-        }).promise;
+        await page.render({ canvas: node, viewport: viewport }).promise;
       } catch (err) {
         console.error(`Thumbnail render failed for page ${pNum}:`, err);
       } finally {
@@ -92,7 +95,6 @@
     };
   }
 
-  // Smoothly centers the active thumbnail card when navigating the viewport
   $effect(() => {
     const activePage = activeDoc.currentPage;
     const targetCard = thumbnailElements[activePage];
@@ -122,6 +124,83 @@
     }
     activeDoc.selectedShape = null;
   }
+
+  async function handleInsertFile(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (
+      !input.files ||
+      input.files.length === 0 ||
+      !activeDoc.rawBytes ||
+      insertAfterPageNum === null
+    )
+      return;
+    const file = input.files[0];
+
+    try {
+      pushHistorySnapshot();
+      const arrayBuffer = await file.arrayBuffer();
+      const appendBytes = new Uint8Array(arrayBuffer);
+      const cleanMainBytes = new Uint8Array(
+        $state.snapshot(activeDoc.rawBytes),
+      );
+
+      const unprotectedMain = await invoke<number[]>("unprotect_pdf", {
+        bytes: Array.from(cleanMainBytes),
+      });
+      const unprotectedAppend = await invoke<number[]>("unprotect_pdf", {
+        bytes: Array.from(appendBytes),
+      });
+
+      const mainDoc = await PDFDocument.load(new Uint8Array(unprotectedMain));
+      const extraDoc = await PDFDocument.load(
+        new Uint8Array(unprotectedAppend),
+      );
+      const mergedDoc = await PDFDocument.create();
+
+      const targetIndex = activeDoc.pageOrder.indexOf(insertAfterPageNum);
+      const prePagesOrder = activeDoc.pageOrder.slice(0, targetIndex + 1);
+      const postPagesOrder = activeDoc.pageOrder.slice(targetIndex + 1);
+
+      const prePages = await mergedDoc.copyPages(
+        mainDoc,
+        prePagesOrder.map((n) => n - 1),
+      );
+      for (const p of prePages) mergedDoc.addPage(p);
+
+      const extraPageCount = extraDoc.getPageCount();
+      const extraPages = await mergedDoc.copyPages(
+        extraDoc,
+        Array.from({ length: extraPageCount }, (_, i) => i),
+      );
+      for (const p of extraPages) mergedDoc.addPage(p);
+
+      const postPages = await mergedDoc.copyPages(
+        mainDoc,
+        postPagesOrder.map((n) => n - 1),
+      );
+      for (const p of postPages) mergedDoc.addPage(p);
+
+      const newRawBytes = await mergedDoc.save();
+
+      const loadingTask = pdfjsLib.getDocument({
+        data: new Uint8Array(newRawBytes),
+      });
+      const pdfDocument = await loadingTask.promise;
+
+      activeDoc.rawBytes = newRawBytes;
+      activeDoc.pageCount = pdfDocument.numPages;
+      activeDoc.pageOrder = Array.from(
+        { length: pdfDocument.numPages },
+        (_, idx) => idx + 1,
+      );
+
+      input.value = "";
+      insertAfterPageNum = null;
+    } catch (err) {
+      console.error("Document insertion fault details:", err);
+      alert("Failed to parse or insert the selected PDF document.");
+    }
+  }
 </script>
 
 <div
@@ -142,10 +221,10 @@
     style="color-scheme: dark;"
   >
     <div class="relative w-full flex flex-col gap-3">
-      {#if isTrackerReady}
+      {#if hasUserScrolled && activeDoc.pageOrder.length > 0 && activeDoc.scrollHeight > 0}
         <div
-          class="absolute left-0 right-0 pointer-events-none transition-all duration-150 border-2 border-red-500 bg-red-500/10 rounded-lg z-50 shadow-[0_0_15px_rgba(239,68,68,0.25)]"
-          style="top: {viewportBoxTop}%; height: {viewportBoxHeight}%; min-height: 40px;"
+          class="absolute left-0 right-0 pointer-events-none transition-none border-2 border-red-500 bg-red-500/10 rounded-lg z-50 shadow-[0_0_15px_rgba(239,68,68,0.25)]"
+          style="top: {viewportBoxTop}%; height: {viewportBoxHeight}%; min-height: 40px; will-change: top;"
         ></div>
       {/if}
 
@@ -177,7 +256,7 @@
           </div>
 
           <div
-            class="flex items-center justify-center gap-1.5 mt-2.5 w-full opacity-40 group-hover:opacity-100 transition-opacity"
+            class="flex items-center justify-center gap-1 mt-2.5 w-full opacity-40 group-hover:opacity-100 transition-opacity"
           >
             <button
               onclick={(e) => {
@@ -189,18 +268,48 @@
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                width="12"
-                height="12"
+                width="11"
+                height="11"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2.5"
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                ><path
-                  d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
-                /><path d="M3 3v5h5" /></svg
               >
+                <path
+                  d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+                /><path d="M3 3v5h5" />
+              </svg>
+            </button>
+
+            <button
+              onclick={(e) => {
+                e.stopPropagation();
+                insertAfterPageNum = pageNum;
+                appendFileInput?.click();
+              }}
+              class="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+              title="Insert PDF After This Page"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="12" y1="5" x2="12" y2="19"></line><line
+                  x1="5"
+                  y1="12"
+                  x2="19"
+                  y2="12"
+                ></line>
+              </svg>
             </button>
 
             <button
@@ -210,18 +319,19 @@
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                width="12"
-                height="12"
+                width="11"
+                height="11"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2.5"
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                ><path d="M3 6h18" /><path
-                  d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"
-                /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg
               >
+                <path d="M3 6h18" /><path
+                  d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"
+                /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+              </svg>
             </button>
 
             <button
@@ -234,22 +344,31 @@
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                width="12"
-                height="12"
+                width="11"
+                height="11"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2.5"
                 stroke-linecap="round"
                 stroke-linejoin="round"
-                ><path
-                  d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"
-                /><path d="M21 3v5h-5" /></svg
               >
+                <path
+                  d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"
+                /><path d="M21 3v5h-5" />
+              </svg>
             </button>
           </div>
         </div>
       {/each}
+
+      <input
+        type="file"
+        accept=".pdf"
+        bind:this={appendFileInput}
+        onchange={handleInsertFile}
+        class="hidden"
+      />
     </div>
   </div>
 </div>

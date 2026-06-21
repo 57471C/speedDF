@@ -82,6 +82,20 @@ async fn native_save_as_file(file_bytes: Vec<u8>) -> Result<String, String> {
     }
 }
 
+#[tauri::command]
+fn unprotect_pdf(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
+    // ⚡ Upgraded lopdf automatically detects empty-password protection
+    // and decrypts all object streams safely into memory during load_mem.
+    let mut doc = lopdf::Document::load_mem(&bytes).map_err(|e| e.to_string())?;
+
+    // Simply strip the global encryption dictionary entry so it saves as a standard open PDF
+    doc.trailer.remove(b"Encrypt");
+
+    let mut out_bytes = Vec::new();
+    doc.save_to(&mut out_bytes).map_err(|e| e.to_string())?;
+    Ok(out_bytes)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -89,7 +103,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             native_open_file,
             native_save_as_file,
-            check_startup_file
+            check_startup_file,
+            unprotect_pdf
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
