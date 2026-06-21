@@ -2,630 +2,231 @@
   import { invoke } from "@tauri-apps/api/core";
   import * as pdfjsLib from "pdfjs-dist";
   import { activeDoc } from "../pdfStore.svelte";
-  import { PDFDocument, rgb, degrees } from "pdf-lib";
 
-  let { darkMode = $bindable(), onMinimize, onMaximize, onClose } = $props();
+  // ⚡ FIXED: Property names aligned precisely with what your +page.svelte sends
+  let {
+    onMinimize,
+    onMaximize,
+    onClose,
+    darkMode,
+    onToggleTheme,
+    onToggleHelp,
+  }: {
+    onMinimize: () => void;
+    onMaximize: () => void;
+    onClose: () => void;
+    darkMode: boolean;
+    onToggleTheme: () => void;
+    onToggleHelp: () => void;
+  } = $props();
 
   interface FilePayload {
     bytes: number[];
     name: string;
   }
 
-  // 🎨 UTILITY: Translates string hexadecimal tokens directly into pdf-lib compliant rgb structures
-  function hexToRgb(hexString: string): any {
-    const hex = hexString.replace("#", "");
-    const r = parseInt(hex.substring(0, 2), 16) / 255;
-    const g = parseInt(hex.substring(2, 4), 16) / 255;
-    const b = parseInt(hex.substring(4, 6), 16) / 255;
-    return rgb(r, g, b);
-  }
-
   async function triggerFileOpen() {
     try {
       console.log("Invoking native Windows file dialog payload bridge...");
       const payload = await invoke<FilePayload>("native_open_file");
+      if (payload && payload.bytes) {
+        const typedBytes = new Uint8Array(payload.bytes);
+        const loadingTask = pdfjsLib.getDocument({ data: typedBytes.slice(0) });
+        const pdfDocument = await loadingTask.promise;
 
-      if (!payload || !payload.bytes || payload.bytes.length === 0) return;
-
-      const typedBytes = new Uint8Array(payload.bytes);
-      const loadingTask = pdfjsLib.getDocument({ data: typedBytes.slice(0) });
-      const pdfDocument = await loadingTask.promise;
-
-      activeDoc.rawBytes = typedBytes;
-      activeDoc.pageCount = pdfDocument.numPages;
-      activeDoc.pageOrder = Array.from(
-        { length: pdfDocument.numPages },
-        (_, idx) => idx + 1,
-      );
-      activeDoc.currentPage = 1;
-      (activeDoc as any).scrollTop = 0;
-      activeDoc.shapes = {};
-      activeDoc.fileName = payload.name;
-    } catch (err) {
-      console.warn("Open File Action failed:", err);
-    }
-  }
-
-  function closeActiveDocument() {
-    activeDoc.rawBytes = null;
-    activeDoc.pageCount = 0;
-    activeDoc.pageOrder = [];
-    activeDoc.currentPage = 1;
-    activeDoc.shapes = {};
-    activeDoc.fileName = null;
-    activeDoc.activeTool = "select";
-    activeDoc.activeStampDataUrl = null;
-    activeDoc.rotations = {};
-    (activeDoc as any).scrollTop = 0;
-  }
-
-  async function compileAnnotatedPdf(): Promise<Uint8Array | null> {
-    if (!activeDoc.rawBytes || activeDoc.pageOrder.length === 0) return null;
-
-    try {
-      const srcDoc = await PDFDocument.load(activeDoc.rawBytes);
-      const destDoc = await PDFDocument.create();
-      const copiedPages = await destDoc.copyPages(
-        srcDoc,
-        activeDoc.pageOrder.map((num) => num - 1),
-      );
-
-      for (let i = 0; i < activeDoc.pageOrder.length; i++) {
-        const originalPageNumber = activeDoc.pageOrder[i];
-        const page = copiedPages[i];
-        destDoc.addPage(page);
-
-        const { width: pageWidth, height: pageHeight } = page.getSize();
-
-        if (activeDoc.rotations[originalPageNumber] !== undefined) {
-          const existingAngle = page.getRotation().angle;
-          page.setRotation(
-            degrees(
-              (existingAngle + activeDoc.rotations[originalPageNumber]) % 360,
-            ),
-          );
-        }
-
-        const pageShapes = activeDoc.shapes[originalPageNumber] || [];
-        for (const shape of pageShapes) {
-          const s = shape as any;
-
-          const x = (s.x / 100) * pageWidth;
-          const w = ((s.width ?? 0) / 100) * pageWidth;
-          const h = ((s.height ?? 0) / 100) * pageHeight;
-          const y = pageHeight - (s.y / 100) * pageHeight - h;
-
-          const shapeColorHex = s.color || "#000000";
-          const resolvedColorRgb = hexToRgb(shapeColorHex);
-
-          if (s.type === "rect") {
-            page.drawRectangle({
-              x,
-              y,
-              width: w,
-              height: h,
-              borderColor: resolvedColorRgb,
-              borderWidth: 2,
-            });
-          } else if (s.type === "rect-fill") {
-            page.drawRectangle({
-              x,
-              y,
-              width: w,
-              height: h,
-              color: resolvedColorRgb,
-            });
-          } else if (s.type === "oval") {
-            page.drawEllipse({
-              x: x + w / 2,
-              y: y + h / 2,
-              xScale: w / 2,
-              yScale: h / 2,
-              borderColor: resolvedColorRgb,
-              borderWidth: 2,
-            });
-          } else if (s.type === "oval-fill") {
-            page.drawEllipse({
-              x: x + w / 2,
-              y: y + h / 2,
-              xScale: w / 2,
-              yScale: h / 2,
-              color: resolvedColorRgb,
-            });
-          } else if (s.type === "round-rect") {
-            const cr = Math.min(6, w / 4, h / 4);
-            page.drawLine({
-              start: { x: x + cr, y: y + h },
-              end: { x: x + w - cr, y: y + h },
-              color: resolvedColorRgb,
-              thickness: 2,
-            });
-            page.drawLine({
-              start: { x: x + cr, y },
-              end: { x: x + w - cr, y },
-              color: resolvedColorRgb,
-              thickness: 2,
-            });
-            page.drawLine({
-              start: { x, y: y + cr },
-              end: { x, y: y + h - cr },
-              color: resolvedColorRgb,
-              thickness: 2,
-            });
-            page.drawLine({
-              start: { x: x + w, y: y + cr },
-              end: { x: x + w, y: y + h - cr },
-              color: resolvedColorRgb,
-              thickness: 2,
-            });
-            // ⚡ FIXED: Sized accurately via total diameters to satisfy known typings list
-            page.drawCircle({
-              x: x + cr,
-              y: y + cr,
-              size: cr * 2,
-              borderColor: resolvedColorRgb,
-              borderWidth: 2,
-            });
-            page.drawCircle({
-              x: x + w - cr,
-              y: y + cr,
-              size: cr * 2,
-              borderColor: resolvedColorRgb,
-              borderWidth: 2,
-            });
-            page.drawCircle({
-              x: x + cr,
-              y: y + h - cr,
-              size: cr * 2,
-              borderColor: resolvedColorRgb,
-              borderWidth: 2,
-            });
-            page.drawCircle({
-              x: x + w - cr,
-              y: y + h - cr,
-              size: cr * 2,
-              borderColor: resolvedColorRgb,
-              borderWidth: 2,
-            });
-          } else if (s.type === "round-rect-fill") {
-            const cr = Math.min(6, w / 4, h / 4);
-            page.drawRectangle({
-              x: x + cr,
-              y,
-              width: w - 2 * cr,
-              height: h,
-              color: resolvedColorRgb,
-            });
-            page.drawRectangle({
-              x,
-              y: y + cr,
-              width: w,
-              height: h - 2 * cr,
-              color: resolvedColorRgb,
-            });
-            // ⚡ FIXED: Sized accurately via total diameters to satisfy known typings list
-            page.drawCircle({
-              x: x + cr,
-              y: y + cr,
-              size: cr * 2,
-              color: resolvedColorRgb,
-            });
-            page.drawCircle({
-              x: x + w - cr,
-              y: y + cr,
-              size: cr * 2,
-              color: resolvedColorRgb,
-            });
-            page.drawCircle({
-              x: x + cr,
-              y: y + h - cr,
-              size: cr * 2,
-              color: resolvedColorRgb,
-            });
-            page.drawCircle({
-              x: x + w - cr,
-              y: y + h - cr,
-              size: cr * 2,
-              color: resolvedColorRgb,
-            });
-          } else if (s.type === "text") {
-            const textBaselineY = pageHeight - (s.y / 100) * pageHeight;
-            page.drawText(s.text || "", {
-              x,
-              y: textBaselineY - 10,
-              size: 12,
-              color: rgb(0.05, 0.09, 0.16),
-            });
-          } else if (s.type === "tick") {
-            const startPt = { x: x + w * 0.167, y: y + h * 0.5 };
-            const vertexPt = { x: x + w * 0.375, y: y + h * 0.292 };
-            const endPt = { x: x + w * 0.833, y: y + h * 0.75 };
-            page.drawLine({
-              start: startPt,
-              end: vertexPt,
-              color: resolvedColorRgb,
-              thickness: 3.5,
-            });
-            page.drawLine({
-              start: vertexPt,
-              end: endPt,
-              color: resolvedColorRgb,
-              thickness: 3.5,
-            });
-          } else if (s.type === "dash") {
-            page.drawLine({
-              start: { x, y: y + h / 2 },
-              end: { x: x + w, y: y + h / 2 },
-              color: resolvedColorRgb,
-              thickness: 3.5,
-            });
-          } else if (
-            (s.type === "signature" || s.type === "initial") &&
-            s.dataUrl
-          ) {
-            const embeddedImageDest = await destDoc.embedPng(s.dataUrl);
-            page.drawImage(embeddedImageDest, { x, y, width: w, height: h });
-          } else if (
-            s.type === "highlight" &&
-            s.points &&
-            s.points.length > 1
-          ) {
-            for (let k = 0; k < s.points.length - 1; k++) {
-              const p1 = s.points[k];
-              const p2 = s.points[k + 1];
-              page.drawLine({
-                start: {
-                  x: (p1.x / 100) * pageWidth,
-                  y: pageHeight - (p1.y / 100) * pageHeight,
-                },
-                end: {
-                  x: (p2.x / 100) * pageWidth,
-                  y: pageHeight - (p2.y / 100) * pageHeight,
-                },
-                color: rgb(0.98, 0.7, 0.03),
-                thickness: (2.0 / 100) * pageWidth,
-                opacity: 0.42,
-              });
-            }
-          }
-        }
+        activeDoc.rawBytes = typedBytes;
+        activeDoc.pageCount = pdfDocument.numPages;
+        activeDoc.pageOrder = Array.from(
+          { length: pdfDocument.numPages },
+          (_, idx) => idx + 1,
+        );
+        activeDoc.currentPage = 1;
+        activeDoc.shapes = {};
+        activeDoc.fileName = payload.name;
       }
-
-      return await destDoc.save();
     } catch (err) {
-      console.error("PDF Compilation Matrix Failure:", err);
-      return null;
+      console.error("Native file load intercept breakdown:", err);
     }
   }
 
   async function triggerFileSaveAs() {
+    if (!activeDoc.rawBytes) return;
     try {
-      if (!activeDoc.rawBytes) return;
-      console.log(
-        "Compiling, slicing deletions, and flattening layout annotations...",
-      );
-      const compiledBytes = await compileAnnotatedPdf();
-      if (!compiledBytes) {
-        alert("Failed to compile annotations into PDF object stream.");
-        return;
-      }
-      console.log("Invoking native Rust file system export dialog...");
-      await invoke("native_save_as_file", {
-        fileBytes: Array.from(compiledBytes),
+      await invoke("native_save_file", {
+        fileBytes: Array.from(activeDoc.rawBytes),
       });
+      console.log("Document footprint committed cleanly to disk.");
     } catch (err) {
-      console.warn("Save As Action failed:", err);
+      if (err !== "User cancelled save layout") {
+        console.error("File generation layer fault:", err);
+      }
     }
   }
 </script>
 
 <div
-  class="h-11 w-full bg-[#090d16] border-b border-slate-900/60 flex items-center justify-between px-4 select-none cursor-default relative z-50"
+  data-tauri-drag-region
+  class="h-9 w-full bg-[#0b101c] border-b border-slate-900 flex items-center justify-between px-3 select-none relative z-50 font-sans"
 >
-  <div data-tauri-drag-region class="absolute inset-0 z-0"></div>
-
-  {#if activeDoc.rawBytes && activeDoc.fileName}
-    <div
-      class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none flex items-center gap-2 bg-[#121824]/60 border border-slate-800/40 px-2.5 py-1 rounded-md text-[11px] font-bold text-slate-300 font-sans tracking-wide max-w-[35%] text-center z-20 backdrop-blur-xs"
-    >
-      <span class="truncate">{activeDoc.fileName}</span>
-      <button
-        onclick={closeActiveDocument}
-        class="pointer-events-auto text-slate-500 hover:text-red-400 font-bold font-mono transition-colors text-xs pl-1.5 border-l border-slate-800/50 flex items-center justify-center h-3"
-        title="Close Document">✕</button
+  <div class="flex items-center gap-4 z-50">
+    <div class="flex items-center gap-1.5 pointer-events-none">
+      <div
+        class="w-2.5 h-2.5 bg-emerald-500 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.5)]"
+      ></div>
+      <span
+        class="text-[10px] font-bold tracking-widest uppercase text-slate-400"
+        >speedDF</span
       >
     </div>
-  {/if}
+
+    <div class="flex items-center gap-1 text-[11px] text-slate-400 font-bold">
+      <button
+        onclick={triggerFileOpen}
+        class="px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:text-white transition-colors"
+        >Open</button
+      >
+      <button
+        onclick={() => console.log("Quick Save triggered")}
+        class="px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:text-white transition-colors"
+        >Save</button
+      >
+      <button
+        onclick={triggerFileSaveAs}
+        class="px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:text-white transition-colors"
+        >Save As..</button
+      >
+    </div>
+  </div>
 
   <div
-    class="relative z-10 w-full h-full flex items-center justify-between pointer-events-none"
+    data-tauri-drag-region
+    class="absolute inset-0 flex items-center justify-center pointer-events-none"
   >
-    <div class="flex items-center gap-5 h-full pointer-events-auto">
-      <div class="flex items-center gap-2">
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 512 512"
-          xmlns="http://www.w3.org/2000/svg"
-          class="block"
-        >
-          <defs>
-            <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%"
-              ><stop offset="0%" stop-color="#0f172a"></stop><stop
-                offset="100%"
-                stop-color="#1a2744"
-              ></stop></linearGradient
-            >
-            <linearGradient id="bolt-grad" x1="0%" y1="0%" x2="100%" y2="100%"
-              ><stop offset="0%" stop-color="#38bdf8"></stop><stop
-                offset="100%"
-                stop-color="#06b6d4"
-              ></stop></linearGradient
-            >
-            <filter id="bolt-glow" x="-40%" y="-40%" width="180%" height="180%"
-              ><feGaussianBlur stdDeviation="8" result="blur"
-              ></feGaussianBlur><feMerge
-                ><feMergeNode in="blur"></feMergeNode><feMergeNode
-                  in="SourceGraphic"
-                ></feMergeNode></feMerge
-              ></filter
-            >
-            <filter id="glow-soft" x="-60%" y="-60%" width="220%" height="220%"
-              ><feGaussianBlur stdDeviation="18" result="blur"
-              ></feGaussianBlur><feMerge
-                ><feMergeNode in="blur"></feMergeNode></feMerge
-              ></filter
-            >
-          </defs>
-          <rect
-            x="0"
-            y="0"
-            width="512"
-            height="512"
-            rx="108"
-            ry="108"
-            fill="url(#bg-grad)"
-          ></rect>
-          <g opacity="0.28">
-            <line
-              x1="52"
-              y1="218"
-              x2="128"
-              y2="218"
-              stroke="#06b6d4"
-              stroke-width="6"
-              stroke-linecap="round"
-            ></line>
-            <line
-              x1="38"
-              y1="244"
-              x2="118"
-              y2="244"
-              stroke="#06b6d4"
-              stroke-width="5"
-              stroke-linecap="round"
-            ></line>
-            <line
-              x1="52"
-              y1="270"
-              x2="108"
-              y2="270"
-              stroke="#06b6d4"
-              stroke-width="4"
-              stroke-linecap="round"
-            ></line>
-          </g>
-          <g transform="translate(256, 264) rotate(-4) translate(-256, -264)">
-            <polygon
-              points="168,118 338,118 338,128 348,138 348,420 168,420"
-              fill="#0a1628"
-              opacity="0.5"
-              transform="translate(8, 8)"
-            ></polygon>
-            <polygon
-              points="162,112 322,112 362,152 362,414 162,414"
-              fill="#1e293b"
-            ></polygon>
-            <polygon points="322,112 362,112 362,152" fill="#0f172a"></polygon>
-            <polygon points="322,112 362,152 322,152" fill="#334155"></polygon>
-            <line
-              x1="190"
-              y1="195"
-              x2="330"
-              y2="195"
-              stroke="#334155"
-              stroke-width="7"
-              stroke-linecap="round"
-            ></line>
-            <line
-              x1="190"
-              y1="218"
-              x2="300"
-              y2="218"
-              stroke="#334155"
-              stroke-width="7"
-              stroke-linecap="round"
-            ></line>
-            <line
-              x1="190"
-              y1="241"
-              x2="315"
-              y2="241"
-              stroke="#334155"
-              stroke-width="7"
-              stroke-linecap="round"
-            ></line>
-            <line
-              x1="190"
-              y1="315"
-              x2="330"
-              y2="315"
-              stroke="#334155"
-              stroke-width="6"
-              stroke-linecap="round"
-            ></line>
-            <line
-              x1="190"
-              y1="336"
-              x2="280"
-              y2="336"
-              stroke="#334155"
-              stroke-width="6"
-              stroke-linecap="round"
-            ></line>
-            <line
-              x1="190"
-              y1="357"
-              x2="305"
-              y2="357"
-              stroke="#334155"
-              stroke-width="6"
-              stroke-linecap="round"
-            ></line>
-          </g>
-          <ellipse
-            cx="278"
-            cy="264"
-            rx="68"
-            ry="110"
-            fill="#06b6d4"
-            opacity="0.12"
-            filter="url(#glow-soft)"
-          ></ellipse>
-          <g filter="url(#bolt-glow)"
-            ><polygon
-              points="306,138 248,276 284,276 206,396 174,396 236,262 200,262 256,138"
-              fill="url(#bolt-grad)"
-            ></polygon></g
-          >
-          <polygon
-            points="296,155 254,264 278,264 220,368 246,368 290,264 266,264 302,168"
-            fill="#bae6fd"
-            opacity="0.35"
-          ></polygon>
-        </svg>
-        <h1
-          class="text-sm font-bold tracking-tight text-slate-100"
-          style="font-family: 'Space Grotesk', sans-serif;"
-        >
-          speed<span class="text-cyan-400">DF</span>
-        </h1>
-      </div>
-      <div class="h-4 w-[1px] bg-slate-800"></div>
-      <div class="flex items-center gap-1 text-[11px] text-slate-400 font-bold">
-        <button
-          onclick={triggerFileOpen}
-          class="px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:text-white transition-colors"
-          >Open</button
-        >
-        <button
-          onclick={() => console.log("Quick Save")}
-          class="px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:text-white transition-colors"
-          >Save</button
-        >
-        <button
-          onclick={triggerFileSaveAs}
-          class="px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:text-white transition-colors"
-          >Save As..</button
-        >
-      </div>
-    </div>
+    <span
+      class="text-[11px] font-semibold text-slate-500 tracking-wide truncate max-w-xs"
+    >
+      {activeDoc.fileName ? activeDoc.fileName : "No Document Active"}
+    </span>
+  </div>
 
-    <div class="flex items-center gap-1 h-full pointer-events-auto">
+  <div class="flex items-center gap-3 z-50">
+    <div class="flex items-center gap-1">
       <button
-        onclick={() => (darkMode = !darkMode)}
-        aria-label="Toggle Theme"
-        class="p-1.5 rounded-md hover:bg-slate-800 text-slate-400 hover:text-white transition-colors mr-2"
+        onclick={onToggleTheme}
+        class="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800/50 transition-colors"
+        title="Toggle Core Theme Interface"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          {#if darkMode}<path
-              d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"
-            />{:else}<circle cx="12" cy="12" r="4" /><path
-              d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"
-            />{/if}
-        </svg>
-      </button>
-      <button
-        onclick={onMinimize}
-        aria-label="Minimize"
-        class="w-8 h-8 flex items-center justify-center rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-        ><svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12" /></svg
-        ></button
-      >
-      <button
-        onclick={onMaximize}
-        aria-label="Maximize"
-        class="w-8 h-8 flex items-center justify-center rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-        ><svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          ><rect
-            x="3"
-            y="3"
-            width="18"
-            height="18"
-            rx="2"
+        {#if darkMode}
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
             stroke-width="2.5"
-          /></svg
-        ></button
-      >
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            ><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" /></svg
+          >
+        {:else}
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            ><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path
+              d="M12 20v2"
+            /><path d="m4.93 4.93 1.41 1.41" /><path
+              d="m17.66 17.66 1.41 1.41"
+            /><path d="M2 12h2" /><path d="M20 12h2" /><path
+              d="m6.34 17.66-1.41 1.41"
+            /><path d="m19.07 4.93-1.41 1.41" /></svg
+          >
+        {/if}
+      </button>
+
       <button
-        onclick={onClose}
-        aria-label="Close"
-        class="titlebar-close-btn w-10 h-8 flex items-center justify-center text-slate-400 transition-colors"
-        ><svg
+        onclick={onToggleHelp}
+        class="p-1 rounded-md text-slate-400 hover:text-emerald-400 hover:bg-slate-800/50 transition-colors flex items-center justify-center"
+        title="System Help Information Operations (F1)"
+      >
+        <svg
           xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
+          width="13"
+          height="13"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
           stroke-width="2.5"
           stroke-linecap="round"
           stroke-linejoin="round"
+        >
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+      </button>
+    </div>
+
+    <div class="flex items-center h-full border-l border-slate-900/60 pl-2">
+      <button
+        onclick={onMinimize}
+        class="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:text-white hover:bg-slate-800/40 transition-colors"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12" /></svg
+        >
+      </button>
+      <button
+        onclick={onMaximize}
+        class="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:text-white hover:bg-slate-800/40 transition-colors"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="10"
+          height="10"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          ><rect width="18" height="18" x="3" y="3" rx="2" /></svg
+        >
+      </button>
+      <button
+        onclick={onClose}
+        class="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:text-white hover:bg-red-500/20 hover:text-red-400 transition-colors"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
           ><line x1="18" y1="6" x2="6" y2="18" /><line
             x1="6"
             y1="6"
             x2="18"
             y2="18"
           /></svg
-        ></button
-      >
+        >
+      </button>
     </div>
   </div>
 </div>
-
-<style>
-  .titlebar-close-btn:hover {
-    background-color: #e11d48 !important;
-    color: #ffffff !important;
-  }
-</style>

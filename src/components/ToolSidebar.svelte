@@ -1,6 +1,8 @@
 <script lang="ts">
   import { activeDoc, saveSignatureSetAction } from "../pdfStore.svelte";
 
+  let { zoomScale = $bindable() }: { zoomScale: number } = $props();
+
   const doc = activeDoc as any;
 
   let isMenuOpen = $state(false);

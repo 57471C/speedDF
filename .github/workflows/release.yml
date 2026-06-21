@@ -1,0 +1,49 @@
+name: Release Compilation Engine
+on:
+  push:
+    tags:
+      - 'v*' # Triggers automatically on v0.4.0, v0.4.1, v1.0.0, etc.
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'windows-latest' # Compiles your .exe / .msi
+          - platform: 'macos-latest'   # Compiles your Intel/Apple Silicon bundles
+          - platform: 'ubuntu-22.04'   # Compiles your Linux binaries
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install WebKit2GTK (Linux Only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Compile & Create GitHub Release
+        uses: tauri-apps/tauri-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'speedDF v__VERSION__'
+          releaseBody: 'Automated stable compiler distribution asset pipeline.'
+          releaseDraft: true
+          prerelease: false
