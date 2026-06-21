@@ -228,8 +228,7 @@
         Welcome to speed<span class="text-cyan-400">DF</span>
       </h2>
       <p class="text-[11px] text-slate-500 leading-relaxed font-medium">
-        Click "Open" in the header titlebar above to load a document into the
-        active workspace pipeline.
+        Click "Open" in the titlebar to load a document into the active workspace.
       </p>
     </div>
   {/if}

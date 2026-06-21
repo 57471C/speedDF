@@ -29,7 +29,9 @@
     height: number;
   } | null>(null);
   let isMovingShape = $state(false);
-  let moveAnchorPct = $state({ x: 0, y: 0 });
+  let dragStartMouseX = 0;
+  let dragStartMouseY = 0;
+  let dragTargetElement: HTMLElement | null = null;
 
   let isMouseOverPage = $state(false);
   let hoverPctX = $state(0);
@@ -82,15 +84,21 @@
       const loadingTask = pdfjsLib.getDocument({ data: pdfBytes.slice(0) });
       const pdfDocument = await loadingTask.promise;
       const page = await pdfDocument.getPage(pageNum);
-      const viewport = page.getViewport({
-        scale: scale / 100,
+      
+      const dpr = window.devicePixelRatio || 1;
+      const baseScale = scale / 100;
+      const adjustedViewport = page.getViewport({
+        scale: baseScale * dpr,
         rotation: (page.rotate + rotationAngle) % 360,
       });
+
       const context = canvas.getContext("2d");
       if (context) {
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-        await page.render({ canvas: canvas, viewport: viewport }).promise;
+        canvas.width = adjustedViewport.width;
+        canvas.height = adjustedViewport.height;
+        canvas.style.width = `${adjustedViewport.width / dpr}px`;
+        canvas.style.height = `${adjustedViewport.height / dpr}px`;
+        await page.render({ canvas: canvas, viewport: adjustedViewport }).promise;
       }
     } catch (error) {
       console.error(error);
@@ -108,7 +116,7 @@
     )
       return;
 
-pushHistorySnapshot();
+ pushHistorySnapshot();
 
     const rect = pageContainer.getBoundingClientRect();
     const mousePctX = ((e.clientX - rect.left) / rect.width) * 100;
@@ -219,13 +227,12 @@ pushHistorySnapshot();
     activeDoc.selectedShape = { pageNumber, index };
     pushHistorySnapshot();
     if (!pageContainer) return;
-    const rect = pageContainer.getBoundingClientRect();
-    const mousePctX = ((e.clientX - rect.left) / rect.width) * 100;
-    const mousePctY = ((e.clientY - rect.top) / rect.height) * 100;
     const shape = activeDoc.shapes[pageNumber][index];
     if (shape) {
       isMovingShape = true;
-      moveAnchorPct = { x: mousePctX - shape.x, y: mousePctY - shape.y };
+      dragStartMouseX = e.clientX;
+      dragStartMouseY = e.clientY;
+      dragTargetElement = e.currentTarget as HTMLElement;
     }
   }
 
@@ -245,15 +252,10 @@ pushHistorySnapshot();
       return;
     }
 
-    if (isMovingShape && activeDoc.selectedShape) {
-      const shapesList = [...(activeDoc.shapes[pageNumber] || [])];
-      const index = activeDoc.selectedShape.index;
-      const shape = shapesList[index];
-      if (shape) {
-        shape.x = Math.max(0, Math.min(100, mousePctX - moveAnchorPct.x));
-        shape.y = Math.max(0, Math.min(100, mousePctY - moveAnchorPct.y));
-        activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: shapesList };
-      }
+    if (isMovingShape && activeDoc.selectedShape && dragTargetElement) {
+      const deltaX = e.clientX - dragStartMouseX;
+      const deltaY = e.clientY - dragStartMouseY;
+      dragTargetElement.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
       return;
     }
 
@@ -310,7 +312,7 @@ pushHistorySnapshot();
     currentY = e.clientY - rect.top;
   }
 
-  function handleMouseUp() {
+  function handleMouseUp(e: MouseEvent) {
     if (isDrawing && activeDoc.activeTool === "highlight") {
       isDrawing = false;
       if (liveHighlightPoints.length > 1) {
@@ -330,7 +332,30 @@ pushHistorySnapshot();
       return;
     }
 
-    isMovingShape = false;
+    if (isMovingShape && activeDoc.selectedShape) {
+      isMovingShape = false;
+      if (dragTargetElement && pageContainer) {
+        dragTargetElement.style.transform = "";
+        
+        const rect = pageContainer.getBoundingClientRect();
+        const deltaX = e.clientX - dragStartMouseX;
+        const deltaY = e.clientY - dragStartMouseY;
+        const deltaPctX = (deltaX / rect.width) * 100;
+        const deltaPctY = (deltaY / rect.height) * 100;
+
+        const shapesList = [...(activeDoc.shapes[pageNumber] || [])];
+        const index = activeDoc.selectedShape.index;
+        const shape = shapesList[index];
+        if (shape) {
+          shape.x = Math.max(0, Math.min(100, shape.x + deltaPctX));
+          shape.y = Math.max(0, Math.min(100, shape.y + deltaPctY));
+          activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: shapesList };
+        }
+      }
+      dragTargetElement = null;
+      return;
+    }
+
     if (draggingHandle) {
       draggingHandle = null;
       initialShapeState = null;

@@ -15,7 +15,8 @@
     rotatePageAction,
   } from "../pdfStore.svelte";
 
-  let darkMode = $state(true);
+
+
   let zoomScale = $state(100);
   let showHelpModal = $state(false);
 
@@ -111,8 +112,6 @@
     onMinimize={minimizeApp}
     onMaximize={maximizeApp}
     onClose={closeApp}
-    {darkMode}
-    onToggleTheme={() => (darkMode = !darkMode)}
     onToggleHelp={() => (showHelpModal = !showHelpModal)}
   />
 
@@ -142,7 +141,7 @@
           >
           <span
             class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v0.4.2</span
+            >v0.5.0</span
           >
         </div>
         <button
