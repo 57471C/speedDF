@@ -8,6 +8,9 @@ export interface AnnotationShape {
   dataUrl?: string;                     // Base64 PNG image stream string (for signatures)
   points?: { x: number; y: number }[];  // Array of percentage nodes tracking freehand highlighters
   color?: string;                       // Captures the unique hexadecimal ink value
+  font?: string;                        // Custom font family name
+  size?: number;                        // Custom font size in points
+  style?: "Normal" | "Bold" | "Italic"; // Font style variant
 }
 
 export interface SignatureSet {
@@ -34,7 +37,48 @@ export interface SharedDocumentState {
   fileName: string | null;
   filePath: string | null;
   activeColor: string;
+  zoomScale: number;
+  defaultFont: string;
+  defaultSize: number;
+  defaultStyle: "Normal" | "Bold" | "Italic";
 }
+
+export const FONT_MAP: Record<
+  string,
+  {
+    css: string;
+    pdf: {
+      Normal: string;
+      Bold: string;
+      Italic: string;
+    };
+  }
+> = {
+  "Helvetica": {
+    css: "Helvetica, Arial, sans-serif",
+    pdf: {
+      Normal: "Helvetica",
+      Bold: "Helvetica-Bold",
+      Italic: "Helvetica-Oblique",
+    },
+  },
+  "Times New Roman": {
+    css: "'Times New Roman', Times, serif",
+    pdf: {
+      Normal: "Times-Roman",
+      Bold: "Times-Bold",
+      Italic: "Times-Italic",
+    },
+  },
+  "Courier": {
+    css: "'Courier New', Courier, monospace",
+    pdf: {
+      Normal: "Courier",
+      Bold: "Courier-Bold",
+      Italic: "Courier-Oblique",
+    },
+  },
+};
 
 const loadSavedSets = (): SignatureSet[] => {
   try {
@@ -62,7 +106,11 @@ export const activeDoc = $state<SharedDocumentState>({
   pageOrder: [],
   fileName: null,
   filePath: null,
-  activeColor: "#000000"
+  activeColor: "#000000",
+  zoomScale: 120,
+  defaultFont: "Helvetica",
+  defaultSize: 12,
+  defaultStyle: "Normal"
 });
 
 // ⚡ SURGICAL INSERTION: Append this directly below your "export const activeDoc = ..." declaration block

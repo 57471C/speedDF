@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as pdfjsLib from "pdfjs-dist";
   import { onMount } from "svelte";
-  import { activeDoc, type AnnotationShape, pushHistorySnapshot } from "../pdfStore.svelte";
+  import { activeDoc, type AnnotationShape, pushHistorySnapshot, FONT_MAP } from "../pdfStore.svelte";
 
   let { bytes, pageNumber, zoomScale } = $props<{
     bytes: Uint8Array;
@@ -204,6 +204,9 @@
         x: mousePctX,
         y: mousePctY,
         text: "",
+        font: activeDoc.defaultFont,
+        size: activeDoc.defaultSize,
+        style: activeDoc.defaultStyle || "Normal",
       };
       const existing = activeDoc.shapes[pageNumber] || [];
       const newIndex = existing.length;
@@ -660,8 +663,8 @@
               onkeydown={(e) => {
                 if (e.key === "Enter") finalizeTextEdit(idx, e.currentTarget);
               }}
-              class="bg-white/95 text-slate-900 border border-[#00d2ff] outline-none px-1.5 py-0.5 rounded shadow-xl font-semibold font-sans max-w-[280px]"
-              style="font-size: calc(13px * {zoomScale / 100});"
+              class="bg-white/95 text-slate-900 border border-[#00d2ff] outline-none px-1.5 py-0.5 rounded shadow-xl max-w-[280px]"
+              style="font-size: calc({shape.size || 12}px * {zoomScale / 100}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
             />
           {:else}
             <span
@@ -670,12 +673,12 @@
                 e.stopPropagation();
                 activelyEditingIndex = idx;
               }}
-              class="block bg-transparent border border-dashed rounded-xs font-semibold font-sans whitespace-nowrap transition-colors text-slate-950 cursor-move p-0.5 {activeDoc
+              class="block bg-transparent border border-dashed rounded-xs whitespace-nowrap transition-colors text-slate-950 cursor-move p-0.5 {activeDoc
                 .selectedShape?.pageNumber === pageNumber &&
               activeDoc.selectedShape?.index === idx
                 ? 'border-[#00d2ff] bg-cyan-500/5'
                 : 'border-transparent hover:border-slate-400/30'}"
-              style="font-size: calc(13px * {zoomScale / 100});"
+              style="font-size: calc({shape.size || 12}px * {zoomScale / 100}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
               >{shape.text || " "}</span
             >
           {/if}

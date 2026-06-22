@@ -1,8 +1,8 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import * as pdfjsLib from "pdfjs-dist";
-  import { activeDoc } from "../pdfStore.svelte";
-  import { PDFDocument, rgb, degrees, BlendMode, LineCapStyle } from "pdf-lib";
+  import { activeDoc, FONT_MAP } from "../pdfStore.svelte";
+  import { PDFDocument, rgb, degrees, BlendMode, LineCapStyle, StandardFonts } from "pdf-lib";
 
   let {
     onMinimize,
@@ -104,11 +104,22 @@
               color: resolvedColorRgb,
             });
           } else if (s.type === "text") {
+            const fontName = s.font || "Helvetica";
+            const fontStyle = (s.style || "Normal") as "Normal" | "Bold" | "Italic";
+            const fontMapping = FONT_MAP[fontName];
+            const pdfFontKey = fontMapping ? (fontMapping.pdf[fontStyle] || fontMapping.pdf["Normal"]) : "Helvetica";
+            const pdfFont = await destDoc.embedStandardFont(pdfFontKey as any);
+            
+            const fontSize = s.size || 12;
             const textBaselineY = pageHeight - (s.y / 100) * pageHeight;
+            const zoomMultiplier = (activeDoc.zoomScale || 120) / 100;
+            const yOffset = 10 / zoomMultiplier;
+            
             page.drawText(s.text || "", {
               x,
-              y: textBaselineY - 10,
-              size: 12,
+              y: textBaselineY - yOffset,
+              size: fontSize,
+              font: pdfFont,
               color: rgb(0.05, 0.09, 0.16),
             });
           } else if (s.type === "tick") {
