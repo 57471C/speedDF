@@ -48,14 +48,19 @@
 
   let ghostDimensions = $derived.by(() => {
     const tool = activeDoc.activeTool;
-    if (tool !== "signature" && tool !== "initial") return { w: 0, h: 0 };
-    const isSig = tool === "signature";
-    const cachedWidth = localStorage.getItem(`speeddf_stamp_${tool}_w`);
-    const cachedHeight = localStorage.getItem(`speeddf_stamp_${tool}_h`);
-    return {
-      w: cachedWidth ? parseFloat(cachedWidth) : isSig ? 18 : 6,
-      h: cachedHeight ? parseFloat(cachedHeight) : isSig ? 8 : 6,
-    };
+    if (!tool) return { w: 0, h: 0 };
+    if (["signature", "initial", "tick", "dash"].includes(tool)) {
+      const cachedWidth = localStorage.getItem(`speeddf_stamp_${tool}_w`);
+      const cachedHeight = localStorage.getItem(`speeddf_stamp_${tool}_h`);
+      if (cachedWidth && cachedHeight) {
+        return { w: parseFloat(cachedWidth), h: parseFloat(cachedHeight) };
+      }
+      if (tool === "signature") return { w: 18, h: 8 };
+      if (tool === "initial") return { w: 6, h: 6 };
+      if (tool === "tick") return { w: 4, h: 4 };
+      if (tool === "dash") return { w: 6, h: 2 };
+    }
+    return { w: 0, h: 0 };
   });
 
   function autofocusAction(node: HTMLInputElement) {
@@ -289,7 +294,7 @@
       }
 
       if (
-        ["tick", "dash", "signature", "initial"].includes(shape.type) &&
+        ["tick", "dash", "signature", "initial", ...shapeTypesList].includes(shape.type) &&
         shape.width &&
         shape.height
       ) {
@@ -554,44 +559,93 @@
 
     {#each activeDoc.shapes[pageNumber] || [] as shape, idx}
       {#if shapeTypesList.includes(shape.type)}
-        <div
-          onmousedown={(e) => initShapeMove(e, idx)}
-          class="absolute border-2 cursor-move z-20 transition-all duration-100
-            {shape.type.includes('round') ? 'rounded-lg' : 'rounded-none'}
-            {shape.type.includes('oval') ? 'rounded-full' : ''}
-            {activeDoc.selectedShape?.pageNumber === pageNumber &&
-          activeDoc.selectedShape?.index === idx
-            ? 'shadow-[0_0_12px_rgba(0,210,255,0.35)] ring-1 ring-[#00d2ff]/40'
-            : ''}"
-          style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%; 
-                 border-color: {shape.color || '#000000'}; 
-                 background-color: {shape.type.includes('-fill')
-            ? shape.color || '#000000'
-            : 'transparent'};"
-        >
-          {#if activeDoc.activeTool === "select" && activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx}
-            <div
-              onmousedown={(e) => initHandleDrag(e, idx, "tl")}
-              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -left-1.5 cursor-nwse-resize rounded-full shadow-md"
-              style="border-color: {shape.color || '#000000'};"
-            ></div>
-            <div
-              onmousedown={(e) => initHandleDrag(e, idx, "tr")}
-              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -right-1.5 cursor-nesw-resize rounded-full shadow-md"
-              style="border-color: {shape.color || '#000000'};"
-            ></div>
-            <div
-              onmousedown={(e) => initHandleDrag(e, idx, "bl")}
-              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -bottom-1.5 -left-1.5 cursor-nesw-resize rounded-full shadow-md"
-              style="border-color: {shape.color || '#000000'};"
-            ></div>
-            <div
-              onmousedown={(e) => initHandleDrag(e, idx, "br")}
-              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -bottom-1.5 -right-1.5 cursor-nwse-resize rounded-full shadow-md"
-              style="border-color: {shape.color || '#000000'};"
-            ></div>
-          {/if}
-        </div>
+        {#if shape.type === "oval" || shape.type === "oval-fill"}
+          <div
+            onmousedown={(e) => initShapeMove(e, idx)}
+            class="absolute cursor-move z-20 transition-all duration-100
+              {activeDoc.selectedShape?.pageNumber === pageNumber &&
+            activeDoc.selectedShape?.index === idx
+              ? 'shadow-[0_0_12px_rgba(0,210,255,0.35)] ring-1 ring-[#00d2ff]/40'
+              : ''}"
+            style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%;"
+          >
+            <svg
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              class="w-full h-full"
+            >
+              <ellipse
+                cx="50"
+                cy="50"
+                rx="48"
+                ry="48"
+                stroke={shape.color || "#000000"}
+                stroke-width={shape.type === "oval" ? "4" : "0"}
+                fill={shape.type === "oval-fill" ? shape.color || "#000000" : "none"}
+              />
+            </svg>
+            {#if activeDoc.activeTool === "select" && activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx}
+              <div
+                onmousedown={(e) => initHandleDrag(e, idx, "tl")}
+                class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -left-1.5 cursor-nwse-resize rounded-full shadow-md"
+                style="border-color: {shape.color || '#000000'};"
+              ></div>
+              <div
+                onmousedown={(e) => initHandleDrag(e, idx, "tr")}
+                class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -right-1.5 cursor-nesw-resize rounded-full shadow-md"
+                style="border-color: {shape.color || '#000000'};"
+              ></div>
+              <div
+                onmousedown={(e) => initHandleDrag(e, idx, "bl")}
+                class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -bottom-1.5 -left-1.5 cursor-nesw-resize rounded-full shadow-md"
+                style="border-color: {shape.color || '#000000'};"
+              ></div>
+              <div
+                onmousedown={(e) => initHandleDrag(e, idx, "br")}
+                class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -bottom-1.5 -right-1.5 cursor-nwse-resize rounded-full shadow-md"
+                style="border-color: {shape.color || '#000000'};"
+              ></div>
+            {/if}
+          </div>
+        {:else}
+          <div
+            onmousedown={(e) => initShapeMove(e, idx)}
+            class="absolute border-2 cursor-move z-20 transition-all duration-100
+              {shape.type.includes('round') ? 'rounded-lg' : 'rounded-none'}
+              {activeDoc.selectedShape?.pageNumber === pageNumber &&
+            activeDoc.selectedShape?.index === idx
+              ? 'shadow-[0_0_12px_rgba(0,210,255,0.35)] ring-1 ring-[#00d2ff]/40'
+              : ''}"
+            style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%; 
+                   border-color: {shape.color || '#000000'}; 
+                   background-color: {shape.type.includes('-fill')
+              ? shape.color || '#000000'
+              : 'transparent'};"
+          >
+            {#if activeDoc.activeTool === "select" && activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx}
+              <div
+                onmousedown={(e) => initHandleDrag(e, idx, "tl")}
+                class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -left-1.5 cursor-nwse-resize rounded-full shadow-md"
+                style="border-color: {shape.color || '#000000'};"
+              ></div>
+              <div
+                onmousedown={(e) => initHandleDrag(e, idx, "tr")}
+                class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -right-1.5 cursor-nesw-resize rounded-full shadow-md"
+                style="border-color: {shape.color || '#000000'};"
+              ></div>
+              <div
+                onmousedown={(e) => initHandleDrag(e, idx, "bl")}
+                class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -bottom-1.5 -left-1.5 cursor-nesw-resize rounded-full shadow-md"
+                style="border-color: {shape.color || '#000000'};"
+              ></div>
+              <div
+                onmousedown={(e) => initHandleDrag(e, idx, "br")}
+                class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -bottom-1.5 -right-1.5 cursor-nwse-resize rounded-full shadow-md"
+                style="border-color: {shape.color || '#000000'};"
+              ></div>
+            {/if}
+          </div>
+        {/if}
       {:else if shape.type === "text"}
         <div
           class="absolute text-slate-900 pointer-events-auto transform -translate-y-1/2 z-40"
@@ -749,39 +803,99 @@
       {/if}
     {/each}
 
-    {#if isMouseOverPage && ["signature", "initial"].includes(activeDoc.activeTool || "") && activeDoc.activeStampDataUrl}
-      <div
-        class="absolute pointer-events-none opacity-45 mix-blend-multiply transform -translate-x-1/2 -translate-y-1/2 border border-dashed border-[#00d2ff] bg-cyan-500/5 flex items-center justify-center p-0.5 rounded-xs"
-        style="left: {hoverPctX}%; top: {hoverPctY}%; width: {ghostDimensions.w}%; height: {ghostDimensions.h}%;"
-      >
-        <img
-          src={activeDoc.activeStampDataUrl}
-          alt="Ghost"
-          class="w-full h-full object-contain"
-        />
-      </div>
+    {#if isMouseOverPage && activeDoc.activeTool && !isDrawing}
+      {#if ["signature", "initial"].includes(activeDoc.activeTool) && activeDoc.activeStampDataUrl}
+        <div
+          class="absolute pointer-events-none opacity-45 mix-blend-multiply transform -translate-x-1/2 -translate-y-1/2 border border-dashed border-[#00d2ff] bg-cyan-500/5 flex items-center justify-center p-0.5 rounded-xs"
+          style="left: {hoverPctX}%; top: {hoverPctY}%; width: {ghostDimensions.w}%; height: {ghostDimensions.h}%;"
+        >
+          <img
+            src={activeDoc.activeStampDataUrl}
+            alt="Ghost"
+            class="w-full h-full object-contain"
+          />
+        </div>
+      {:else if activeDoc.activeTool === "tick"}
+        <div
+          class="absolute pointer-events-none opacity-45 transform -translate-x-1/2 -translate-y-1/2 border border-dashed border-[#00d2ff] bg-[#00d2ff1a] flex items-center justify-center p-0.5 rounded-sm"
+          style="left: {hoverPctX}%; top: {hoverPctY}%; width: {ghostDimensions.w}%; height: {ghostDimensions.h}%;"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            class="w-full h-full"
+            stroke={activeDoc.activeColor || "#000000"}
+            stroke-width="4.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg
+          >
+        </div>
+      {:else if activeDoc.activeTool === "dash"}
+        <div
+          class="absolute pointer-events-none opacity-45 transform -translate-x-1/2 -translate-y-1/2 border border-dashed border-[#00d2ff] bg-[#00d2ff1a] flex items-center justify-center p-0.5 rounded-sm"
+          style="left: {hoverPctX}%; top: {hoverPctY}%; width: {ghostDimensions.w}%; height: {ghostDimensions.h}%;"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            class="w-full h-full"
+            stroke={activeDoc.activeColor || "#000000"}
+            stroke-width="5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            preserveAspectRatio="none"
+            ><line x1="2" y1="12" x2="22" y2="12" /></svg
+          >
+        </div>
+      {/if}
     {/if}
 
     {#if isDrawing && activeDoc.activeTool && shapeTypesList.includes(activeDoc.activeTool)}
-      <div
-        class="absolute border-2 border-dashed"
-        style="left: {Math.min(startX, currentX)}px; top: {Math.min(
-          startY,
-          currentY,
-        )}px; 
-               width: {Math.abs(currentX - startX)}px; height: {Math.abs(
-          currentY - startY,
-        )}px;
-               border-color: {activeDoc.activeColor};
-               border-radius: {activeDoc.activeTool?.includes('round')
-          ? '8px'
-          : activeDoc.activeTool?.includes('oval')
-            ? '9999px'
-            : '0px'};
-               background-color: {activeDoc.activeTool?.includes('-fill')
-          ? activeDoc.activeColor
-          : activeDoc.activeColor + '12'};"
-      ></div>
+      {#if activeDoc.activeTool === "oval" || activeDoc.activeTool === "oval-fill"}
+        <div
+          class="absolute"
+          style="left: {Math.min(startX, currentX)}px; top: {Math.min(
+            startY,
+            currentY,
+          )}px; 
+                 width: {Math.abs(currentX - startX)}px; height: {Math.abs(
+            currentY - startY,
+          )}px;"
+        >
+          <svg
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            class="w-full h-full"
+          >
+            <ellipse
+              cx="50"
+              cy="50"
+              rx="48"
+              ry="48"
+              stroke={activeDoc.activeColor}
+              stroke-width={activeDoc.activeTool === "oval" ? "4" : "0"}
+              stroke-dasharray={activeDoc.activeTool === "oval" ? "6,4" : "none"}
+              fill={activeDoc.activeTool === "oval-fill" ? activeDoc.activeColor : activeDoc.activeColor + '12'}
+            />
+          </svg>
+        </div>
+      {:else}
+        <div
+          class="absolute border-2 border-dashed"
+          style="left: {Math.min(startX, currentX)}px; top: {Math.min(
+            startY,
+            currentY,
+          )}px; 
+                 width: {Math.abs(currentX - startX)}px; height: {Math.abs(
+            currentY - startY,
+          )}px;
+                 border-color: {activeDoc.activeColor};
+                 border-radius: {activeDoc.activeTool?.includes('round') ? '8px' : '0px'};
+                 background-color: {activeDoc.activeTool?.includes('-fill')
+            ? activeDoc.activeColor
+            : activeDoc.activeColor + '12'};"
+        ></div>
+      {/if}
     {/if}
   </div>
 </div>

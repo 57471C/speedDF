@@ -35,11 +35,6 @@
       icon: `<rect x="3" y="3" width="18" height="18" rx="0" fill="none" stroke="currentColor" stroke-width="2.5"/>`,
     },
     {
-      id: "round-rect",
-      label: "Round Outline",
-      icon: `<rect x="3" y="3" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="2.5"/>`,
-    },
-    {
       id: "oval",
       label: "Oval Outline",
       icon: `<ellipse cx="12" cy="12" rx="9" ry="7" fill="none" stroke="currentColor" stroke-width="2.5"/>`,
@@ -48,11 +43,6 @@
       id: "rect-fill",
       label: "Box Filled",
       icon: `<rect x="3" y="3" width="18" height="18" rx="0" fill="currentColor" stroke="currentColor" stroke-width="1"/>`,
-    },
-    {
-      id: "round-rect-fill",
-      label: "Round Filled",
-      icon: `<rect x="3" y="3" width="18" height="18" rx="4" fill="currentColor" stroke="currentColor" stroke-width="1"/>`,
     },
     {
       id: "oval-fill",
@@ -93,7 +83,8 @@
     setPendingDeletion = null;
   }
 
-  function startDraw(e: MouseEvent, target: "sig" | "init") {
+  function startDraw(e: PointerEvent, target: "sig" | "init") {
+    e.preventDefault();
     const canvas = target === "sig" ? sigCanvas : initCanvas;
     if (!canvas) return;
     if (target === "sig") sigDrawing = true;
@@ -103,7 +94,8 @@
     lastY = (e.clientY - rect.top) * (canvas.height / rect.height);
   }
 
-  function drawMove(e: MouseEvent, target: "sig" | "init") {
+  function drawMove(e: PointerEvent, target: "sig" | "init") {
+    e.preventDefault();
     const isDrawing = target === "sig" ? sigDrawing : initDrawing;
     const canvas = target === "sig" ? sigCanvas : initCanvas;
     if (!isDrawing || !canvas) return;
@@ -213,10 +205,8 @@
       class="w-8 h-8 flex items-center justify-center rounded transition-all
         {[
         'rect',
-        'round-rect',
         'oval',
         'rect-fill',
-        'round-rect-fill',
         'oval-fill',
       ].includes(doc.activeTool || '') || isShapeMenuOpen
         ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]'
@@ -524,11 +514,11 @@
             bind:this={sigCanvas}
             width="380"
             height="160"
-            onmousedown={(e) => startDraw(e, "sig")}
-            onmousemove={(e) => drawMove(e, "sig")}
-            onmouseup={() => stopDraw("sig")}
-            onmouseleave={() => stopDraw("sig")}
-            class="w-full bg-white rounded-lg border border-slate-800/40 cursor-crosshair block"
+            onpointerdown={(e) => startDraw(e, "sig")}
+            onpointermove={(e) => drawMove(e, "sig")}
+            onpointerup={() => stopDraw("sig")}
+            onpointerleave={() => stopDraw("sig")}
+            class="w-full bg-white rounded-lg border border-slate-800/40 cursor-crosshair block touch-none"
           ></canvas>
         </div>
         <div class="col-span-1 flex flex-col gap-1.5">
@@ -546,11 +536,11 @@
             bind:this={initCanvas}
             width="170"
             height="160"
-            onmousedown={(e) => startDraw(e, "init")}
-            onmousemove={(e) => drawMove(e, "init")}
-            onmouseup={() => stopDraw("init")}
-            onmouseleave={() => stopDraw("init")}
-            class="w-full bg-white rounded-lg border border-slate-800/40 cursor-crosshair block"
+            onpointerdown={(e) => startDraw(e, "init")}
+            onpointermove={(e) => drawMove(e, "init")}
+            onpointerup={() => stopDraw("init")}
+            onpointerleave={() => stopDraw("init")}
+            class="w-full bg-white rounded-lg border border-slate-800/40 cursor-crosshair block touch-none"
           ></canvas>
         </div>
       </div>

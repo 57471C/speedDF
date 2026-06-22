@@ -2,7 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import * as pdfjsLib from "pdfjs-dist";
   import { activeDoc } from "../pdfStore.svelte";
-  import { PDFDocument, rgb, degrees } from "pdf-lib";
+  import { PDFDocument, rgb, degrees, BlendMode, LineCapStyle } from "pdf-lib";
 
   let {
     onMinimize,
@@ -103,100 +103,6 @@
               yScale: h / 2,
               color: resolvedColorRgb,
             });
-          } else if (s.type === "round-rect") {
-            const cr = Math.min(6, w / 4, h / 4);
-            page.drawLine({
-              start: { x: x + cr, y: y + h },
-              end: { x: x + w - cr, y: y + h },
-              color: resolvedColorRgb,
-              thickness: 2,
-            });
-            page.drawLine({
-              start: { x: x + cr, y },
-              end: { x: x + w - cr, y },
-              color: resolvedColorRgb,
-              thickness: 2,
-            });
-            page.drawLine({
-              start: { x, y: y + cr },
-              end: { x, y: y + h - cr },
-              color: resolvedColorRgb,
-              thickness: 2,
-            });
-            page.drawLine({
-              start: { x: x + w, y: y + cr },
-              end: { x: x + w, y: y + h - cr },
-              color: resolvedColorRgb,
-              thickness: 2,
-            });
-            page.drawCircle({
-              x: x + cr,
-              y: y + cr,
-              size: cr * 2,
-              borderColor: resolvedColorRgb,
-              borderWidth: 2,
-            });
-            page.drawCircle({
-              x: x + w - cr,
-              y: y + cr,
-              size: cr * 2,
-              borderColor: resolvedColorRgb,
-              borderWidth: 2,
-            });
-            page.drawCircle({
-              x: x + cr,
-              y: y + h - cr,
-              size: cr * 2,
-              borderColor: resolvedColorRgb,
-              borderWidth: 2,
-            });
-            page.drawCircle({
-              x: x + w - cr,
-              y: y + h - cr,
-              size: cr * 2,
-              borderColor: resolvedColorRgb,
-              borderWidth: 2,
-            });
-          } else if (s.type === "round-rect-fill") {
-            const cr = Math.min(6, w / 4, h / 4);
-            page.drawRectangle({
-              x: x + cr,
-              y,
-              width: w - 2 * cr,
-              height: h,
-              color: resolvedColorRgb,
-            });
-            page.drawRectangle({
-              x,
-              y: y + cr,
-              width: w,
-              height: h - 2 * cr,
-              color: resolvedColorRgb,
-            });
-            page.drawCircle({
-              x: x + cr,
-              y: y + cr,
-              size: cr * 2,
-              color: resolvedColorRgb,
-            });
-            page.drawCircle({
-              x: x + w - cr,
-              y: y + cr,
-              size: cr * 2,
-              color: resolvedColorRgb,
-            });
-            page.drawCircle({
-              x: x + cr,
-              y: y + h - cr,
-              size: cr * 2,
-              color: resolvedColorRgb,
-            });
-            page.drawCircle({
-              x: x + w - cr,
-              y: y + h - cr,
-              size: cr * 2,
-              color: resolvedColorRgb,
-            });
           } else if (s.type === "text") {
             const textBaselineY = pageHeight - (s.y / 100) * pageHeight;
             page.drawText(s.text || "", {
@@ -214,12 +120,14 @@
               end: vertexPt,
               color: resolvedColorRgb,
               thickness: 3.5,
+              lineCap: LineCapStyle.Round,
             });
             page.drawLine({
               start: vertexPt,
               end: endPt,
               color: resolvedColorRgb,
               thickness: 3.5,
+              lineCap: LineCapStyle.Round,
             });
           } else if (s.type === "dash") {
             page.drawLine({
@@ -227,13 +135,17 @@
               end: { x: x + w, y: y + h / 2 },
               color: resolvedColorRgb,
               thickness: 3.5,
+              lineCap: LineCapStyle.Round,
             });
           } else if (
             (s.type === "signature" || s.type === "initial") &&
             s.dataUrl
           ) {
             const embeddedImageDest = await destDoc.embedPng(s.dataUrl);
-            page.drawImage(embeddedImageDest, { x, y, width: w, height: h });
+            const imgW = embeddedImageDest.width;
+            const imgH = embeddedImageDest.height;
+            const targetW = h * (imgW / imgH);
+            page.drawImage(embeddedImageDest, { x, y, width: targetW, height: h });
           } else if (
             s.type === "highlight" &&
             s.points &&
@@ -251,9 +163,11 @@
                   x: (p2.x / 100) * pageWidth,
                   y: pageHeight - (p2.y / 100) * pageHeight,
                 },
-                color: rgb(0.98, 0.7, 0.03),
+                color: rgb(1.0, 1.0, 0.0),
                 thickness: (2.0 / 100) * pageWidth,
-                opacity: 0.42,
+                opacity: 0.40,
+                blendMode: BlendMode.Multiply,
+                lineCap: LineCapStyle.Round,
               });
             }
           }
@@ -354,73 +268,155 @@
 </script>
 
 <div
-  data-tauri-drag-region
-  class="h-9 w-full bg-[#0b101c] border-b border-slate-900 flex items-center justify-between px-3 select-none relative z-50 font-sans"
+  class="h-9 w-full bg-[#0b101c] border-b border-slate-900 select-none relative z-50 font-sans"
 >
-  <div class="flex items-center gap-4 z-50">
-    <div class="flex items-center gap-2 pointer-events-none">
-      <svg
-        width="22"
-        height="22"
-        viewBox="0 0 32 32"
-        xmlns="http://www.w3.org/2000/svg"
-        data-fg-d3bl89="0.8:1.18514:/src/app/App.tsx:215:5:7461:343:e:svg:ete:1"
-        data-fgid-d3bl89=":r4i:"
-        data-fg-callsite-d3bl187=""
-        style="display: block;"
-      >
-        <rect
-          x="0"
-          y="0"
-          width="32"
-          height="32"
-          rx="6"
-          fill="#0f172a"
-          data-fg-d3bl90="0.8:1.18514:/src/app/App.tsx:222:7:7619:65:e:rect"
-        ></rect>
-        <polygon
-          points="20,4 14,16 18,16 11,28 9,28 16,16 12,16 18,4"
-          fill="#06b6d4"
-          data-fg-d3bl91="0.8:1.18514:/src/app/App.tsx:223:7:7691:102:e:polygon"
-        ></polygon>
-      </svg>
-      <h1 class="text-lg font-bold tracking-tight text-slate-100" style="font-family: 'Space Grotesk', sans-serif;">speed<span class="text-cyan-400">DF</span></h1>
-    </div>
+  <div data-tauri-drag-region class="absolute inset-0 z-0 bg-transparent pointer-events-auto"></div>
 
-    <div class="flex items-center gap-1 text-[11px] text-slate-400 font-bold">
-      <button
-        onclick={triggerFileOpen}
-        class="px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:text-white transition-colors"
-        >Open</button
-      >
-      <button
-        onclick={triggerFileSave}
-        class="px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:text-white transition-colors"
-        >Save</button
-      >
-      <button
-        onclick={triggerFileSaveAs}
-        class="px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:text-white transition-colors"
-        >Save As..</button
-      >
-    </div>
-  </div>
+  <div class="relative z-10 w-full h-full flex items-center justify-between px-3 pointer-events-none">
+    <div class="flex items-center gap-4 z-50">
+      <div class="flex items-center gap-2 pointer-events-none">
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 32 32"
+          xmlns="http://www.w3.org/2000/svg"
+          data-fg-d3bl89="0.8:1.18514:/src/app/App.tsx:215:5:7461:343:e:svg:ete:1"
+          data-fgid-d3bl89=":r4i:"
+          data-fg-callsite-d3bl187=""
+          style="display: block;"
+        >
+          <rect
+            x="0"
+            y="0"
+            width="32"
+            height="32"
+            rx="6"
+            fill="#0f172a"
+            data-fg-d3bl90="0.8:1.18514:/src/app/App.tsx:222:7:7619:65:e:rect"
+          ></rect>
+          <polygon
+            points="20,4 14,16 18,16 11,28 9,28 16,16 12,16 18,4"
+            fill="#06b6d4"
+            data-fg-d3bl91="0.8:1.18514:/src/app/App.tsx:223:7:7691:102:e:polygon"
+          ></polygon>
+        </svg>
+        <h1 class="text-lg font-bold tracking-tight text-slate-100" style="font-family: 'Space Grotesk', sans-serif;">speed<span class="text-cyan-400">DF</span></h1>
+      </div>
 
-  <div
-    data-tauri-drag-region
-    class="absolute inset-0 flex items-center justify-center pointer-events-none"
-  >
-    <div class="flex items-center gap-1.5">
-      <span
-        class="text-[11px] font-semibold text-slate-500 tracking-wide truncate max-w-xs"
-      >
-        {activeDoc.fileName ? activeDoc.fileName : "No Document Active"}
-      </span>
-      {#if activeDoc.fileName}
+      <div class="flex items-center gap-1 text-[11px] text-slate-400 font-bold">
         <button
-          onclick={closeActiveDocument}
-          class="w-5 h-5 flex items-center justify-center rounded-full text-slate-500 hover:text-red-500 hover:bg-red-500/10 transition-colors pointer-events-auto"
-          title="Close Document"
+          onclick={triggerFileOpen}
+          class="titlebar-btn px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:!text-white transition-colors"
+          >Open</button
+        >
+        <button
+          onclick={triggerFileSave}
+          class="titlebar-btn px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:!text-white transition-colors"
+          >Save</button
+        >
+        <button
+          onclick={triggerFileSaveAs}
+          class="titlebar-btn px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:!text-white transition-colors"
+          >Save As..</button
+        >
+      </div>
+    </div>
+
+    <div
+      class="flex-1 h-full flex items-center justify-center cursor-move"
+    >
+      <div class="flex items-center gap-1.5 pointer-events-auto cursor-default">
+        <span
+          class="titlebar-btn text-[11px] font-semibold text-slate-400 tracking-wide truncate max-w-xs hover:!text-white transition-colors"
+        >
+          {activeDoc.fileName ? activeDoc.fileName : "No Document Active"}
+        </span>
+        {#if activeDoc.fileName}
+          <button
+            onclick={closeActiveDocument}
+            class="titlebar-btn w-5 h-5 flex items-center justify-center rounded-full text-slate-400 hover:!text-white transition-colors pointer-events-auto"
+            title="Close Document"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              ><line x1="18" y1="6" x2="6" y2="18"></line><line
+                x1="6"
+                y1="6"
+                x2="18"
+                y2="18"
+            ></line></svg>
+          </button>
+        {/if}
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3 z-50">
+      <div class="flex items-center gap-1">
+        <button
+          onclick={onToggleHelp}
+          class="titlebar-btn p-1 rounded-md text-slate-400 hover:!text-white transition-colors flex items-center justify-center"
+          title="System Help Information Operations (F1)"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="flex items-center h-full border-l border-slate-900/60 pl-2">
+        <button
+          onclick={onMinimize}
+          class="titlebar-btn w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:!text-white transition-colors"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12" /></svg
+          >
+        </button>
+        <button
+          onclick={onMaximize}
+          class="titlebar-btn w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:!text-white transition-colors"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            ><rect width="18" height="18" x="3" y="3" rx="2" /></svg
+          >
+        </button>
+        <button
+          onclick={onClose}
+          class="titlebar-close-btn w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:!bg-red-600 hover:!text-white transition-all"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -431,7 +427,7 @@
             stroke="currentColor"
             stroke-width="2.5"
             stroke-linecap="round"
-            ><line x1="18" y1="6" x2="6" y2="18"></line><line
+            ><line x1="18" y1="6" x2="6" y2="18" /><line
               x1="6"
               y1="6"
               x2="18"
@@ -439,90 +435,27 @@
             ></line></svg
           >
         </button>
-      {/if}
-    </div>
-  </div>
-
-  <div class="flex items-center gap-3 z-50">
-    <div class="flex items-center gap-1">
-
-
-      <button
-        onclick={onToggleHelp}
-        class="p-1 rounded-md text-slate-400 hover:text-emerald-400 hover:bg-slate-800/50 transition-colors flex items-center justify-center"
-        title="System Help Information Operations (F1)"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <circle cx="12" cy="12" r="10"></circle>
-          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
-          <line x1="12" y1="17" x2="12.01" y2="17"></line>
-        </svg>
-      </button>
-    </div>
-
-    <div class="flex items-center h-full border-l border-slate-900/60 pl-2">
-      <button
-        onclick={onMinimize}
-        class="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:text-white hover:bg-slate-800/40 transition-colors"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12" /></svg
-        >
-      </button>
-      <button
-        onclick={onMaximize}
-        class="w-7 h-7 flex items-center justify-center rounded text-slate-500 hover:text-white hover:bg-slate-800/40 transition-colors"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          ><rect width="18" height="18" x="3" y="3" rx="2" /></svg
-        >
-      </button>
-      <button
-        onclick={onClose}
-        class="w-7 h-7 flex items-center justify-center rounded text-red-500 hover:text-white hover:bg-red-600 transition-colors"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          ><line x1="18" y1="6" x2="6" y2="18" /><line
-            x1="6"
-            y1="6"
-            x2="18"
-            y2="18"
-          /></svg
-        >
-      </button>
+      </div>
     </div>
   </div>
 </div>
+
+<style>
+  .titlebar-btn {
+    color: #94a3b8 !important; /* text-slate-400 fallback */
+    transition: color 0.15s ease, background-color 0.15s ease !important;
+    pointer-events: auto !important;
+  }
+  .titlebar-btn:hover {
+    color: #ffffff !important;
+  }
+  .titlebar-close-btn {
+    color: #94a3b8 !important;
+    pointer-events: auto !important;
+    transition: all 0.15s ease !important;
+  }
+  .titlebar-close-btn:hover {
+    background-color: #dc2626 !important; /* bg-red-600 fallback */
+    color: #ffffff !important;
+  }
+</style>

@@ -17,7 +17,7 @@
 
 
 
-  let zoomScale = $state(100);
+  let zoomScale = $state(120);
   let showHelpModal = $state(false);
 
   const appWindow = getCurrentWindow();

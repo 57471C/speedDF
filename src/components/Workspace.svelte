@@ -2,7 +2,7 @@
   import WorkspacePage from "./WorkspacePage.svelte";
   import { activeDoc } from "../pdfStore.svelte";
 
-  let { zoomScale = $bindable(100) } = $props<{ zoomScale: number }>();
+  let { zoomScale = $bindable(120) } = $props<{ zoomScale: number }>();
   let scrollContainer = $state<HTMLDivElement | null>(null);
 
   // ⚡ FIXED: Automatically measures the total height of the document when zoom scales or pages change
