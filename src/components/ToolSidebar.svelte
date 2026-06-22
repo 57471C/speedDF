@@ -313,35 +313,41 @@
 
   <div class="w-6 h-[1px] bg-slate-800 my-1"></div>
 
-  <button
-    onclick={() => (isMenuOpen = !isMenuOpen)}
-    class="w-8 h-8 flex items-center justify-center rounded transition-all relative {[
-      'signature',
-      'initial',
-    ].includes(doc.activeTool || '') || isMenuOpen
-      ? 'bg-cyan-500/10 text-[#00d2ff] border border-cyan-500/30'
-      : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
-    title="Signatures & Initials"
-  >
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="15"
-      height="15"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2.2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      ><path d="M12 3v7" /><path d="M16 10H8l2 5h4z" /><path
-        d="m14 15-2 6-2-6z"
-      /><path
-        d="M3 20c3-3 5-1 8-3s4-4 8-1"
-        stroke-width="1.8"
-        opacity="0.9"
-      /></svg
+  <div class="relative flex flex-col items-center">
+    <button
+      onclick={() => (isMenuOpen = !isMenuOpen)}
+      class="w-8 h-8 flex items-center justify-center rounded transition-all relative {[
+        'signature',
+        'initial',
+      ].includes(doc.activeTool || '') || isMenuOpen
+        ? 'bg-cyan-500/10 text-[#00d2ff] border border-cyan-500/30'
+        : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+      title="Signatures & Initials"
     >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        ><path d="M12 3v7" /><path d="M16 10H8l2 5h4z" /><path
+          d="m14 15-2 6-2-6z"
+        /><path
+          d="M3 20c3-3 5-1 8-3s4-4 8-1"
+          stroke-width="1.8"
+          opacity="0.9"
+        /></svg
+      >
+    </button>
     {#if isMenuOpen}
+      <div
+        onclick={() => (isMenuOpen = false)}
+        class="fixed inset-0 z-40 bg-transparent cursor-default"
+      ></div>
       <div
         onclick={(e) => e.stopPropagation()}
         class="absolute left-14 top-0 w-72 bg-[#090d16] border border-slate-900 rounded-lg shadow-2xl p-3 flex flex-col gap-2 z-50 text-left"
@@ -423,7 +429,7 @@
         >
       </div>
     {/if}
-  </button>
+  </div>
 
   <div class="w-6 h-[1px] bg-slate-800 my-1"></div>
 
