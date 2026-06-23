@@ -1,0 +1,17 @@
+
+> speeddf@0.5.5 dev
+> vite dev
+
+11:08:03 PM [vite] (client) Forced re-optimization of dependencies
+
+  VITE v6.4.3  ready in 1762 ms
+
+  ➜  Local:   http://localhost:1420/
+11:11:41 PM [vite] (client) page reload .svelte-kit/generated/client/nodes/0.js
+11:11:41 PM [vite] (client) page reload .svelte-kit/generated/client/nodes/1.js
+11:11:41 PM [vite] (client) page reload .svelte-kit/generated/client/nodes/2.js
+11:11:41 PM [vite] (client) page reload .svelte-kit/generated/client/app.js
+11:11:41 PM [vite] (client) page reload .svelte-kit/generated/client/matchers.js
+11:11:41 PM [vite] (ssr) page reload .svelte-kit/generated/server/internal.js
+11:11:41 PM [vite] (client) page reload .svelte-kit/generated/root.js
+11:11:41 PM [vite] (ssr) page reload .svelte-kit/generated/root.js
