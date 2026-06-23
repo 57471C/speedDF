@@ -17,7 +17,13 @@
 
   async function renderMiniThumbnail(pdfBytes: Uint8Array, pageNum: number, canvas: HTMLCanvasElement, rotationAngle: number) {
     try {
-      const loadingTask = pdfjsLib.getDocument({ data: pdfBytes.slice(0) });
+      const loadingTask = pdfjsLib.getDocument({
+        data: pdfBytes.slice(0),
+        cMapUrl: window.location.origin + "/cmaps/",
+        cMapPacked: true,
+        standardFontDataUrl: window.location.origin + "/standard_fonts/",
+        wasmUrl: window.location.origin + "/"
+      });
       const pdfDocument = await loadingTask.promise;
       const page = await pdfDocument.getPage(pageNum);
 

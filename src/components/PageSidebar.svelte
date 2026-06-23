@@ -57,6 +57,10 @@
       try {
         const loadingTask = pdfjsLib.getDocument({
           data: activeDoc.rawBytes.slice(0),
+          cMapUrl: window.location.origin + "/cmaps/",
+          cMapPacked: true,
+          standardFontDataUrl: window.location.origin + "/standard_fonts/",
+          wasmUrl: window.location.origin + "/"
         });
         const pdfDocument = await loadingTask.promise;
         const page = await pdfDocument.getPage(pNum);
@@ -184,6 +188,10 @@
 
       const loadingTask = pdfjsLib.getDocument({
         data: new Uint8Array(newRawBytes),
+        cMapUrl: window.location.origin + "/cmaps/",
+        cMapPacked: true,
+        standardFontDataUrl: window.location.origin + "/standard_fonts/",
+        wasmUrl: window.location.origin + "/"
       });
       const pdfDocument = await loadingTask.promise;
 

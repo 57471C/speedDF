@@ -2,7 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import * as pdfjsLib from "pdfjs-dist";
   import { activeDoc, FONT_MAP } from "../pdfStore.svelte";
-  import { PDFDocument, rgb, degrees, BlendMode, LineCapStyle, StandardFonts } from "pdf-lib";
+  import { PDFDocument, rgb, degrees, BlendMode, LineCapStyle } from "pdf-lib";
 
   let {
     onMinimize,
@@ -198,7 +198,13 @@
       const payload = await invoke<FilePayload>("native_open_file");
       if (payload && payload.bytes) {
         const typedBytes = new Uint8Array(payload.bytes);
-        const loadingTask = pdfjsLib.getDocument({ data: typedBytes.slice(0) });
+        const loadingTask = pdfjsLib.getDocument({
+          data: typedBytes.slice(0),
+          cMapUrl: window.location.origin + "/cmaps/",
+          cMapPacked: true,
+          standardFontDataUrl: window.location.origin + "/standard_fonts/",
+          wasmUrl: window.location.origin + "/"
+        });
         const pdfDocument = await loadingTask.promise;
 
         activeDoc.rawBytes = typedBytes;
@@ -228,6 +234,7 @@
       }
       const savedPath = await invoke<string>("native_save_as_file", {
         fileBytes: Array.from(compiledBytes),
+        defaultPath: activeDoc.fileName || 'Untitled.pdf'
       });
       activeDoc.filePath = savedPath;
       if (savedPath) {
@@ -276,6 +283,11 @@
     activeDoc.currentPage = 1;
     activeDoc.shapes = {};
   }
+
+  // Export methods to be called via bind:this reference
+  export const triggerOpen = triggerFileOpen;
+  export const triggerSave = triggerFileSave;
+  export const triggerSaveAs = triggerFileSaveAs;
 </script>
 
 <div

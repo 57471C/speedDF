@@ -8,6 +8,7 @@
   import ToolSidebar from "../components/ToolSidebar.svelte";
   import Workspace from "../components/Workspace.svelte";
   import PageSidebar from "../components/PageSidebar.svelte";
+  import ContextMenu from "../components/ContextMenu.svelte";
   import {
     activeDoc,
     executeUndoAction,
@@ -19,6 +20,22 @@
 
   let zoomScale = $state(120);
   let showHelpModal = $state(false);
+  let titleBarRef = $state<any>(null);
+
+  let showMenu = $state(false);
+  let menuX = $state(0);
+  let menuY = $state(0);
+
+  function handleRightClick(e: MouseEvent) {
+    e.preventDefault();
+    menuX = e.clientX;
+    menuY = e.clientY;
+    showMenu = true;
+  }
+
+  function closeMenu() {
+    showMenu = false;
+  }
 
   const appWindow = getCurrentWindow();
 
@@ -32,9 +49,12 @@
     path: string;
   }
 
-  onMount(async () => {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+  if (typeof window !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = window.location.origin + "/pdf.worker.min.mjs";
+    (pdfjsLib.GlobalWorkerOptions as any).wasmUrl = window.location.origin + "/";
+  }
 
+  onMount(async () => {
     try {
       console.log(
         "Checking for startup single-file execution arguments handshake...",
@@ -44,7 +64,13 @@
       if (payload && payload.bytes && payload.bytes.length > 0) {
         console.log(`Loading single-file payload launch: ${payload.name}`);
         const typedBytes = new Uint8Array(payload.bytes);
-        const loadingTask = pdfjsLib.getDocument({ data: typedBytes.slice(0) });
+        const loadingTask = pdfjsLib.getDocument({
+          data: typedBytes.slice(0),
+          cMapUrl: window.location.origin + "/cmaps/",
+          cMapPacked: true,
+          standardFontDataUrl: window.location.origin + "/standard_fonts/",
+          wasmUrl: window.location.origin + "/"
+        });
         const pdfDocument = await loadingTask.promise;
 
         activeDoc.rawBytes = typedBytes;
@@ -71,29 +97,49 @@
       }
 
       const isCtrl = event.ctrlKey || event.metaKey;
+      const isShift = event.shiftKey;
 
       if (isCtrl) {
-        switch (event.key.toLowerCase()) {
-          case "z":
-            event.preventDefault();
-            executeUndoAction();
-            break;
-          case "y":
-            event.preventDefault();
-            executeRedoAction();
-            break;
-          case "arrowleft":
-            event.preventDefault();
-            if (activeDoc.currentPage) {
-              rotatePageAction(activeDoc.currentPage, "counter");
+        const key = event.key.toLowerCase();
+        if (key === "o") {
+          event.preventDefault();
+          if (titleBarRef?.triggerOpen) {
+            titleBarRef.triggerOpen();
+          }
+        } else if (key === "s") {
+          event.preventDefault();
+          if (isShift) {
+            if (titleBarRef?.triggerSaveAs) {
+              titleBarRef.triggerSaveAs();
             }
-            break;
-          case "arrowright":
-            event.preventDefault();
-            if (activeDoc.currentPage) {
-              rotatePageAction(activeDoc.currentPage, "clockwise");
+          } else {
+            if (titleBarRef?.triggerSave) {
+              titleBarRef.triggerSave();
             }
-            break;
+          }
+        } else {
+          switch (key) {
+            case "z":
+              event.preventDefault();
+              executeUndoAction();
+              break;
+            case "y":
+              event.preventDefault();
+              executeRedoAction();
+              break;
+            case "arrowleft":
+              event.preventDefault();
+              if (activeDoc.currentPage) {
+                rotatePageAction(activeDoc.currentPage, "counter");
+              }
+              break;
+            case "arrowright":
+              event.preventDefault();
+              if (activeDoc.currentPage) {
+                rotatePageAction(activeDoc.currentPage, "clockwise");
+              }
+              break;
+          }
         }
       } else {
         if (event.key === "F1") {
@@ -105,10 +151,14 @@
   });
 </script>
 
+<svelte:window onclick={closeMenu} onkeydown={closeMenu} />
+
 <div
+  oncontextmenu={handleRightClick}
   class="flex flex-col h-screen w-screen overflow-hidden select-none bg-[#070a12] text-slate-100 font-sans antialiased"
 >
   <TitleBar
+    bind:this={titleBarRef}
     onMinimize={minimizeApp}
     onMaximize={maximizeApp}
     onClose={closeApp}
@@ -141,7 +191,7 @@
           >
           <span
             class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v0.5.5</span
+            >v0.6.0</span
           >
         </div>
         <button
@@ -190,6 +240,40 @@
                 class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
                 >F1</kbd
               > <span>Toggle This System Control Panel</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4
+            class="text-slate-100 font-bold uppercase tracking-wide text-[11px] mb-2.5 flex items-center gap-1.5 text-cyan-400"
+          >
+            🌐 Canvas Navigation
+          </h4>
+          <div
+            class="bg-slate-950/50 rounded-lg border border-slate-900 p-3 grid grid-cols-2 gap-2 font-mono text-[11px]"
+          >
+            <div class="flex items-center gap-2">
+              <span class="flex gap-1">
+                <kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600">Spacebar</kbd>
+                <span class="text-slate-500 font-sans">+</span>
+                <kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600">Drag</kbd>
+              </span>
+              <span>Pan Workspace</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="flex gap-1">
+                <kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600">Ctrl</kbd>
+                <span class="text-slate-500 font-sans">+</span>
+                <kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600">Wheel</kbd>
+              </span>
+              <span>Dynamic Zoom</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <kbd
+                class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                >Ctrl + P</kbd
+              > <span>Print Document</span>
             </div>
           </div>
         </div>
@@ -274,3 +358,12 @@
     </div>
   </div>
 {/if}
+
+<ContextMenu
+  bind:show={showMenu}
+  x={menuX}
+  y={menuY}
+  onOpen={() => titleBarRef?.triggerOpen?.()}
+  onSave={() => titleBarRef?.triggerSave?.()}
+  onSaveAs={() => titleBarRef?.triggerSaveAs?.()}
+/>

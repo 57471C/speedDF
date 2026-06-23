@@ -1,8 +1,8 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
 	"productName": "speeddf",
-	"version": "0.5.5",
-	"identifier": "com.speeddf.app",
+	"version": "0.6.0",
+	"identifier": "com.speeddf.doc",
 	"build": {
 		"beforeDevCommand": "npm run dev",
 		"devUrl": "http://localhost:1420",

@@ -69,10 +69,11 @@ async fn native_open_file() -> Result<FilePayload, String> {
 
 // 2. NATIVE WINDOWS FILE SAVE AS DIALOG
 #[tauri::command]
-async fn native_save_as_file(file_bytes: Vec<u8>) -> Result<String, String> {
+async fn native_save_as_file(file_bytes: Vec<u8>, default_path: Option<String>) -> Result<String, String> {
+    let file_name = default_path.unwrap_or_else(|| "edited_document.pdf".to_string());
     let file_path = rfd::AsyncFileDialog::new()
         .add_filter("PDF Document", &["pdf"])
-        .set_file_name("edited_document.pdf")
+        .set_file_name(&file_name)
         .save_file()
         .await;
 

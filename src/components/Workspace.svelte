@@ -119,14 +119,109 @@
     activeDoc.scrollHeight = target.scrollHeight;
     activeDoc.clientHeight = target.clientHeight;
   }
+
+  // Ctrl + Mouse Wheel Zooming
+  $effect(() => {
+    if (!scrollContainer) return;
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+          zoomScale = Math.min(200, zoomScale + 10);
+        } else if (e.deltaY > 0) {
+          zoomScale = Math.max(50, zoomScale - 10);
+        }
+      }
+    };
+    scrollContainer.addEventListener("wheel", handleWheel, { passive: false });
+    return () => {
+      scrollContainer?.removeEventListener("wheel", handleWheel);
+    };
+  });
+
+  // Spacebar + Left-Click Drag Panning
+  let isSpacePressed = $state(false);
+  let isDragging = $state(false);
+  let startX = 0;
+  let startY = 0;
+  let scrollLeftStart = 0;
+  let scrollTopStart = 0;
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.code === 'Space') {
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (
+        activeEl.tagName === 'INPUT' ||
+        activeEl.tagName === 'TEXTAREA' ||
+        activeEl.getAttribute('contenteditable') === 'true'
+      );
+      if (!isInput) {
+        e.preventDefault();
+        isSpacePressed = true;
+      }
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
+      e.preventDefault();
+      window.print();
+    }
+  }
+
+  function handleKeyUp(e: KeyboardEvent) {
+    if (e.code === 'Space') {
+      isSpacePressed = false;
+    }
+  }
+
+  function handlePointerDown(e: PointerEvent) {
+    if (isSpacePressed && scrollContainer) {
+      isDragging = true;
+      scrollContainer.setPointerCapture(e.pointerId);
+      startX = e.clientX;
+      startY = e.clientY;
+      scrollLeftStart = scrollContainer.scrollLeft;
+      scrollTopStart = scrollContainer.scrollTop;
+    }
+  }
+
+  function handlePointerMove(e: PointerEvent) {
+    if (isDragging && scrollContainer) {
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      scrollContainer.scrollLeft = scrollLeftStart - dx;
+      scrollContainer.scrollTop = scrollTopStart - dy;
+    }
+  }
+
+  function handlePointerUp(e: PointerEvent) {
+    if (isDragging) {
+      isDragging = false;
+      if (scrollContainer) {
+        try {
+          scrollContainer.releasePointerCapture(e.pointerId);
+        } catch (err) {}
+      }
+    }
+  }
+
+  function handlePointerLeave(e: PointerEvent) {
+    if (isDragging) {
+      isDragging = false;
+    }
+  }
 </script>
 
-<svelte:window onclick={handleWindowClick} />
+<svelte:window onclick={handleWindowClick} onkeydown={handleKeyDown} onkeyup={handleKeyUp} />
 
 <div
   bind:this={scrollContainer}
   onscroll={handleScroll}
-  class="flex-1 h-full overflow-y-auto bg-[#0b0f19] flex flex-col items-center pt-8 px-4 relative scroll-smooth"
+  onpointerdown={handlePointerDown}
+  onpointermove={handlePointerMove}
+  onpointerup={handlePointerUp}
+  onpointerleave={handlePointerLeave}
+  class="flex-1 h-full overflow-auto bg-[#0b0f19] flex flex-col items-center pt-8 px-4 relative workspace-scroll-container {isDragging ? '' : 'scroll-smooth'}"
+  style={isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : ''}
 >
   {#if showFloatingMenu}
     <div
@@ -439,5 +534,19 @@
   input[type="number"] {
     -moz-appearance: textfield;
     appearance: textfield;
+  }
+
+  @media print {
+    /* Hide all workspace panels, controls, floating HUDs, and background bars */
+    :global(body), :global(#app), .fixed, .absolute, button, select, input {
+      display: none !important;
+    }
+    /* Force the workspace canvas viewport container to occupy single page blocks */
+    .workspace-scroll-container {
+      overflow: visible !important;
+      position: static !important;
+      width: 100% !important;
+      height: auto !important;
+    }
   }
 </style>
