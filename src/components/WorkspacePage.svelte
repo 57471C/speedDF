@@ -12,6 +12,67 @@
   let pageContainer = $state<HTMLDivElement | null>(null);
   let rendering = false;
 
+  let isViewable = $state(false);
+  let basePageWidth = $state<number>(612); // standard letter/A4 default fallback
+  let basePageHeight = $state<number>(792);
+  let loadedDimensions = $state(false);
+
+  let activeRenderTask: any = null;
+  let activePdfPage: any = null;
+
+  // Calculate the current expected width and height (CSS pixels)
+  // based on current zoomScale and rotations
+  const expectedDimensions = $derived.by(() => {
+    const scale = zoomScale / 100;
+    const rotationAngle = activeDoc.rotations[pageNumber] ?? 0;
+    const totalRotation = rotationAngle % 360;
+    
+    // If rotated by 90 or 270 degrees, swap width and height
+    const isStandardPortrait = (totalRotation / 90) % 2 === 0;
+    const w = isStandardPortrait ? basePageWidth : basePageHeight;
+    const h = isStandardPortrait ? basePageHeight : basePageWidth;
+    
+    return {
+      width: w * scale,
+      height: h * scale,
+      aspectRatio: w / h
+    };
+  });
+
+  // Load page dimensions initially to get aspect ratio
+  $effect(() => {
+    if (bytes && pageNumber && !loadedDimensions) {
+      const loadingTask = pdfjsLib.getDocument({
+        data: bytes.slice(0),
+        cMapUrl: window.location.origin + "/cmaps/",
+        cMapPacked: true,
+        standardFontDataUrl: window.location.origin + "/standard_fonts/",
+        wasmUrl: window.location.origin + "/"
+      });
+      loadingTask.promise.then((pdfDocument) => {
+        return pdfDocument.getPage(pageNumber);
+      }).then((page) => {
+        const viewport = page.getViewport({ scale: 1 });
+        basePageWidth = viewport.width;
+        basePageHeight = viewport.height;
+        loadedDimensions = true;
+      }).catch(err => {
+        console.error("Failed to load page dimensions:", err);
+      });
+    }
+  });
+
+  function canvasLifecycle(node: HTMLCanvasElement) {
+    canvasElement = node;
+    return {
+      destroy() {
+        node.width = 0;
+        node.height = 0;
+        canvasElement = null;
+      }
+    };
+  }
+
   let isDrawing = $state(false);
   let startX = $state(0);
   let startY = $state(0);
@@ -71,8 +132,25 @@
 
   $effect(() => {
     const degrees = activeDoc.rotations[pageNumber] ?? 0;
-    if (bytes && canvasElement && zoomScale) {
+    if (isViewable && bytes && canvasElement && zoomScale) {
       renderPageSheet(bytes, pageNumber, zoomScale, canvasElement, degrees);
+    }
+  });
+
+  $effect(() => {
+    if (!isViewable) {
+      if (activeRenderTask) {
+        try {
+          activeRenderTask.cancel();
+        } catch (e) {}
+        activeRenderTask = null;
+      }
+      if (activePdfPage) {
+        try {
+          activePdfPage.cleanup();
+        } catch (e) {}
+        activePdfPage = null;
+      }
     }
   });
 
@@ -83,7 +161,14 @@
     canvas: HTMLCanvasElement,
     rotationAngle: number,
   ) {
-    if (rendering) return;
+    if (rendering) {
+      if (activeRenderTask) {
+        try {
+          activeRenderTask.cancel();
+        } catch (e) {}
+        activeRenderTask = null;
+      }
+    }
     rendering = true;
     try {
       const loadingTask = pdfjsLib.getDocument({
@@ -95,6 +180,7 @@
       });
       const pdfDocument = await loadingTask.promise;
       const page = await pdfDocument.getPage(pageNum);
+      activePdfPage = page;
       
       const dpr = window.devicePixelRatio || 1;
       const baseScale = scale / 100;
@@ -109,12 +195,14 @@
         canvas.height = adjustedViewport.height;
         canvas.style.width = `${adjustedViewport.width / dpr}px`;
         canvas.style.height = `${adjustedViewport.height / dpr}px`;
-        await page.render({ canvas: canvas, viewport: adjustedViewport }).promise;
+        activeRenderTask = page.render({ canvas: canvas, viewport: adjustedViewport });
+        await activeRenderTask.promise;
       }
     } catch (error) {
       console.error(error);
     } finally {
       rendering = false;
+      activeRenderTask = null;
     }
   }
 
@@ -466,11 +554,31 @@
       },
       { root: trueScrollViewport || null, threshold: 0.4 },
     );
+
+    const bufferObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            isViewable = true;
+          } else {
+            isViewable = false;
+          }
+        }
+      },
+      {
+        root: null,
+        rootMargin: '3500px 0px 3500px 0px',
+        threshold: 0.01
+      }
+    );
+
     window.addEventListener("keydown", handleGlobalKeyDown);
     observer.observe(pageContainer);
+    bufferObserver.observe(pageContainer);
     return () => {
       window.removeEventListener("keydown", handleGlobalKeyDown);
       observer.disconnect();
+      bufferObserver.disconnect();
     };
   });
 
@@ -497,10 +605,12 @@
     isDrawing = false;
   }}
   class="bg-white relative rounded-sm mb-12 select-none"
-  style="box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.65);"
+  style="box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.65); width: {expectedDimensions.width}px; min-height: {expectedDimensions.height}px; aspect-ratio: {expectedDimensions.aspectRatio};"
 >
-  <canvas bind:this={canvasElement} class="block max-w-full h-auto rounded-sm"
-  ></canvas>
+  {#if isViewable}
+    <canvas use:canvasLifecycle class="block max-w-full h-auto rounded-sm"
+    ></canvas>
+  {/if}
 
   <div
     class="absolute inset-0 overflow-hidden rounded-sm select-none z-30 {[
