@@ -3,16 +3,18 @@
   import { onMount } from "svelte";
   import { activeDoc, type AnnotationShape, pushHistorySnapshot, FONT_MAP } from "../pdfStore.svelte";
 
-  let { bytes, pageNumber, zoomScale } = $props<{
+  let { bytes, pageNumber, zoomScale, isSystemPrinting = false } = $props<{
     bytes: Uint8Array;
     pageNumber: number;
     zoomScale: number;
+    isSystemPrinting?: boolean;
   }>();
   let canvasElement = $state<HTMLCanvasElement | null>(null);
   let pageContainer = $state<HTMLDivElement | null>(null);
   let rendering = false;
 
-  let isViewable = $state(false);
+  let isPreloaded = $state(false); // Tracks metadata visibility (Wide)
+  let isRendered = $state(false);  // Tracks canvas paint visibility (Tight)
   let basePageWidth = $state<number>(612); // standard letter/A4 default fallback
   let basePageHeight = $state<number>(792);
   let loadedDimensions = $state(false);
@@ -41,7 +43,7 @@
 
   // Load page dimensions initially to get aspect ratio
   $effect(() => {
-    if (bytes && pageNumber && !loadedDimensions) {
+    if (isPreloaded && bytes && pageNumber && !loadedDimensions) {
       const loadingTask = pdfjsLib.getDocument({
         data: bytes.slice(0),
         cMapUrl: window.location.origin + "/cmaps/",
@@ -66,12 +68,22 @@
     canvasElement = node;
     return {
       destroy() {
-        node.width = 0;
-        node.height = 0;
-        canvasElement = null;
+        if (!isSystemPrinting) {
+          node.width = 0;
+          node.height = 0;
+          canvasElement = null;
+        }
       }
     };
   }
+
+  // Short-circuit the page observers/render state during printing
+  $effect(() => {
+    if (isSystemPrinting) {
+      isPreloaded = true;
+      isRendered = true;
+    }
+  });
 
   let isDrawing = $state(false);
   let startX = $state(0);
@@ -132,13 +144,13 @@
 
   $effect(() => {
     const degrees = activeDoc.rotations[pageNumber] ?? 0;
-    if (isViewable && bytes && canvasElement && zoomScale) {
+    if (isRendered && bytes && canvasElement && zoomScale) {
       renderPageSheet(bytes, pageNumber, zoomScale, canvasElement, degrees);
     }
   });
 
   $effect(() => {
-    if (!isViewable) {
+    if (!isRendered && !isSystemPrinting) {
       if (activeRenderTask) {
         try {
           activeRenderTask.cancel();
@@ -555,13 +567,14 @@
       { root: trueScrollViewport || null, threshold: 0.4 },
     );
 
-    const bufferObserver = new IntersectionObserver(
+    const preloadObserver = new IntersectionObserver(
       (entries) => {
+        if (isSystemPrinting) return;
         for (const entry of entries) {
           if (entry.isIntersecting) {
-            isViewable = true;
+            isPreloaded = true;
           } else {
-            isViewable = false;
+            isPreloaded = false;
           }
         }
       },
@@ -572,13 +585,33 @@
       }
     );
 
+    const paintObserver = new IntersectionObserver(
+      (entries) => {
+        if (isSystemPrinting) return;
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            isRendered = true;
+          } else {
+            isRendered = false;
+          }
+        }
+      },
+      {
+        root: null,
+        rootMargin: '1200px 0px 1200px 0px',
+        threshold: 0.01
+      }
+    );
+
     window.addEventListener("keydown", handleGlobalKeyDown);
     observer.observe(pageContainer);
-    bufferObserver.observe(pageContainer);
+    preloadObserver.observe(pageContainer);
+    paintObserver.observe(pageContainer);
     return () => {
       window.removeEventListener("keydown", handleGlobalKeyDown);
       observer.disconnect();
-      bufferObserver.disconnect();
+      preloadObserver.disconnect();
+      paintObserver.disconnect();
     };
   });
 
@@ -607,7 +640,7 @@
   class="bg-white relative rounded-sm mb-12 select-none"
   style="box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.65); width: {expectedDimensions.width}px; min-height: {expectedDimensions.height}px; aspect-ratio: {expectedDimensions.aspectRatio};"
 >
-  {#if isViewable}
+  {#if isRendered}
     <canvas use:canvasLifecycle class="block max-w-full h-auto rounded-sm"
     ></canvas>
   {/if}

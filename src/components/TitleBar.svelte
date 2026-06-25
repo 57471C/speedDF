@@ -9,11 +9,13 @@
     onMaximize,
     onClose,
     onToggleHelp,
+    onPrint,
   }: {
     onMinimize: () => void;
     onMaximize: () => void;
     onClose: () => void;
     onToggleHelp: () => void;
+    onPrint?: () => void;
   } = $props();
 
   interface FilePayload {
@@ -284,10 +286,20 @@
     activeDoc.shapes = {};
   }
 
+  function handlePrintClick() {
+    console.log("TitleBar: Print icon button physically clicked. Prop onPrint exists?", !!onPrint);
+    if (onPrint) {
+      onPrint();
+    } else {
+      console.error("TitleBar: onPrint prop callback is undefined/not passed!");
+    }
+  }
+
   // Export methods to be called via bind:this reference
   export const triggerOpen = triggerFileOpen;
   export const triggerSave = triggerFileSave;
   export const triggerSaveAs = triggerFileSaveAs;
+  export const getAnnotatedPdfBytes = flattenWorkspaceToPDF;
 </script>
 
 <div
@@ -382,6 +394,28 @@
 
     <div class="flex items-center gap-3 z-50">
       <div class="flex items-center gap-1">
+        <button
+          onclick={handlePrintClick}
+          class="titlebar-btn p-1 rounded-md text-slate-400 hover:!text-white transition-colors flex items-center justify-center"
+          title="Print Document"
+          aria-label="Print Document"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+            <rect x="6" y="14" width="12" height="8"></rect>
+          </svg>
+        </button>
         <button
           onclick={onToggleHelp}
           class="titlebar-btn p-1 rounded-md text-slate-400 hover:!text-white transition-colors flex items-center justify-center"

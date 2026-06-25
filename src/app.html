@@ -4,10 +4,36 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tauri + SvelteKit + Typescript App</title>
+    <title>SpeedDF Editor</title>
     %sveltekit.head%
+    <style>
+      #shortcut-print-notice { display: none; }
+      @media print {
+        /* Hide the entire application layer if native printing is bypassed */
+        body > *:not(#shortcut-print-notice) { 
+          display: none !important; 
+        }
+        /* Display a professional fallback notification box instead of a blank page */
+        #shortcut-print-notice {
+          display: block !important;
+          font-family: system-ui, -apple-system, sans-serif;
+          text-align: center;
+          margin: 15% auto;
+          max-width: 500px;
+          padding: 30px;
+          border: 2px dashed #cbd5e1;
+          border-radius: 8px;
+          color: #334155;
+        }
+        #shortcut-print-notice h2 { margin-top: 0; color: #0f172a; }
+      }
+    </style>
   </head>
   <body data-sveltekit-preload-data="hover">
+    <div id="shortcut-print-notice">
+      <h2>Print Notification</h2>
+      <p>To print your active document along with all text markups and custom annotations, please close this window and use the <strong>Printer Icon</strong> located in the top application toolbar.</p>
+    </div>
     <div style="display: contents">%sveltekit.body%</div>
   </body>
 </html>

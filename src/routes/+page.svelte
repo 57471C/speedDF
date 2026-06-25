@@ -16,11 +16,11 @@
     rotatePageAction,
   } from "../pdfStore.svelte";
 
-
-
   let zoomScale = $state(120);
   let showHelpModal = $state(false);
   let titleBarRef = $state<any>(null);
+  let isSystemPrinting = $state(false);
+  let isPreparingPrint = $state(false);
 
   let showMenu = $state(false);
   let menuX = $state(0);
@@ -49,9 +49,39 @@
     path: string;
   }
 
-  if (typeof window !== 'undefined') {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = window.location.origin + "/pdf.worker.min.mjs";
-    (pdfjsLib.GlobalWorkerOptions as any).wasmUrl = window.location.origin + "/";
+  if (typeof window !== "undefined") {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      window.location.origin + "/pdf.worker.min.mjs";
+    (pdfjsLib.GlobalWorkerOptions as any).wasmUrl =
+      window.location.origin + "/";
+  }
+
+  async function executeNativePrint() {
+    console.log("MAIN PAGE: Initiating Native Shell Print Handoff...");
+    try {
+      // 1. Grab the raw PDF byte array
+      console.log("MAIN PAGE: Fetching vector bytes...");
+      const pdfBytes = await titleBarRef.getAnnotatedPdfBytes();
+
+      // 2. Define a temp file path
+      const tempFileName = `speedDF_print_${Date.now()}.pdf`;
+      console.log(`MAIN PAGE: Writing to Temp directory: ${tempFileName}`);
+
+      // 3. Write directly to the OS Temp folder
+      const fullPath = await invoke<string>("write_temp_file", {
+        bytes: pdfBytes,
+        fileName: tempFileName,
+      });
+
+      console.log(
+        `MAIN PAGE: Bypassing default reader trap. Forcing Edge handoff for: ${fullPath}`,
+      );
+
+      await invoke("print_via_edge", { filePath: fullPath });
+      console.log("MAIN PAGE: Rust print handoff complete.");
+    } catch (err) {
+      console.error("MAIN PAGE: Shell Handoff Failed:", err);
+    }
   }
 
   onMount(async () => {
@@ -69,7 +99,7 @@
           cMapUrl: window.location.origin + "/cmaps/",
           cMapPacked: true,
           standardFontDataUrl: window.location.origin + "/standard_fonts/",
-          wasmUrl: window.location.origin + "/"
+          wasmUrl: window.location.origin + "/",
         });
         const pdfDocument = await loadingTask.promise;
 
@@ -88,7 +118,7 @@
       console.warn("Startup file handshake processing failed:", err);
     }
 
-    window.addEventListener("keydown", (event: KeyboardEvent) => {
+    window.addEventListener("keydown", (e: KeyboardEvent) => {
       if (
         document.activeElement?.tagName === "INPUT" ||
         document.activeElement?.tagName === "TEXTAREA"
@@ -96,18 +126,18 @@
         return;
       }
 
-      const isCtrl = event.ctrlKey || event.metaKey;
-      const isShift = event.shiftKey;
+      const isCtrl = e.ctrlKey || e.metaKey;
+      const isShift = e.shiftKey;
 
       if (isCtrl) {
-        const key = event.key.toLowerCase();
+        const key = e.key.toLowerCase();
         if (key === "o") {
-          event.preventDefault();
+          e.preventDefault();
           if (titleBarRef?.triggerOpen) {
             titleBarRef.triggerOpen();
           }
         } else if (key === "s") {
-          event.preventDefault();
+          e.preventDefault();
           if (isShift) {
             if (titleBarRef?.triggerSaveAs) {
               titleBarRef.triggerSaveAs();
@@ -120,21 +150,21 @@
         } else {
           switch (key) {
             case "z":
-              event.preventDefault();
+              e.preventDefault();
               executeUndoAction();
               break;
             case "y":
-              event.preventDefault();
+              e.preventDefault();
               executeRedoAction();
               break;
             case "arrowleft":
-              event.preventDefault();
+              e.preventDefault();
               if (activeDoc.currentPage) {
                 rotatePageAction(activeDoc.currentPage, "counter");
               }
               break;
             case "arrowright":
-              event.preventDefault();
+              e.preventDefault();
               if (activeDoc.currentPage) {
                 rotatePageAction(activeDoc.currentPage, "clockwise");
               }
@@ -142,8 +172,8 @@
           }
         }
       } else {
-        if (event.key === "F1") {
-          event.preventDefault();
+        if (e.key === "F1") {
+          e.preventDefault();
           showHelpModal = !showHelpModal;
         }
       }
@@ -163,11 +193,12 @@
     onMaximize={maximizeApp}
     onClose={closeApp}
     onToggleHelp={() => (showHelpModal = !showHelpModal)}
+    onPrint={executeNativePrint}
   />
 
   <div class="flex flex-1 w-full overflow-hidden relative">
     <ToolSidebar bind:zoomScale />
-    <Workspace {zoomScale} />
+    <Workspace {zoomScale} {isSystemPrinting} />
     <PageSidebar />
   </div>
 </div>
@@ -191,7 +222,7 @@
           >
           <span
             class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v0.6.0</span
+            >v0.6.1</span
           >
         </div>
         <button
@@ -255,17 +286,29 @@
           >
             <div class="flex items-center gap-2">
               <span class="flex gap-1">
-                <kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600">Spacebar</kbd>
+                <kbd
+                  class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                  >Spacebar</kbd
+                >
                 <span class="text-slate-500 font-sans">+</span>
-                <kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600">Drag</kbd>
+                <kbd
+                  class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                  >Drag</kbd
+                >
               </span>
               <span>Pan Workspace</span>
             </div>
             <div class="flex items-center gap-2">
               <span class="flex gap-1">
-                <kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600">Ctrl</kbd>
+                <kbd
+                  class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                  >Ctrl</kbd
+                >
                 <span class="text-slate-500 font-sans">+</span>
-                <kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600">Wheel</kbd>
+                <kbd
+                  class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                  >Wheel</kbd
+                >
               </span>
               <span>Dynamic Zoom</span>
             </div>

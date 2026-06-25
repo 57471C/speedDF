@@ -110,6 +110,25 @@ fn unprotect_pdf(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
     Ok(out_bytes)
 }
 
+#[tauri::command]
+async fn write_temp_file(bytes: Vec<u8>, file_name: String) -> Result<String, String> {
+    let mut temp_path = std::env::temp_dir();
+    temp_path.push(file_name);
+    std::fs::write(&temp_path, bytes).map_err(|e| e.to_string())?;
+    Ok(temp_path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn print_via_edge(file_path: String) {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "msedge", "--start-fullscreen", &file_path])
+            .spawn()
+            .ok();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -120,7 +139,9 @@ pub fn run() {
             native_save_as_file,
             native_overwrite_file,
             check_startup_file,
-            unprotect_pdf
+            unprotect_pdf,
+            write_temp_file,
+            print_via_edge
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

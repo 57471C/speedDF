@@ -2,7 +2,7 @@
   import WorkspacePage from "./WorkspacePage.svelte";
   import { activeDoc, FONT_MAP, pushHistorySnapshot } from "../pdfStore.svelte";
 
-  let { zoomScale = $bindable(120) } = $props<{ zoomScale: number }>();
+  let { zoomScale = $bindable(120), isSystemPrinting = false } = $props<{ zoomScale: number; isSystemPrinting: boolean }>();
   let scrollContainer = $state<HTMLDivElement | null>(null);
 
   // ⚡ FIXED: Automatically measures the total height of the document when zoom scales or pages change
@@ -303,7 +303,7 @@
 
   {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
     {#each activeDoc.pageOrder as pageNumber (pageNumber)}
-      <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} />
+      <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} {isSystemPrinting} />
     {/each}
   {:else}
     <div
