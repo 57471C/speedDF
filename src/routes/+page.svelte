@@ -22,6 +22,104 @@
   let isSystemPrinting = $state(false);
   let isPreparingPrint = $state(false);
 
+  interface RecentFile {
+    name: string;
+    path: string;
+    timestamp: number;
+    thumbnail: string;
+  }
+
+  let recentFiles = $state<RecentFile[]>([]);
+  let fileStatusMap = $state<Record<string, boolean>>({});
+
+  // Capture Page 1 from incoming bytes, convert to Base64 data URL, and update storage
+  async function registerRecentFile(name: string, path: string, bytes: Uint8Array) {
+    try {
+      const loadingTask = pdfjsLib.getDocument({ data: bytes.slice(0) });
+      const pdfDocument = await loadingTask.promise;
+      const page = await pdfDocument.getPage(1);
+      
+      // Render a small scaled offscreen canvas to extract clean base64 data
+      const viewport = page.getViewport({ scale: 0.3 });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext("2d");
+      
+      if (ctx) {
+        await page.render({ canvasContext: ctx, viewport } as any).promise;
+        const dataUrl = canvas.toDataURL("image/png");
+        
+        let currentList: RecentFile[] = [];
+        const stored = localStorage.getItem("speeddf_recents");
+        if (stored) currentList = JSON.parse(stored);
+        
+        // Remove duplicate path strings if they already exist
+        currentList = currentList.filter(f => f.path !== path);
+        
+        // Prepend the new document item to the front of the tracking queue
+        currentList.unshift({ name, path, timestamp: Date.now(), thumbnail: dataUrl });
+        
+        // Cap array length at 10 items total
+        if (currentList.length > 10) currentList = currentList.slice(0, 10);
+        
+        localStorage.setItem("speeddf_recents", JSON.stringify(currentList));
+        recentFiles = currentList;
+      }
+    } catch (err) {
+      console.error("Failed to extract snapshot for recent files tracker:", err);
+    }
+  }
+
+  async function openRecentFile(name: string, path: string) {
+    try {
+      const payload = await invoke<StartupPayload>("read_file_bytes", { path });
+      if (payload && payload.bytes) {
+        const typedBytes = new Uint8Array(payload.bytes);
+        const loadingTask = pdfjsLib.getDocument({
+          data: typedBytes.slice(0),
+          cMapUrl: window.location.origin + "/cmaps/",
+          cMapPacked: true,
+          standardFontDataUrl: window.location.origin + "/standard_fonts/",
+          wasmUrl: window.location.origin + "/",
+        });
+        const pdfDocument = await loadingTask.promise;
+
+        activeDoc.rawBytes = typedBytes;
+        activeDoc.pageCount = pdfDocument.numPages;
+        activeDoc.pageOrder = Array.from(
+          { length: pdfDocument.numPages },
+          (_, idx) => idx + 1,
+        );
+        activeDoc.currentPage = 1;
+        activeDoc.shapes = {};
+        activeDoc.fileName = payload.name;
+        activeDoc.filePath = payload.path;
+
+        await registerRecentFile(payload.name, payload.path, typedBytes);
+      }
+    } catch (err) {
+      console.error("Failed to load recent file:", err);
+    }
+  }
+
+  // Auto-track files when they are loaded into activeDoc
+  $effect(() => {
+    if (activeDoc.rawBytes && activeDoc.fileName && activeDoc.filePath) {
+      const stored = localStorage.getItem("speeddf_recents");
+      let currentList: RecentFile[] = [];
+      if (stored) {
+        try {
+          currentList = JSON.parse(stored);
+        } catch (e) {}
+      }
+      const alreadyFirst = currentList[0] && currentList[0].path === activeDoc.filePath;
+      if (!alreadyFirst) {
+        registerRecentFile(activeDoc.fileName, activeDoc.filePath, activeDoc.rawBytes);
+      }
+    }
+  });
+
   let showMenu = $state(false);
   let menuX = $state(0);
   let menuY = $state(0);
@@ -85,6 +183,22 @@
   }
 
   onMount(async () => {
+    // Load recents list on app mount and audit file locations using our Rust command
+    const stored = localStorage.getItem("speeddf_recents");
+    if (stored) {
+      try {
+        recentFiles = JSON.parse(stored);
+        const paths = recentFiles.map(f => f.path);
+        if (paths.length > 0) {
+          invoke<Record<string, boolean>>("check_files_exist", { paths })
+            .then(res => { fileStatusMap = res; })
+            .catch(err => console.error("Recent status check failed:", err));
+        }
+      } catch (e) {
+        console.error("Failed to parse recent files queue:", e);
+      }
+    }
+
     try {
       console.log(
         "Checking for startup single-file execution arguments handshake...",
@@ -113,6 +227,8 @@
         activeDoc.shapes = {};
         activeDoc.fileName = payload.name;
         activeDoc.filePath = payload.path;
+
+        await registerRecentFile(payload.name, payload.path, typedBytes);
       }
     } catch (err) {
       console.warn("Startup file handshake processing failed:", err);
@@ -196,11 +312,69 @@
     onPrint={executeNativePrint}
   />
 
-  <div class="flex flex-1 w-full overflow-hidden relative">
-    <ToolSidebar bind:zoomScale />
-    <Workspace {zoomScale} {isSystemPrinting} />
-    <PageSidebar />
-  </div>
+  {#if activeDoc.rawBytes}
+    <div class="flex flex-1 w-full overflow-hidden relative">
+      <ToolSidebar bind:zoomScale />
+      <Workspace {zoomScale} {isSystemPrinting} />
+      <PageSidebar />
+    </div>
+  {:else}
+    <div class="flex-1 w-full flex flex-col justify-center items-center py-8 h-full min-h-[82vh] overflow-hidden bg-[#070a12] text-slate-100 p-12 select-none relative">
+      
+      <div class="m-auto flex flex-col items-center justify-center text-center max-w-sm pointer-events-none select-none animate-fade-in">
+        <svg width="192" height="192" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" style="display: block;"><defs><linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#0f172a"></stop><stop offset="100%" stop-color="#1a2744"></stop></linearGradient><linearGradient id="bolt-grad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#38bdf8"></stop><stop offset="100%" stop-color="#06b6d4"></stop></linearGradient><filter id="bolt-glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="8" result="blur"></feGaussianBlur><feMerge><feMergeNode in="blur"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge></filter><filter id="glow-soft" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="18" result="blur"></feGaussianBlur><feMerge><feMergeNode in="blur"></feMergeNode></feMerge></filter><clipPath id="tile-clip"><rect x="0" y="0" width="512" height="512" rx="108" ry="108"></rect></clipPath></defs><rect x="0" y="0" width="512" height="512" rx="108" ry="108" fill="url(#bg-grad)"></rect><g opacity="0.28"><line x1="52" y1="218" x2="128" y2="218" stroke="#06b6d4" stroke-width="6" stroke-linecap="round"></line><line x1="38" y1="244" x2="118" y2="244" stroke="#06b6d4" stroke-width="5" stroke-linecap="round"></line><line x1="52" y1="270" x2="108" y2="270" stroke="#06b6d4" stroke-width="4" stroke-linecap="round"></line></g><g transform="translate(256, 264) rotate(-4) translate(-256, -264)"><polygon points="168,118 338,118 338,128 348,138 348,420 168,420" fill="#0a1628" opacity="0.5" transform="translate(8, 8)"></polygon><polygon points="162,112 322,112 362,152 362,414 162,414" fill="#1e293b"></polygon><polygon points="322,112 362,112 362,152" fill="#0f172a"></polygon><polygon points="322,112 362,152 322,152" fill="#334155"></polygon><line x1="190" y1="195" x2="330" y2="195" stroke="#334155" stroke-width="7" stroke-linecap="round"></line><line x1="190" y1="218" x2="300" y2="218" stroke="#334155" stroke-width="7" stroke-linecap="round"></line><line x1="190" y1="241" x2="315" y2="241" stroke="#334155" stroke-width="7" stroke-linecap="round"></line><line x1="190" y1="315" x2="330" y2="315" stroke="#334155" stroke-width="6" stroke-linecap="round"></line><line x1="190" y1="336" x2="280" y2="336" stroke="#334155" stroke-width="6" stroke-linecap="round"></line><line x1="190" y1="357" x2="305" y2="357" stroke="#334155" stroke-width="6" stroke-linecap="round"></line></g><ellipse cx="278" cy="264" rx="68" ry="110" fill="#06b6d4" opacity="0.12" filter="url(#glow-soft)"></ellipse><g filter="url(#bolt-glow)"><polygon points="306,138 248,276 284,276 206,396 174,396 236,262 200,262 256,138" fill="url(#bolt-grad)"></polygon></g><polygon points="296,155 254,264 278,264 220,368 246,368 290,264 266,264 302,168" fill="#bae6fd" opacity="0.35"></polygon></svg>
+
+        <h1 class="text-lg font-bold tracking-tight text-slate-100 mb-2" style="font-family: 'Space Grotesk', sans-serif;">
+          speed<span class="text-cyan-400">DF</span>
+        </h1>
+        <p class="text-[11px] text-slate-500 font-medium max-w-xs">
+          Drop any PDF document anywhere into this window, or use the menu toolbar above to begin editing your annotations.
+        </p>
+      </div>
+
+      {#if recentFiles.length > 0}
+        <div class="w-full border-t border-slate-900/40 pt-5 max-w-5xl animate-fade-in pointer-events-auto mt-auto">
+          <h2 class="text-[9px] font-bold uppercase tracking-widest text-slate-500 pl-4 mb-3 text-left">Recent Documents</h2>
+          
+          <div class="flex overflow-x-auto gap-4 px-4 pb-2 scroll-smooth w-full select-none 
+            [&::-webkit-scrollbar]:h-1.5 
+            [&::-webkit-scrollbar-track]:bg-transparent 
+            [&::-webkit-scrollbar-thumb]:bg-slate-800/80 
+            [&::-webkit-scrollbar-thumb]:rounded-full 
+            hover:[&::-webkit-scrollbar-thumb]:bg-slate-700 transition-colors">
+            {#each recentFiles as file}
+              <button 
+                onclick={() => { if (fileStatusMap[file.path] !== false) openRecentFile(file.name, file.path); }}
+                class="group flex flex-col bg-[#0e131f] border border-slate-800/80 hover:border-slate-700 rounded-xl p-3 relative flex-shrink-0 transition-all text-left outline-none w-44 max-w-[180px] {fileStatusMap[file.path] === false ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-[#121927]'}"
+              >
+                <div class="absolute top-3 left-3 z-10">
+                  {#if fileStatusMap[file.path] === false}
+                    <div class="p-0.5 rounded-full bg-[#0e131f]" title="File can't be located">
+                      <svg viewBox="0 0 24 24" class="w-3.5 h-3.5 text-red-500 fill-none stroke-current" stroke-width="3" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+                      </svg>
+                    </div>
+                  {:else if fileStatusMap[file.path] === true}
+                    <span class="flex h-2 w-2 relative">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
+                    </span>
+                  {/if}
+                </div>
+
+                <div class="w-full aspect-[3/4] bg-[#070a12] rounded-lg border border-slate-950 flex items-center justify-center overflow-hidden mb-2.5 relative group-hover:border-slate-800 shadow-inner pointer-events-none">
+                  <img src={file.thumbnail} alt="" class="w-full h-full object-contain bg-white transition-transform group-hover:scale-[1.02]" />
+                </div>
+
+                <span class="text-xs font-bold text-slate-200 truncate w-full group-hover:text-cyan-400 transition-colors pointer-events-none">{file.name}</span>
+                <span class="text-[9px] font-medium text-slate-500 truncate w-full mt-0.5 pointer-events-none" title={file.path}>{file.path}</span>
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+    </div>
+  {/if}
 </div>
 
 {#if showHelpModal}

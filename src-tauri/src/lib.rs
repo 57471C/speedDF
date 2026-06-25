@@ -129,6 +129,45 @@ fn print_via_edge(file_path: String) {
     }
 }
 
+#[tauri::command]
+fn check_files_exist(paths: Vec<String>) -> std::collections::HashMap<String, bool> {
+    paths.into_iter()
+        .map(|path| {
+            let exists = std::path::Path::new(&path).exists();
+            (path, exists)
+        })
+        .collect()
+}
+
+#[tauri::command]
+async fn read_file_binary(path: String) -> Result<Vec<u8>, String> {
+    let mut file = File::open(&path).map_err(|e| e.to_string())?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+    Ok(buffer)
+}
+
+#[tauri::command]
+async fn read_file_bytes(path: String) -> Result<FilePayload, String> {
+    let path_buf = std::path::Path::new(&path);
+    if !path_buf.exists() || !path_buf.is_file() {
+        return Err("File does not exist or is not a file".to_string());
+    }
+    let file_name = path_buf.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "document.pdf".to_string());
+    
+    let mut file = File::open(path_buf).map_err(|e| e.to_string())?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+    
+    Ok(FilePayload {
+        bytes: buffer,
+        name: file_name,
+        path: path.clone(),
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -165,7 +204,10 @@ pub fn run() {
             check_startup_file,
             unprotect_pdf,
             write_temp_file,
-            print_via_edge
+            print_via_edge,
+            check_files_exist,
+            read_file_bytes,
+            read_file_binary
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

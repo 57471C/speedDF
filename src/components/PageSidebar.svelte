@@ -286,6 +286,48 @@
     }
     appendFileInput?.click();
   }
+
+  let draggedIndex = $state<number | null>(null);
+  let hoverIndex = $state<number | null>(null);
+
+function handleDragStart(e: DragEvent, index: number) {
+  e.stopPropagation();
+  draggedIndex = index;
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.dropEffect = "move";
+    e.dataTransfer.setData("text/plain", index.toString());
+  }
+}
+
+function handleDragOver(e: DragEvent, index: number) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = "move";
+  }
+  if (hoverIndex !== index) {
+    hoverIndex = index;
+  }
+}
+
+function handleDrop(e: DragEvent, targetIndex: number) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (draggedIndex === null || draggedIndex === targetIndex) return;
+  
+  pushHistorySnapshot();
+  const newOrder = [...activeDoc.pageOrder];
+  const [movedPage] = newOrder.splice(draggedIndex, 1);
+  newOrder.splice(targetIndex, 0, movedPage);
+  
+  activeDoc.pageOrder = newOrder;
+}
+
+  function handleDragEnd() {
+    draggedIndex = null;
+    hoverIndex = null;
+  }
 </script>
 
 <div
@@ -504,16 +546,23 @@
           <div 
             animate:flip={{ duration: 250 }}
             onclick={(e) => handleGridSelect(e, pageNum)}
-            class="group relative flex flex-col items-center border rounded-xl p-4 transition-all cursor-pointer select-none bg-[#0e131f]
-            {selectedPages.includes(pageNum) ? 'border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.1)] bg-[#1a160f]' : 'border-slate-800 hover:border-slate-700'}"
+            draggable="true"
+            ondragstart={(e) => handleDragStart(e, index)}
+            ondragover={(e) => handleDragOver(e, index)}
+            ondrop={(e) => handleDrop(e, index)}
+            ondragend={handleDragEnd}
+            class="group relative flex flex-col items-center border rounded-xl p-4 transition-all cursor-grab active:cursor-grabbing select-none bg-[#0e131f]
+            {selectedPages.includes(pageNum) ? 'border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.1)] bg-[#1a160f]' : 'border-slate-800 hover:border-slate-700'}
+            {hoverIndex === index && draggedIndex !== index ? 'ring-2 ring-cyan-500/50 scale-[1.02]' : ''}
+            {draggedIndex === index ? 'opacity-30' : ''}"
           >
-            <span class="absolute top-3 left-4 text-[10px] font-mono font-bold {selectedPages.includes(pageNum) ? 'text-amber-400' : 'text-slate-500'}">#{index + 1}</span>
+            <span class="absolute top-3 left-4 text-[10px] font-mono font-bold pointer-events-none {selectedPages.includes(pageNum) ? 'text-amber-400' : 'text-slate-500'}">#{index + 1}</span>
             
             {#if selectedPages.includes(pageNum)}
-              <span class="absolute top-3 right-4 w-4 h-4 bg-amber-500 rounded-full flex items-center justify-center text-[9px] font-black text-black">✓</span>
+              <span class="absolute top-3 right-4 w-4 h-4 bg-amber-500 rounded-full flex items-center justify-center text-[9px] font-black text-black pointer-events-none">✓</span>
             {/if}
             
-            <div class="w-[100px] min-h-[80px] bg-white/5 rounded-lg border border-slate-900/60 overflow-hidden flex items-center justify-center mt-4 shadow-inner relative">
+            <div class="w-[100px] min-h-[80px] bg-white/5 rounded-lg border border-slate-900/60 overflow-hidden flex items-center justify-center mt-4 shadow-inner relative pointer-events-none">
               <canvas
                 use:renderThumbnail={{
                   pageNum,

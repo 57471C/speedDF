@@ -1,6 +1,96 @@
 <script lang="ts">
+  import { onMount } from "svelte";
+  import { invoke } from "@tauri-apps/api/core";
+  import * as pdfjsLib from "pdfjs-dist";
   import WorkspacePage from "./WorkspacePage.svelte";
   import { activeDoc, FONT_MAP, pushHistorySnapshot } from "../pdfStore.svelte";
+
+  interface RecentFile {
+    name: string;
+    path: string;
+    timestamp: number;
+    thumbnail: string;
+  }
+
+  let recentFiles = $state<RecentFile[]>([]);
+  let fileStatusMap = $state<Record<string, boolean>>({});
+
+  onMount(() => {
+    const stored = localStorage.getItem("speeddf_recents");
+    if (stored) {
+      try {
+        recentFiles = JSON.parse(stored);
+        const paths = recentFiles.map(f => f.path);
+        if (paths.length > 0) {
+          invoke<Record<string, boolean>>("check_files_exist", { paths })
+            .then(res => { fileStatusMap = res; })
+            .catch(err => console.error(err));
+        }
+      } catch (e) {}
+    }
+  });
+
+  $effect(() => {
+    if (activeDoc.rawBytes && activeDoc.fileName && activeDoc.filePath) {
+      registerRecentFile(activeDoc.fileName, activeDoc.filePath, activeDoc.rawBytes);
+    }
+  });
+
+  async function registerRecentFile(name: string, path: string, bytes: Uint8Array) {
+    try {
+      const loadingTask = pdfjsLib.getDocument({ data: bytes.slice(0) });
+      const pdfDocument = await loadingTask.promise;
+      const page = await pdfDocument.getPage(1);
+      const viewport = page.getViewport({ scale: 0.3 });
+      
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext("2d");
+      
+      if (ctx) {
+        await page.render({ canvasContext: ctx, viewport } as any).promise;
+        const dataUrl = canvas.toDataURL("image/png");
+        
+        let currentList: RecentFile[] = [];
+        const stored = localStorage.getItem("speeddf_recents");
+        if (stored) currentList = JSON.parse(stored);
+        
+        currentList = currentList.filter(f => f.path !== path);
+        currentList.unshift({ name, path, timestamp: Date.now(), thumbnail: dataUrl });
+        if (currentList.length > 10) currentList = currentList.slice(0, 10);
+        
+        localStorage.setItem("speeddf_recents", JSON.stringify(currentList));
+        recentFiles = currentList;
+      }
+    } catch (err) {}
+  }
+
+  async function loadRecentFile(file: RecentFile) {
+    try {
+      const bytesVec = await invoke<number[] | Uint8Array>("read_file_binary", { path: file.path });
+      const typedBytes = new Uint8Array(bytesVec);
+      
+      const loadingTask = pdfjsLib.getDocument({
+        data: typedBytes.slice(0),
+        cMapUrl: window.location.origin + "/cmaps/",
+        cMapPacked: true,
+        standardFontDataUrl: window.location.origin + "/standard_fonts/",
+        wasmUrl: window.location.origin + "/",
+      });
+      const pdfDocument = await loadingTask.promise;
+
+      activeDoc.rawBytes = typedBytes;
+      activeDoc.pageCount = pdfDocument.numPages;
+      activeDoc.pageOrder = Array.from({ length: pdfDocument.numPages }, (_, idx) => idx + 1);
+      activeDoc.currentPage = 1;
+      activeDoc.shapes = {};
+      activeDoc.fileName = file.name;
+      activeDoc.filePath = file.path;
+    } catch (err) {
+      alert("Could not open this file. It may have been moved or deleted.");
+    }
+  }
 
   let { zoomScale = $bindable(120), isSystemPrinting = false } = $props<{ zoomScale: number; isSystemPrinting: boolean }>();
   let scrollContainer = $state<HTMLDivElement | null>(null);
@@ -220,7 +310,13 @@
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
   onpointerleave={handlePointerLeave}
-  class="flex-1 h-full overflow-auto bg-[#0b0f19] flex flex-col items-center pt-8 px-4 relative workspace-scroll-container {isDragging ? '' : 'scroll-smooth'}"
+  class="flex-1 h-full overflow-auto bg-[#070a12] flex flex-col items-center pt-8 px-4 relative workspace-scroll-container transition-colors duration-200
+    {isDragging ? '' : 'scroll-smooth'}
+    [&::-webkit-scrollbar]:w-2 
+    [&::-webkit-scrollbar-track]:bg-transparent 
+    [&::-webkit-scrollbar-thumb]:bg-slate-800/80 
+    [&::-webkit-scrollbar-thumb]:rounded-full 
+    hover:[&::-webkit-scrollbar-thumb]:bg-slate-700"
   style={isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : ''}
 >
   {#if showFloatingMenu}
@@ -302,204 +398,10 @@
   {/if}
 
   {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
-    {#each activeDoc.pageOrder as pageNumber (pageNumber)}
-      <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} {isSystemPrinting} />
-    {/each}
-  {:else}
-    <div
-      class="m-auto flex flex-col items-center justify-center text-center max-w-sm pointer-events-none select-none animate-fade-in"
-    >
-      <svg
-        width="112"
-        height="112"
-        viewBox="0 0 512 512"
-        xmlns="http://www.w3.org/2000/svg"
-        class="block mb-5 drop-shadow-[0_0_25px_rgba(6,182,212,0.25)]"
-      >
-        <defs>
-          <linearGradient
-            id="dashboard-bg-grad"
-            x1="0%"
-            y1="0%"
-            x2="100%"
-            y2="100%"
-          >
-            <stop offset="0%" stop-color="#0f172a"></stop>
-            <stop offset="100%" stop-color="#1a2744"></stop>
-          </linearGradient>
-          <linearGradient
-            id="dashboard-bolt-grad"
-            x1="0%"
-            y1="0%"
-            x2="100%"
-            y2="100%"
-          >
-            <stop offset="0%" stop-color="#38bdf8"></stop>
-            <stop offset="100%" stop-color="#06b6d4"></stop>
-          </linearGradient>
-          <filter
-            id="dashboard-bolt-glow"
-            x="-40%"
-            y="-40%"
-            width="180%"
-            height="180%"
-          >
-            <feGaussianBlur stdDeviation="8" result="blur"></feGaussianBlur>
-            <feMerge>
-              <feMergeNode in="blur"></feMergeNode>
-              <feMergeNode in="SourceGraphic"></feMergeNode>
-            </feMerge>
-          </filter>
-          <filter
-            id="dashboard-glow-soft"
-            x="-60%"
-            y="-60%"
-            width="220%"
-            height="220%"
-          >
-            <feGaussianBlur stdDeviation="18" result="blur"></feGaussianBlur>
-            <feMerge>
-              <feMergeNode in="blur"></feMergeNode>
-            </feMerge>
-          </filter>
-        </defs>
-        <rect
-          x="0"
-          y="0"
-          width="512"
-          height="512"
-          rx="108"
-          ry="108"
-          fill="url(#dashboard-bg-grad)"
-        ></rect>
-        <g opacity="0.28">
-          <line
-            x1="52"
-            y1="218"
-            x2="128"
-            y2="218"
-            stroke="#06b6d4"
-            stroke-width="6"
-            stroke-linecap="round"
-          ></line>
-          <line
-            x1="38"
-            y1="244"
-            x2="118"
-            y2="244"
-            stroke="#06b6d4"
-            stroke-width="5"
-            stroke-linecap="round"
-          ></line>
-          <line
-            x1="52"
-            y1="270"
-            x2="108"
-            y2="270"
-            stroke="#06b6d4"
-            stroke-width="4"
-            stroke-linecap="round"
-          ></line>
-        </g>
-        <g transform="translate(256, 264) rotate(-4) translate(-256, -264)">
-          <polygon
-            points="168,118 338,118 338,128 348,138 348,420 168,420"
-            fill="#0a1628"
-            opacity="0.5"
-            transform="translate(8, 8)"
-          ></polygon>
-          <polygon
-            points="162,112 322,112 362,152 362,414 162,414"
-            fill="#1e293b"
-          ></polygon>
-          <polygon points="322,112 362,112 362,152" fill="#0f172a"></polygon>
-          <polygon points="322,112 362,152 322,152" fill="#334155"></polygon>
-          <line
-            x1="190"
-            y1="195"
-            x2="330"
-            y2="195"
-            stroke="#334155"
-            stroke-width="7"
-            stroke-linecap="round"
-          ></line>
-          <line
-            x1="190"
-            y1="218"
-            x2="300"
-            y2="218"
-            stroke="#334155"
-            stroke-width="7"
-            stroke-linecap="round"
-          ></line>
-          <line
-            x1="190"
-            y1="241"
-            x2="315"
-            y2="241"
-            stroke="#334155"
-            stroke-width="7"
-            stroke-linecap="round"
-          ></line>
-          <line
-            x1="190"
-            y1="315"
-            x2="330"
-            y2="315"
-            stroke="#334155"
-            stroke-width="6"
-            stroke-linecap="round"
-          ></line>
-          <line
-            x1="190"
-            y1="336"
-            x2="280"
-            y2="336"
-            stroke="#334155"
-            stroke-width="6"
-            stroke-linecap="round"
-          ></line>
-          <line
-            x1="190"
-            y1="357"
-            x2="305"
-            y2="357"
-            stroke="#334155"
-            stroke-width="6"
-            stroke-linecap="round"
-          ></line>
-        </g>
-        <ellipse
-          cx="278"
-          cy="264"
-          rx="68"
-          ry="110"
-          fill="#06b6d4"
-          opacity="0.12"
-          filter="url(#dashboard-glow-soft)"
-        ></ellipse>
-        <g filter="url(#dashboard-bolt-glow)">
-          <polygon
-            points="306,138 248,276 284,276 206,396 174,396 236,262 200,262 256,138"
-            fill="url(#dashboard-bolt-grad)"
-          ></polygon>
-        </g>
-        <polygon
-          points="296,155 254,264 278,264 220,368 246,368 290,264 266,264 302,168"
-          fill="#bae6fd"
-          opacity="0.35"
-        ></polygon>
-      </svg>
-
-      <h2
-        class="text-base font-extrabold tracking-wide text-slate-100 mb-1.5 font-sans"
-        style="font-family: 'Space Grotesk', sans-serif;"
-      >
-        Welcome to speed<span class="text-cyan-400">DF</span>
-      </h2>
-      <p class="text-[11px] text-slate-500 leading-relaxed font-medium">
-        Click "Open" in the titlebar to load a document into the active workspace.
-      </p>
+    <div class="flex flex-col items-center gap-6 pb-24 origin-top transition-transform duration-150">
+      {#each activeDoc.pageOrder as pageNumber (pageNumber)}
+        <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} {isSystemPrinting} />
+      {/each}
     </div>
   {/if}
 
@@ -512,10 +414,7 @@
         class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-full text-xs font-bold transition-colors"
         >—</button
       >
-      <span
-        class="text-[10px] font-bold text-slate-300 w-10 text-center tracking-wider uppercase"
-        >{zoomScale}%</span
-      >
+      <span class="text-[10px] font-bold text-slate-300 w-10 text-center tracking-wider uppercase">{zoomScale}%</span>
       <button
         onclick={() => (zoomScale = Math.min(200, zoomScale + 10))}
         class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-full text-xs font-bold transition-colors"
@@ -537,11 +436,9 @@
   }
 
   @media print {
-    /* Hide all workspace panels, controls, floating HUDs, and background bars */
     :global(body), :global(#app), .fixed, .absolute, button, select, input {
       display: none !important;
     }
-    /* Force the workspace canvas viewport container to occupy single page blocks */
     .workspace-scroll-container {
       overflow: visible !important;
       position: static !important;
