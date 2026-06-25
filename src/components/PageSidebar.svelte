@@ -173,17 +173,17 @@
         $state.snapshot(activeDoc.rawBytes),
       );
 
-      const unprotectedMain = await invoke<number[]>("unprotect_pdf", {
-        bytes: Array.from(cleanMainBytes),
+      // High-speed direct binary transfer over Tauri IPC bridge
+      const unprotectedMainRes = await invoke<ArrayBuffer | Uint8Array>("unprotect_pdf", {
+        bytes: cleanMainBytes,
       });
-      const unprotectedAppend = await invoke<number[]>("unprotect_pdf", {
-        bytes: Array.from(appendBytes),
+      const unprotectedAppendRes = await invoke<ArrayBuffer | Uint8Array>("unprotect_pdf", {
+        bytes: appendBytes,
       });
 
-      const mainDoc = await PDFDocument.load(new Uint8Array(unprotectedMain));
-      const extraDoc = await PDFDocument.load(
-        new Uint8Array(unprotectedAppend),
-      );
+      // Wrap directly into a view without JSON array re-parsing loops
+      const mainDoc = await PDFDocument.load(new Uint8Array(unprotectedMainRes));
+      const extraDoc = await PDFDocument.load(new Uint8Array(unprotectedAppendRes));
       const mergedDoc = await PDFDocument.create();
 
       const targetIndex = activeDoc.pageOrder.indexOf(insertAfterPageNum);

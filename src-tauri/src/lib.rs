@@ -97,7 +97,7 @@ async fn native_overwrite_file(path: String, file_bytes: Vec<u8>) -> Result<Stri
 }
 
 #[tauri::command]
-fn unprotect_pdf(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
+fn unprotect_pdf(bytes: Vec<u8>) -> Result<tauri::ipc::Response, String> {
     // ⚡ Upgraded lopdf automatically detects empty-password protection
     // and decrypts all object streams safely into memory during load_mem.
     let mut doc = lopdf::Document::load_mem(&bytes).map_err(|e| e.to_string())?;
@@ -107,7 +107,7 @@ fn unprotect_pdf(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
 
     let mut out_bytes = Vec::new();
     doc.save_to(&mut out_bytes).map_err(|e| e.to_string())?;
-    Ok(out_bytes)
+    Ok(tauri::ipc::Response::new(out_bytes))
 }
 
 #[tauri::command]
