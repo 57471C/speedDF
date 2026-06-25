@@ -134,6 +134,30 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .setup(|_app| {
+            // Spawn a separate thread immediately to keep the UI initialization instantaneous
+            std::thread::spawn(|| {
+                let temp_dir = std::env::temp_dir();
+                println!("Background Sweep: Scanning temp directory: {:?}", temp_dir);
+                
+                if let Ok(entries) = std::fs::read_dir(temp_dir) {
+                    for entry in entries.flatten() {
+                        if let Ok(file_name) = entry.file_name().into_string() {
+                            // Match our specific print signature files
+                            if file_name.starts_with("speedDF_print_") && file_name.ends_with(".pdf") {
+                                let path = entry.path();
+                                if let Err(e) = std::fs::remove_file(&path) {
+                                    eprintln!("Background Sweep Error: Failed to purge {:?}: {}", path, e);
+                                } else {
+                                    println!("Background Sweep: Cleaned up cached print file: {:?}", path);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             native_open_file,
             native_save_as_file,
