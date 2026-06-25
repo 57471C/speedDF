@@ -222,7 +222,7 @@
           >
           <span
             class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v0.6.1</span
+            >v0.7.0</span
           >
         </div>
         <button

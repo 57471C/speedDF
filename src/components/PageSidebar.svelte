@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { flip } from "svelte/animate";
+  import { fade } from "svelte/transition";
   import * as pdfjsLib from "pdfjs-dist";
   import { PDFDocument } from "pdf-lib";
   import { invoke } from "@tauri-apps/api/core";
@@ -12,6 +14,8 @@
   let thumbnailElements = $state<Record<number, HTMLDivElement>>({});
   let appendFileInput = $state<HTMLInputElement | null>(null);
   let insertAfterPageNum = $state<number | null>(null);
+  let isGridViewOpen = $state(false);
+  let selectedPages = $state<number[]>([]);
 
   // ⚡ Visibility Tracking State: Fully hides the red box until an actual scroll happens
   let hasUserScrolled = $state(false);
@@ -209,18 +213,90 @@
       alert("Failed to parse or insert the selected PDF document.");
     }
   }
+
+  function toggleGridView() {
+    isGridViewOpen = !isGridViewOpen;
+    if (isGridViewOpen) {
+      selectedPages = [activeDoc.currentPage];
+    }
+  }
+
+  function handleGridSelect(e: MouseEvent, pageNum: number) {
+    const isCtrl = e.ctrlKey || e.metaKey;
+    if (isCtrl) {
+      if (selectedPages.includes(pageNum)) {
+        selectedPages = selectedPages.filter(p => p !== pageNum);
+      } else {
+        selectedPages = [...selectedPages, pageNum];
+      }
+    } else {
+      selectedPages = [pageNum];
+    }
+    activeDoc.currentPage = pageNum;
+  }
+
+  function batchRotate(direction: "counter" | "clockwise") {
+    if (selectedPages.length === 0) return;
+    for (const pageNum of selectedPages) {
+      rotatePageAction(pageNum, direction);
+    }
+  }
+
+  function batchDelete() {
+    if (selectedPages.length === 0) return;
+    if (activeDoc.pageOrder.length <= selectedPages.length) {
+      alert("Cannot delete all pages. The document must contain at least one layer bound.");
+      return;
+    }
+    pushHistorySnapshot();
+    activeDoc.pageOrder = activeDoc.pageOrder.filter(p => !selectedPages.includes(p));
+    if (!activeDoc.pageOrder.includes(activeDoc.currentPage)) {
+      activeDoc.currentPage = activeDoc.pageOrder[0] || 1;
+    }
+    selectedPages = [activeDoc.currentPage];
+    activeDoc.selectedShape = null;
+  }
+
+  function triggerBatchInsert() {
+    if (selectedPages.length === 0) {
+      insertAfterPageNum = activeDoc.pageOrder[activeDoc.pageOrder.length - 1] || 1;
+    } else {
+      insertAfterPageNum = Math.max(...selectedPages);
+    }
+    appendFileInput?.click();
+  }
 </script>
 
 <div
   class="w-36 h-full bg-[#090d16] border-l border-slate-900 flex flex-col relative select-none z-40"
 >
-  <div
-    class="p-3 border-b border-slate-900/50 flex items-center justify-between bg-[#0b101c]/40"
-  >
-    <span
-      class="text-[9px] font-bold uppercase tracking-widest text-slate-500 font-sans"
-      >Pages ({activeDoc.pageOrder.length})</span
-    >
+  <div class="p-3 border-b border-slate-900/50 grid grid-cols-3 items-center bg-[#0b101c]/40 w-full">
+    <div class="flex justify-start pl-1">
+      <button 
+        onclick={toggleGridView}
+        class="p-1 rounded text-cyan-400 hover:text-white transition-all hover:scale-105"
+        title="Expand Workspace Grid View"
+        aria-label="Toggle Grid View"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="4" height="4" rx="0.5" />
+          <rect x="10" y="3" width="4" height="4" rx="0.5" />
+          <rect x="17" y="3" width="4" height="4" rx="0.5" />
+          <rect x="3" y="10" width="4" height="4" rx="0.5" />
+          <rect x="10" y="10" width="4" height="4" rx="0.5" />
+          <rect x="17" y="10" width="4" height="4" rx="0.5" />
+          <rect x="3" y="17" width="4" height="4" rx="0.5" />
+          <rect x="10" y="17" width="4" height="4" rx="0.5" />
+          <rect x="17" y="17" width="4" height="4" rx="0.5" />
+        </svg>
+      </button>
+    </div>
+    <div class="flex justify-center">
+      <span class="text-[9px] font-bold uppercase tracking-widest text-slate-500 font-sans whitespace-nowrap">
+        Pages ({activeDoc.pageOrder.length})
+      </span>
+    </div>
+    <div></div>
   </div>
 
   <div
@@ -380,3 +456,54 @@
     </div>
   </div>
 </div>
+
+{#if isGridViewOpen}
+  <div transition:fade={{ duration: 180 }} class="fixed inset-0 bg-[#070a12] z-[50] flex flex-col select-none font-sans text-slate-100">
+    <div class="p-4 bg-[#0b101c] border-b border-slate-900 grid grid-cols-3 items-center shadow-lg w-full">
+      <div class="flex items-center gap-3 justify-start">
+        <span class="text-xs font-bold uppercase tracking-widest text-slate-400">Grid Organizer</span>
+        <span class="text-[10px] px-2 py-0.5 bg-slate-800 rounded-md text-cyan-400 font-mono font-bold border border-slate-700/50">Selected: {selectedPages.length}</span>
+      </div>
+      
+      <div class="flex items-center gap-2 justify-center">
+        <button onclick={() => batchRotate("counter")} class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold transition-colors">Rotate Left</button>
+        <button onclick={() => batchRotate("clockwise")} class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold transition-colors">Rotate Right</button>
+        <button onclick={triggerBatchInsert} class="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold transition-colors">Insert PDF</button>
+        <button onclick={batchDelete} class="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold transition-colors">Delete Selected</button>
+      </div>
+      
+      <div class="flex items-center justify-end">
+        <button onclick={() => isGridViewOpen = false} class="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold transition-colors shadow-md">Done</button>
+      </div>
+    </div>
+    
+    <div class="flex-1 overflow-y-auto p-8 bg-[#070a12]">
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-6">
+        {#each activeDoc.pageOrder as pageNum, index (pageNum)}
+          <div 
+            animate:flip={{ duration: 250 }}
+            onclick={(e) => handleGridSelect(e, pageNum)}
+            class="group relative flex flex-col items-center border rounded-xl p-4 transition-all cursor-pointer select-none bg-[#0e131f]
+            {selectedPages.includes(pageNum) ? 'border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.1)] bg-[#1a160f]' : 'border-slate-800 hover:border-slate-700'}"
+          >
+            <span class="absolute top-3 left-4 text-[10px] font-mono font-bold {selectedPages.includes(pageNum) ? 'text-amber-400' : 'text-slate-500'}">#{index + 1}</span>
+            
+            {#if selectedPages.includes(pageNum)}
+              <span class="absolute top-3 right-4 w-4 h-4 bg-amber-500 rounded-full flex items-center justify-center text-[9px] font-black text-black">✓</span>
+            {/if}
+            
+            <div class="w-[100px] min-h-[80px] bg-white/5 rounded-lg border border-slate-900/60 overflow-hidden flex items-center justify-center mt-4 shadow-inner relative">
+              <canvas
+                use:renderThumbnail={{
+                  pageNum,
+                  rotation: activeDoc.rotations[pageNum] ?? 0,
+                }}
+                class="block h-auto max-w-full bg-white filter tracking-tight transition-transform"
+              ></canvas>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </div>
+{/if}
