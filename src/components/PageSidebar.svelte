@@ -17,6 +17,30 @@
   let isGridViewOpen = $state(false);
   let selectedPages = $state<number[]>([]);
 
+  let cachedRawBytes: Uint8Array | null = null;
+  let sharedPdfjsDocPromise: Promise<any> | null = null;
+
+  function getSharedPdfjsDoc() {
+    if (!activeDoc.rawBytes) return null;
+    
+    // If the byte array reference changes, re-initialize the single master parsing handle
+    if (activeDoc.rawBytes !== cachedRawBytes) {
+      cachedRawBytes = activeDoc.rawBytes;
+      console.log("PageSidebar: New document bytes detected. Instantiating single master worker channel...");
+      
+      const loadingTask = pdfjsLib.getDocument({
+        data: activeDoc.rawBytes.slice(0),
+        cMapUrl: window.location.origin + "/cmaps/",
+        cMapPacked: true,
+        standardFontDataUrl: window.location.origin + "/standard_fonts/",
+        wasmUrl: window.location.origin + "/"
+      });
+      sharedPdfjsDocPromise = loadingTask.promise;
+    }
+    
+    return sharedPdfjsDocPromise;
+  }
+
   // ⚡ Visibility Tracking State: Fully hides the red box until an actual scroll happens
   let hasUserScrolled = $state(false);
 
@@ -59,14 +83,11 @@
       isRendering = true;
 
       try {
-        const loadingTask = pdfjsLib.getDocument({
-          data: activeDoc.rawBytes.slice(0),
-          cMapUrl: window.location.origin + "/cmaps/",
-          cMapPacked: true,
-          standardFontDataUrl: window.location.origin + "/standard_fonts/",
-          wasmUrl: window.location.origin + "/"
-        });
-        const pdfDocument = await loadingTask.promise;
+        const docPromise = getSharedPdfjsDoc();
+        if (!docPromise) return;
+
+        // Await the shared master document instead of creating a new loadingTask
+        const pdfDocument = await docPromise;
         const page = await pdfDocument.getPage(pNum);
 
         const targetWidth = 84;
@@ -87,7 +108,7 @@
         node.height = viewport.height;
         node.width = viewport.width;
 
-        await page.render({ canvas: node, viewport: viewport }).promise;
+        await page.render({ canvasContext: node.getContext('2d')!, viewport: viewport }).promise;
       } catch (err) {
         console.error(`Thumbnail render failed for page ${pNum}:`, err);
       } finally {
