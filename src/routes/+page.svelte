@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { open } from "@tauri-apps/plugin-dialog";
   import * as pdfjsLib from "pdfjs-dist";
   import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
   import TitleBar from "../components/TitleBar.svelte";
@@ -39,6 +40,35 @@
     bytes: Uint8Array,
   ) {
     try {
+      if (activeDoc.fileType === "tiff") {
+        console.log("Recent Tracker: Document type is TIFF. Registering basic file history metadata entry...");
+        let dataUrl = "";
+        const pageData = activeDoc.tiffPages[0];
+        if (pageData) {
+          const blob = new Blob([pageData], { type: "image/png" });
+          dataUrl = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+        }
+        let currentList: RecentFile[] = [];
+        const stored = localStorage.getItem("speeddf_recents");
+        if (stored) currentList = JSON.parse(stored);
+
+        currentList = currentList.filter((f) => f.path !== path);
+        currentList.unshift({
+          name,
+          path,
+          timestamp: Date.now(),
+          thumbnail: dataUrl,
+        });
+        if (currentList.length > 10) currentList = currentList.slice(0, 10);
+
+        localStorage.setItem("speeddf_recents", JSON.stringify(currentList));
+        recentFiles = currentList;
+        return;
+      }
       const loadingTask = pdfjsLib.getDocument({ data: bytes.slice(0) });
       const pdfDocument = await loadingTask.promise;
       const page = await pdfDocument.getPage(1);
@@ -83,36 +113,148 @@
     }
   }
 
+  async function loadDocument(rawBytes: Uint8Array, fileName: string, filePath: string) {
+    // Detect technical drawing file signatures by matching path extensions
+    const isTiff = fileName.toLowerCase().endsWith(".tiff") || fileName.toLowerCase().endsWith(".tif");
+
+    if (isTiff) {
+      try {
+        // Direct binary handoff over the IPC bridge to your high-performance Rust extraction crate
+        const decodedPages = await invoke<number[][] | Uint8Array[]>("parse_tiff_document", {
+          path: filePath
+        });
+
+        activeDoc.fileType = "tiff";
+        activeDoc.rawBytes = rawBytes;
+        activeDoc.fileName = fileName;
+        activeDoc.filePath = filePath;
+        activeDoc.pageCount = decodedPages.length;
+        activeDoc.tiffPages = decodedPages.map(page => new Uint8Array(page));
+        activeDoc.pageOrder = Array.from({ length: decodedPages.length }, (_, i) => i + 1);
+        
+        return; // Handoff completed successfully; bypass PDF.js initialization loops
+      } catch (err) {
+        console.error("Native Rust TIFF parsing fault details:", err);
+        alert("Failed to decode the multi-page TIFF blueprint.");
+        return;
+      }
+    } else {
+      // Keep your existing standard PDF.js document load configuration completely untouched here
+      activeDoc.fileType = "pdf";
+      activeDoc.tiffPages = [];
+    }
+
+    const loadingTask = pdfjsLib.getDocument({
+      data: rawBytes.slice(0),
+      cMapUrl: window.location.origin + "/cmaps/",
+      cMapPacked: true,
+      standardFontDataUrl: window.location.origin + "/standard_fonts/",
+      wasmUrl: window.location.origin + "/",
+    });
+    const pdfDocument = await loadingTask.promise;
+
+    activeDoc.rawBytes = rawBytes;
+    activeDoc.pageCount = pdfDocument.numPages;
+    activeDoc.pageOrder = Array.from(
+      { length: pdfDocument.numPages },
+      (_, idx) => idx + 1,
+    );
+    activeDoc.currentPage = 1;
+    activeDoc.shapes = {};
+    activeDoc.fileName = fileName;
+    activeDoc.filePath = filePath;
+
+    await registerRecentFile(fileName, filePath, rawBytes);
+  }
+
   async function openRecentFile(name: string, path: string) {
     try {
       const payload = await invoke<StartupPayload>("read_file_bytes", { path });
       if (payload && payload.bytes) {
         const typedBytes = new Uint8Array(payload.bytes);
-        const loadingTask = pdfjsLib.getDocument({
-          data: typedBytes.slice(0),
-          cMapUrl: window.location.origin + "/cmaps/",
-          cMapPacked: true,
-          standardFontDataUrl: window.location.origin + "/standard_fonts/",
-          wasmUrl: window.location.origin + "/",
-        });
-        const pdfDocument = await loadingTask.promise;
-
-        activeDoc.rawBytes = typedBytes;
-        activeDoc.pageCount = pdfDocument.numPages;
-        activeDoc.pageOrder = Array.from(
-          { length: pdfDocument.numPages },
-          (_, idx) => idx + 1,
-        );
-        activeDoc.currentPage = 1;
-        activeDoc.shapes = {};
-        activeDoc.fileName = payload.name;
-        activeDoc.filePath = payload.path;
-
-        await registerRecentFile(payload.name, payload.path, typedBytes);
+        await loadDocument(typedBytes, payload.name, payload.path);
       }
     } catch (err) {
       console.error("Failed to load recent file:", err);
     }
+  }
+
+  async function openFile() {
+    // 1. Update the native dialog call to allow filtering for technical drawings
+    const selected = await open({
+      multiple: false,
+      filters: [
+        {
+          name: "Supported Documents",
+          extensions: ["pdf", "tiff", "tif"]
+        }
+      ]
+    });
+
+    if (!selected) return;
+
+    // 2. When reading the file name and processing path coordinates:
+    const filePath = typeof selected === 'string' ? selected : (selected as any).path;
+    const fileName = filePath.split(/[/\\]/).pop() || "Document";
+
+    // Read the document stream into a raw binary allocation vector
+    const rawBytes = await invoke<number[]>("read_file_bytes", { path: filePath });
+    const uint8Bytes = new Uint8Array(rawBytes);
+
+    // ROUTING BLOCK: Intercept images before they hit the PDF.js worker pipeline
+    const isTiff = fileName.toLowerCase().endsWith(".tiff") || fileName.toLowerCase().endsWith(".tif");
+
+    if (isTiff) {
+      try {
+        console.log("+page.svelte: TIFF extension verified. Passing file path straight to native Rust parser...");
+        
+        // Pass the file path string directly to avoid IPC serialization overhead and data truncation
+        const decodedPages = await invoke<number[][]>("parse_tiff_document", {
+          path: filePath
+        });
+
+        activeDoc.fileType = "tiff";
+        activeDoc.rawBytes = uint8Bytes;
+        activeDoc.fileName = fileName;
+        activeDoc.filePath = filePath;
+        activeDoc.pageCount = decodedPages.length;
+        activeDoc.tiffPages = decodedPages.map(page => new Uint8Array(page));
+        activeDoc.pageOrder = Array.from({ length: decodedPages.length }, (_, i) => i + 1);
+        
+        console.log("+page.svelte: TIFF document initialized successfully with pages:", decodedPages.length);
+        return; // STOP HERE: Do not let execution run downstream into PDF.js loops
+      } catch (err) {
+        console.error("Native Rust TIFF parsing fault details:", err);
+        alert("Failed to decode the multi-page TIFF blueprint layout.");
+        return;
+      }
+    } else {
+      // Keep your existing standard PDF.js document initialization configuration completely untouched here
+      activeDoc.fileType = "pdf";
+      activeDoc.tiffPages = [];
+    }
+
+    const loadingTask = pdfjsLib.getDocument({
+      data: uint8Bytes.slice(0),
+      cMapUrl: window.location.origin + "/cmaps/",
+      cMapPacked: true,
+      standardFontDataUrl: window.location.origin + "/standard_fonts/",
+      wasmUrl: window.location.origin + "/",
+    });
+    const pdfDocument = await loadingTask.promise;
+
+    activeDoc.rawBytes = uint8Bytes;
+    activeDoc.pageCount = pdfDocument.numPages;
+    activeDoc.pageOrder = Array.from(
+      { length: pdfDocument.numPages },
+      (_, idx) => idx + 1,
+    );
+    activeDoc.currentPage = 1;
+    activeDoc.shapes = {};
+    activeDoc.fileName = fileName;
+    activeDoc.filePath = filePath;
+
+    await registerRecentFile(fileName, filePath, uint8Bytes);
   }
 
   // Auto-track files when they are loaded into activeDoc
@@ -227,31 +369,30 @@
       if (payload && payload.bytes && payload.bytes.length > 0) {
         console.log(`Loading single-file payload launch: ${payload.name}`);
         const typedBytes = new Uint8Array(payload.bytes);
-        const loadingTask = pdfjsLib.getDocument({
-          data: typedBytes.slice(0),
-          cMapUrl: window.location.origin + "/cmaps/",
-          cMapPacked: true,
-          standardFontDataUrl: window.location.origin + "/standard_fonts/",
-          wasmUrl: window.location.origin + "/",
-        });
-        const pdfDocument = await loadingTask.promise;
-
-        activeDoc.rawBytes = typedBytes;
-        activeDoc.pageCount = pdfDocument.numPages;
-        activeDoc.pageOrder = Array.from(
-          { length: pdfDocument.numPages },
-          (_, idx) => idx + 1,
-        );
-        activeDoc.currentPage = 1;
-        activeDoc.shapes = {};
-        activeDoc.fileName = payload.name;
-        activeDoc.filePath = payload.path;
-
-        await registerRecentFile(payload.name, payload.path, typedBytes);
+        await loadDocument(typedBytes, payload.name, payload.path);
       }
     } catch (err) {
       console.warn("Startup file handshake processing failed:", err);
     }
+
+    // Listen for drag-drop events natively from Tauri
+    appWindow.listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
+      const paths = event.payload.paths;
+      if (paths && paths.length > 0) {
+        const path = paths[0];
+        const parts = path.split(/[\\/]/);
+        const name = parts[parts.length - 1];
+        try {
+          const payload = await invoke<StartupPayload>("read_file_bytes", { path });
+          if (payload && payload.bytes) {
+            const typedBytes = new Uint8Array(payload.bytes);
+            await loadDocument(typedBytes, name, path);
+          }
+        } catch (err) {
+          console.error("Failed to load dropped file:", err);
+        }
+      }
+    });
 
     window.addEventListener("keydown", (e: KeyboardEvent) => {
       if (
@@ -268,9 +409,7 @@
         const key = e.key.toLowerCase();
         if (key === "o") {
           e.preventDefault();
-          if (titleBarRef?.triggerOpen) {
-            titleBarRef.triggerOpen();
-          }
+          openFile();
         } else if (key === "s") {
           e.preventDefault();
           if (isShift) {
@@ -278,8 +417,15 @@
               titleBarRef.triggerSaveAs();
             }
           } else {
-            if (titleBarRef?.triggerSave) {
-              titleBarRef.triggerSave();
+            if (activeDoc.fileType === "tiff") {
+              console.warn("Keyboard Shortcut: Overwrite blocked for TIFF. Redirecting user transaction to Save As dialog...");
+              if (titleBarRef?.triggerSaveAs) {
+                titleBarRef.triggerSaveAs();
+              }
+            } else {
+              if (titleBarRef?.triggerSave) {
+                titleBarRef.triggerSave();
+              }
             }
           }
         } else {
@@ -329,6 +475,7 @@
     onClose={closeApp}
     onToggleHelp={() => (showHelpModal = !showHelpModal)}
     onPrint={executeNativePrint}
+    onOpenFile={openFile}
   />
 
   {#if activeDoc.rawBytes}
@@ -795,7 +942,7 @@
   bind:show={showMenu}
   x={menuX}
   y={menuY}
-  onOpen={() => titleBarRef?.triggerOpen?.()}
+  onOpen={openFile}
   onSave={() => titleBarRef?.triggerSave?.()}
   onSaveAs={() => titleBarRef?.triggerSaveAs?.()}
 />

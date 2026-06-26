@@ -35,18 +35,12 @@
 			"icons/icon.icns",
 			"icons/icon.ico"
 		],
-		"macOS": {
-			"minimumSystemVersion": "11.0"
-		},
 		"fileAssociations": [
 			{
-				"ext": [
-					"pdf"
-				],
-				"name": "speedDF Document",
-				"role": "Editor",
-				"description": "Portable Document Format handled by speedDF",
-				"mimeType": "application/pdf"
+				"ext": ["tiff", "tif"],
+				"name": "TIFF Document",
+				"description": "Multi-page Technical TIFF Drawing",
+				"role": "Viewer"
 			}
 		]
 	}

@@ -22,7 +22,7 @@
   let sharedPdfjsDocPromise: Promise<any> | null = null;
 
   function getSharedPdfjsDoc() {
-    if (!activeDoc.rawBytes) return null;
+    if (activeDoc.fileType === "tiff" || !activeDoc.rawBytes) return null;
     
     // If the byte array reference changes, re-initialize the single master parsing handle
     if (activeDoc.rawBytes !== cachedRawBytes) {
@@ -77,6 +77,44 @@
     node: HTMLCanvasElement,
     { pageNum, rotation }: { pageNum: number; rotation: number },
   ) {
+  // (Inside renderThumbnail action logic block)
+  if (activeDoc.fileType === "tiff") {
+    const pageData = activeDoc.tiffPages[pageNum - 1];
+    const rotation = activeDoc.rotations[pageNum] ?? 0;
+    
+    if (pageData) {
+      const blob = new Blob([pageData], { type: "image/png" });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        // Swap visual frame dimensions dynamically if rotated on its side (90° or 270°)
+        if (rotation === 90 || rotation === 270) {
+          node.width = img.height;
+          node.height = img.width;
+        } else {
+          node.width = img.width;
+          node.height = img.height;
+        }
+
+        const ctx = node.getContext("2d");
+        if (ctx) {
+          ctx.clearRect(0, 0, node.width, node.height);
+          ctx.save();
+          
+          // Translate coordinate space origin to the physical center of the updated canvas layout
+          ctx.translate(node.width / 2, node.height / 2);
+          ctx.rotate((rotation * Math.PI) / 180);
+          
+          // Draw the blueprint anchored neatly over the center coordinate pivot
+          ctx.drawImage(img, -img.width / 2, -img.height / 2);
+          ctx.restore();
+        }
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    }
+    return;
+  }
     let isRendering = false;
 
     async function executeRender(pNum: number, rot: number) {

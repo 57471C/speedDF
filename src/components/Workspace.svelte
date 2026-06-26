@@ -38,6 +38,30 @@
 
   async function registerRecentFile(name: string, path: string, bytes: Uint8Array) {
     try {
+      if (activeDoc.fileType === "tiff") {
+        console.log("Recent Tracker: Document type is TIFF. Registering basic file history metadata entry...");
+        let dataUrl = "";
+        const pageData = activeDoc.tiffPages[0];
+        if (pageData) {
+          const blob = new Blob([pageData], { type: "image/png" });
+          dataUrl = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+        }
+        let currentList: RecentFile[] = [];
+        const stored = localStorage.getItem("speeddf_recents");
+        if (stored) currentList = JSON.parse(stored);
+        
+        currentList = currentList.filter(f => f.path !== path);
+        currentList.unshift({ name, path, timestamp: Date.now(), thumbnail: dataUrl });
+        if (currentList.length > 10) currentList = currentList.slice(0, 10);
+        
+        localStorage.setItem("speeddf_recents", JSON.stringify(currentList));
+        recentFiles = currentList;
+        return;
+      }
       const loadingTask = pdfjsLib.getDocument({ data: bytes.slice(0) });
       const pdfDocument = await loadingTask.promise;
       const page = await pdfDocument.getPage(1);
@@ -70,6 +94,23 @@
     try {
       const bytesVec = await invoke<number[] | Uint8Array>("read_file_binary", { path: file.path });
       const typedBytes = new Uint8Array(bytesVec);
+      
+      const isTiff = file.name.toLowerCase().endsWith(".tiff") || file.name.toLowerCase().endsWith(".tif");
+      if (isTiff) {
+        const decodedPages = await invoke<number[][] | Uint8Array[]>("parse_tiff_document", {
+          path: file.path
+        });
+        activeDoc.fileType = "tiff";
+        activeDoc.rawBytes = typedBytes;
+        activeDoc.fileName = file.name;
+        activeDoc.filePath = file.path;
+        activeDoc.pageCount = decodedPages.length;
+        activeDoc.tiffPages = decodedPages.map(page => new Uint8Array(page));
+        activeDoc.pageOrder = Array.from({ length: decodedPages.length }, (_, i) => i + 1);
+        activeDoc.currentPage = 1;
+        activeDoc.shapes = {};
+        return;
+      }
       
       const loadingTask = pdfjsLib.getDocument({
         data: typedBytes.slice(0),
@@ -217,9 +258,9 @@
       if (e.ctrlKey) {
         e.preventDefault();
         if (e.deltaY < 0) {
-          zoomScale = Math.min(200, zoomScale + 10);
+          zoomScale = Math.min(400, zoomScale + 10);
         } else if (e.deltaY > 0) {
-          zoomScale = Math.max(50, zoomScale - 10);
+          zoomScale = Math.max(5, zoomScale - 10);
         }
       }
     };
@@ -297,6 +338,22 @@
   function handlePointerLeave(e: PointerEvent) {
     if (isDragging) {
       isDragging = false;
+    }
+  }
+
+  function shrinkToWindow() {
+    if (scrollContainer) {
+      const availableWidth = scrollContainer.clientWidth - 48;
+      const pageEl = scrollContainer.querySelector(".bg-white.relative.rounded-sm");
+      if (pageEl) {
+        const currentWidth = pageEl.getBoundingClientRect().width;
+        if (currentWidth > 0) {
+          const newScale = Math.round((availableWidth / currentWidth) * zoomScale);
+          zoomScale = Math.max(5, Math.min(400, newScale));
+          return;
+        }
+      }
+      zoomScale = 100;
     }
   }
 </script>
@@ -410,13 +467,22 @@
       class="fixed bottom-5 left-1/2 transform -translate-x-1/2 bg-[#090d16]/90 border border-slate-900 px-3 py-1.5 rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-md z-40 select-none pointer-events-auto"
     >
       <button
-        onclick={() => (zoomScale = Math.max(50, zoomScale - 10))}
+        onclick={() => (zoomScale = Math.max(5, zoomScale - 10))}
         class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-full text-xs font-bold transition-colors"
         >—</button
       >
       <span class="text-[10px] font-bold text-slate-300 w-10 text-center tracking-wider uppercase">{zoomScale}%</span>
       <button
-        onclick={() => (zoomScale = Math.min(200, zoomScale + 10))}
+        onclick={shrinkToWindow}
+        class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+        title="Shrink to Window"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+        </svg>
+      </button>
+      <button
+        onclick={() => (zoomScale = Math.min(400, zoomScale + 10))}
         class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-full text-xs font-bold transition-colors"
         >+</button
       >

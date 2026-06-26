@@ -12,6 +12,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
     "core:window:allow-show",
-    "window-state:default"
+    "window-state:default",
+    "dialog:default"
   ]
 }

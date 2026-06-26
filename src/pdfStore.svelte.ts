@@ -41,6 +41,8 @@ export interface SharedDocumentState {
   defaultFont: string;
   defaultSize: number;
   defaultStyle: "Normal" | "Bold" | "Italic";
+  fileType: "pdf" | "tiff";
+  tiffPages: Uint8Array[];
 }
 
 export const FONT_MAP: Record<
@@ -110,7 +112,9 @@ export const activeDoc = $state<SharedDocumentState>({
   zoomScale: 120,
   defaultFont: "Helvetica",
   defaultSize: 12,
-  defaultStyle: "Normal"
+  defaultStyle: "Normal",
+  fileType: "pdf",
+  tiffPages: []
 });
 
 // ⚡ SURGICAL INSERTION: Append this directly below your "export const activeDoc = ..." declaration block

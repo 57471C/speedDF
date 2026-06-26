@@ -10,12 +10,14 @@
     onClose,
     onToggleHelp,
     onPrint,
+    onOpenFile,
   }: {
     onMinimize: () => void;
     onMaximize: () => void;
     onClose: () => void;
     onToggleHelp: () => void;
     onPrint?: () => void;
+    onOpenFile?: () => void;
   } = $props();
 
   interface FilePayload {
@@ -32,158 +34,215 @@
     return rgb(r, g, b);
   }
 
+  async function drawAnnotationsOnPage(
+    destDoc: PDFDocument,
+    page: any,
+    originalPageNumber: number,
+    pageWidth: number,
+    pageHeight: number,
+  ) {
+    const pageShapes = activeDoc.shapes[originalPageNumber] || [];
+    for (const shape of pageShapes) {
+      const s = shape as any;
+
+      const x = (s.x / 100) * pageWidth;
+      const w = ((s.width ?? 0) / 100) * pageWidth;
+      const h = ((s.height ?? 0) / 100) * pageHeight;
+      const y = pageHeight - (s.y / 100) * pageHeight - h;
+
+      const shapeColorHex = s.color || "#000000";
+      const resolvedColorRgb = hexToRgb(shapeColorHex);
+
+      if (s.type === "rect") {
+        page.drawRectangle({
+          x,
+          y,
+          width: w,
+          height: h,
+          borderColor: resolvedColorRgb,
+          borderWidth: 2,
+        });
+      } else if (s.type === "rect-fill") {
+        page.drawRectangle({
+          x,
+          y,
+          width: w,
+          height: h,
+          color: resolvedColorRgb,
+        });
+      } else if (s.type === "oval") {
+        page.drawEllipse({
+          x: x + w / 2,
+          y: y + h / 2,
+          xScale: w / 2,
+          yScale: h / 2,
+          borderColor: resolvedColorRgb,
+          borderWidth: 2,
+        });
+      } else if (s.type === "oval-fill") {
+        page.drawEllipse({
+          x: x + w / 2,
+          y: y + h / 2,
+          xScale: w / 2,
+          yScale: h / 2,
+          color: resolvedColorRgb,
+        });
+      } else if (s.type === "text") {
+        const fontName = s.font || "Helvetica";
+        const fontStyle = (s.style || "Normal") as "Normal" | "Bold" | "Italic";
+        const fontMapping = FONT_MAP[fontName];
+        const pdfFontKey = fontMapping ? (fontMapping.pdf[fontStyle] || fontMapping.pdf["Normal"]) : "Helvetica";
+        const pdfFont = await destDoc.embedStandardFont(pdfFontKey as any);
+        
+        const fontSize = s.size || 12;
+        const textBaselineY = pageHeight - (s.y / 100) * pageHeight;
+        const zoomMultiplier = (activeDoc.zoomScale || 120) / 100;
+        const yOffset = 10 / zoomMultiplier;
+        
+        page.drawText(s.text || "", {
+          x,
+          y: textBaselineY - yOffset,
+          size: fontSize,
+          font: pdfFont,
+          color: rgb(0.05, 0.09, 0.16),
+        });
+      } else if (s.type === "tick") {
+        const startPt = { x: x + w * 0.167, y: y + h * 0.5 };
+        const vertexPt = { x: x + w * 0.375, y: y + h * 0.292 };
+        const endPt = { x: x + w * 0.833, y: y + h * 0.75 };
+        page.drawLine({
+          start: startPt,
+          end: vertexPt,
+          color: resolvedColorRgb,
+          thickness: 3.5,
+          lineCap: LineCapStyle.Round,
+        });
+        page.drawLine({
+          start: vertexPt,
+          end: endPt,
+          color: resolvedColorRgb,
+          thickness: 3.5,
+          lineCap: LineCapStyle.Round,
+        });
+      } else if (s.type === "dash") {
+        page.drawLine({
+          start: { x, y: y + h / 2 },
+          end: { x: x + w, y: y + h / 2 },
+          color: resolvedColorRgb,
+          thickness: 3.5,
+          lineCap: LineCapStyle.Round,
+        });
+      } else if (
+        (s.type === "signature" || s.type === "initial") &&
+        s.dataUrl
+      ) {
+        const embeddedImageDest = await destDoc.embedPng(s.dataUrl);
+        const imgW = embeddedImageDest.width;
+        const imgH = embeddedImageDest.height;
+        const targetW = h * (imgW / imgH);
+        page.drawImage(embeddedImageDest, { x, y, width: targetW, height: h });
+      } else if (
+        s.type === "highlight" &&
+        s.points &&
+        s.points.length > 1
+      ) {
+        for (let k = 0; k < s.points.length - 1; k++) {
+          const p1 = s.points[k];
+          const p2 = s.points[k + 1];
+          page.drawLine({
+            start: {
+              x: (p1.x / 100) * pageWidth,
+              y: pageHeight - (p1.y / 100) * pageHeight,
+            },
+            end: {
+              x: (p2.x / 100) * pageWidth,
+              y: pageHeight - (p2.y / 100) * pageHeight,
+            },
+            color: rgb(1.0, 1.0, 0.0),
+            thickness: (2.0 / 100) * pageWidth,
+            opacity: 0.40,
+            blendMode: BlendMode.Multiply,
+            lineCap: LineCapStyle.Round,
+          });
+        }
+      }
+    }
+  }
+
   async function flattenWorkspaceToPDF(): Promise<Uint8Array | null> {
     if (!activeDoc.rawBytes || activeDoc.pageOrder.length === 0) return null;
 
     try {
-      const srcDoc = await PDFDocument.load(activeDoc.rawBytes);
       const destDoc = await PDFDocument.create();
-      const copiedPages = await destDoc.copyPages(
-        srcDoc,
-        activeDoc.pageOrder.map((num) => num - 1),
-      );
 
-      for (let i = 0; i < activeDoc.pageOrder.length; i++) {
-        const originalPageNumber = activeDoc.pageOrder[i];
-        const page = copiedPages[i];
-        destDoc.addPage(page);
+      if (activeDoc.fileType === "tiff") {
+        console.log("Save Engine: Compiling native multi-page TIFF drawing into a standard PDF structure...");
+        
+        for (let i = 0; i < activeDoc.pageOrder.length; i++) {
+          const originalPageNumber = activeDoc.pageOrder[i];
+          const rawPngBytes = activeDoc.tiffPages[originalPageNumber - 1];
+          if (!rawPngBytes) continue;
 
-        const { width: pageWidth, height: pageHeight } = page.getSize();
+          const embeddedImage = await destDoc.embedPng(rawPngBytes);
+          const rotationAngle = activeDoc.rotations[originalPageNumber] ?? 0;
 
-        if (activeDoc.rotations[originalPageNumber] !== undefined) {
-          const existingAngle = page.getRotation().angle;
-          page.setRotation(
-            degrees(
-              (existingAngle + activeDoc.rotations[originalPageNumber]) % 360,
-            ),
-          );
-        }
+          let pageWidth = embeddedImage.width;
+          let pageHeight = embeddedImage.height;
 
-        const pageShapes = activeDoc.shapes[originalPageNumber] || [];
-        for (const shape of pageShapes) {
-          const s = shape as any;
-
-          const x = (s.x / 100) * pageWidth;
-          const w = ((s.width ?? 0) / 100) * pageWidth;
-          const h = ((s.height ?? 0) / 100) * pageHeight;
-          const y = pageHeight - (s.y / 100) * pageHeight - h;
-
-          const shapeColorHex = s.color || "#000000";
-          const resolvedColorRgb = hexToRgb(shapeColorHex);
-
-          if (s.type === "rect") {
-            page.drawRectangle({
-              x,
-              y,
-              width: w,
-              height: h,
-              borderColor: resolvedColorRgb,
-              borderWidth: 2,
-            });
-          } else if (s.type === "rect-fill") {
-            page.drawRectangle({
-              x,
-              y,
-              width: w,
-              height: h,
-              color: resolvedColorRgb,
-            });
-          } else if (s.type === "oval") {
-            page.drawEllipse({
-              x: x + w / 2,
-              y: y + h / 2,
-              xScale: w / 2,
-              yScale: h / 2,
-              borderColor: resolvedColorRgb,
-              borderWidth: 2,
-            });
-          } else if (s.type === "oval-fill") {
-            page.drawEllipse({
-              x: x + w / 2,
-              y: y + h / 2,
-              xScale: w / 2,
-              yScale: h / 2,
-              color: resolvedColorRgb,
-            });
-          } else if (s.type === "text") {
-            const fontName = s.font || "Helvetica";
-            const fontStyle = (s.style || "Normal") as "Normal" | "Bold" | "Italic";
-            const fontMapping = FONT_MAP[fontName];
-            const pdfFontKey = fontMapping ? (fontMapping.pdf[fontStyle] || fontMapping.pdf["Normal"]) : "Helvetica";
-            const pdfFont = await destDoc.embedStandardFont(pdfFontKey as any);
-            
-            const fontSize = s.size || 12;
-            const textBaselineY = pageHeight - (s.y / 100) * pageHeight;
-            const zoomMultiplier = (activeDoc.zoomScale || 120) / 100;
-            const yOffset = 10 / zoomMultiplier;
-            
-            page.drawText(s.text || "", {
-              x,
-              y: textBaselineY - yOffset,
-              size: fontSize,
-              font: pdfFont,
-              color: rgb(0.05, 0.09, 0.16),
-            });
-          } else if (s.type === "tick") {
-            const startPt = { x: x + w * 0.167, y: y + h * 0.5 };
-            const vertexPt = { x: x + w * 0.375, y: y + h * 0.292 };
-            const endPt = { x: x + w * 0.833, y: y + h * 0.75 };
-            page.drawLine({
-              start: startPt,
-              end: vertexPt,
-              color: resolvedColorRgb,
-              thickness: 3.5,
-              lineCap: LineCapStyle.Round,
-            });
-            page.drawLine({
-              start: vertexPt,
-              end: endPt,
-              color: resolvedColorRgb,
-              thickness: 3.5,
-              lineCap: LineCapStyle.Round,
-            });
-          } else if (s.type === "dash") {
-            page.drawLine({
-              start: { x, y: y + h / 2 },
-              end: { x: x + w, y: y + h / 2 },
-              color: resolvedColorRgb,
-              thickness: 3.5,
-              lineCap: LineCapStyle.Round,
-            });
-          } else if (
-            (s.type === "signature" || s.type === "initial") &&
-            s.dataUrl
-          ) {
-            const embeddedImageDest = await destDoc.embedPng(s.dataUrl);
-            const imgW = embeddedImageDest.width;
-            const imgH = embeddedImageDest.height;
-            const targetW = h * (imgW / imgH);
-            page.drawImage(embeddedImageDest, { x, y, width: targetW, height: h });
-          } else if (
-            s.type === "highlight" &&
-            s.points &&
-            s.points.length > 1
-          ) {
-            for (let k = 0; k < s.points.length - 1; k++) {
-              const p1 = s.points[k];
-              const p2 = s.points[k + 1];
-              page.drawLine({
-                start: {
-                  x: (p1.x / 100) * pageWidth,
-                  y: pageHeight - (p1.y / 100) * pageHeight,
-                },
-                end: {
-                  x: (p2.x / 100) * pageWidth,
-                  y: pageHeight - (p2.y / 100) * pageHeight,
-                },
-                color: rgb(1.0, 1.0, 0.0),
-                thickness: (2.0 / 100) * pageWidth,
-                opacity: 0.40,
-                blendMode: BlendMode.Multiply,
-                lineCap: LineCapStyle.Round,
-              });
-            }
+          if (rotationAngle === 90 || rotationAngle === 270) {
+            pageWidth = embeddedImage.height;
+            pageHeight = embeddedImage.width;
           }
+
+          const page = destDoc.addPage([pageWidth, pageHeight]);
+
+          let drawX = 0;
+          let drawY = 0;
+          if (rotationAngle === 90) {
+            drawX = pageWidth;
+            drawY = 0;
+          } else if (rotationAngle === 180) {
+            drawX = pageWidth;
+            drawY = pageHeight;
+          } else if (rotationAngle === 270) {
+            drawX = 0;
+            drawY = pageHeight;
+          }
+
+          page.drawImage(embeddedImage, {
+            x: drawX,
+            y: drawY,
+            width: embeddedImage.width,
+            height: embeddedImage.height,
+            rotate: degrees(-rotationAngle)
+          });
+
+          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight);
+        }
+      } else {
+        const srcDoc = await PDFDocument.load(activeDoc.rawBytes);
+        const copiedPages = await destDoc.copyPages(
+          srcDoc,
+          activeDoc.pageOrder.map((num) => num - 1),
+        );
+
+        for (let i = 0; i < activeDoc.pageOrder.length; i++) {
+          const originalPageNumber = activeDoc.pageOrder[i];
+          const page = copiedPages[i];
+          destDoc.addPage(page);
+
+          const { width: pageWidth, height: pageHeight } = page.getSize();
+          
+          if (activeDoc.rotations[originalPageNumber] !== undefined) {
+            const existingAngle = page.getRotation().angle;
+            page.setRotation(
+              degrees(
+                (existingAngle + activeDoc.rotations[originalPageNumber]) % 360,
+              ),
+            );
+          }
+
+          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight);
         }
       }
 
@@ -195,6 +254,10 @@
   }
 
   async function triggerFileOpen() {
+    if (onOpenFile) {
+      onOpenFile();
+      return;
+    }
     try {
       console.log("Invoking native Windows file dialog payload bridge...");
       const payload = await invoke<FilePayload>("native_open_file");
@@ -234,9 +297,12 @@
         alert("Failed to compile annotations into PDF object stream.");
         return;
       }
+      const defaultName = activeDoc.fileName
+        ? activeDoc.fileName.replace(/\.(pdf|tiff|tif)$/i, "") + "_revised.pdf"
+        : 'Untitled.pdf';
       const savedPath = await invoke<string>("native_save_as_file", {
         fileBytes: Array.from(compiledBytes),
-        defaultPath: activeDoc.fileName || 'Untitled.pdf'
+        defaultPath: defaultName
       });
       activeDoc.filePath = savedPath;
       if (savedPath) {
@@ -345,8 +411,10 @@
           >Open</button
         >
         <button
+          disabled={activeDoc.fileType === "tiff"}
           onclick={triggerFileSave}
-          class="titlebar-btn px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:!text-white transition-colors"
+          title={activeDoc.fileType === "tiff" ? "Direct overwrite disabled for TIFF files. Use 'Save As' to export to PDF." : "Quick Save changes"}
+          class="titlebar-btn px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:!text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >Save</button
         >
         <button

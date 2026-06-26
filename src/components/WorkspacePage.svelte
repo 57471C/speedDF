@@ -43,29 +43,89 @@
 
   // Load page dimensions initially to get aspect ratio
   $effect(() => {
-    if (isPreloaded && bytes && pageNumber && !loadedDimensions) {
-      const loadingTask = pdfjsLib.getDocument({
-        data: bytes.slice(0),
-        cMapUrl: window.location.origin + "/cmaps/",
-        cMapPacked: true,
-        standardFontDataUrl: window.location.origin + "/standard_fonts/",
-        wasmUrl: window.location.origin + "/"
-      });
-      loadingTask.promise.then((pdfDocument) => {
-        return pdfDocument.getPage(pageNumber);
-      }).then((page) => {
-        const viewport = page.getViewport({ scale: 1 });
-        basePageWidth = viewport.width;
-        basePageHeight = viewport.height;
-        loadedDimensions = true;
-      }).catch(err => {
-        console.error("Failed to load page dimensions:", err);
-      });
+    if (bytes && pageNumber && !loadedDimensions) {
+      if (activeDoc.fileType === "tiff") {
+        const pageData = activeDoc.tiffPages[pageNumber - 1];
+        if (pageData) {
+          const blob = new Blob([pageData], { type: "image/png" });
+          const url = URL.createObjectURL(blob);
+          const img = new Image();
+          img.onload = () => {
+            basePageWidth = img.width;
+            basePageHeight = img.height;
+            loadedDimensions = true;
+            URL.revokeObjectURL(url);
+          };
+          img.src = url;
+        }
+        return;
+      }
+      if (isPreloaded) {
+        const loadingTask = pdfjsLib.getDocument({
+          data: bytes.slice(0),
+          cMapUrl: window.location.origin + "/cmaps/",
+          cMapPacked: true,
+          standardFontDataUrl: window.location.origin + "/standard_fonts/",
+          wasmUrl: window.location.origin + "/"
+        });
+        loadingTask.promise.then((pdfDocument) => {
+          return pdfDocument.getPage(pageNumber);
+        }).then((page) => {
+          const viewport = page.getViewport({ scale: 1 });
+          basePageWidth = viewport.width;
+          basePageHeight = viewport.height;
+          loadedDimensions = true;
+        }).catch(err => {
+          console.error("Failed to load page dimensions:", err);
+        });
+      }
     }
   });
 
   function canvasLifecycle(node: HTMLCanvasElement) {
     canvasElement = node;
+    if (activeDoc.fileType === "tiff") {
+      // pageNum typically corresponds to the loop index or active viewport tracker
+      const pageNum = pageNumber;
+      const pageData = activeDoc.tiffPages[pageNum - 1];
+      const rotation = activeDoc.rotations[pageNum] ?? 0;
+      
+      if (pageData) {
+        const blob = new Blob([pageData], { type: "image/png" });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          if (rotation === 90 || rotation === 270) {
+            node.width = img.height;
+            node.height = img.width;
+          } else {
+            node.width = img.width;
+            node.height = img.height;
+          }
+
+          const ctx = node.getContext("2d");
+          if (ctx) {
+            ctx.clearRect(0, 0, node.width, node.height);
+            ctx.save();
+            ctx.translate(node.width / 2, node.height / 2);
+            ctx.rotate((rotation * Math.PI) / 180);
+            ctx.drawImage(img, -img.width / 2, -img.height / 2);
+            ctx.restore();
+          }
+          URL.revokeObjectURL(url);
+        };
+        img.src = url;
+      }
+      return {
+        destroy() {
+          if (!isSystemPrinting) {
+            node.width = 0;
+            node.height = 0;
+            canvasElement = null;
+          }
+        }
+      };
+    }
     return {
       destroy() {
         if (!isSystemPrinting) {
@@ -173,6 +233,38 @@
     canvas: HTMLCanvasElement,
     rotationAngle: number,
   ) {
+    if (activeDoc.fileType === "tiff") {
+      const pageData = activeDoc.tiffPages[pageNum - 1];
+      const rotation = activeDoc.rotations[pageNum] ?? 0;
+      
+      if (pageData) {
+        const blob = new Blob([pageData], { type: "image/png" });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          if (rotation === 90 || rotation === 270) {
+            canvas.width = img.height;
+            canvas.height = img.width;
+          } else {
+            canvas.width = img.width;
+            canvas.height = img.height;
+          }
+
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate((rotation * Math.PI) / 180);
+            ctx.drawImage(img, -img.width / 2, -img.height / 2);
+            ctx.restore();
+          }
+          URL.revokeObjectURL(url);
+        };
+        img.src = url;
+      }
+      return;
+    }
     if (rendering) {
       if (activeRenderTask) {
         try {
