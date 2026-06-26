@@ -10,6 +10,7 @@
   let isModalOpen = $state(false);
   let isColorMenuOpen = $state(false);
   let isShapeMenuOpen = $state(false);
+  let isThicknessMenuOpen = $state(false);
   let setPendingDeletion = $state<string | null>(null);
 
   let sigCanvas = $state<HTMLCanvasElement | null>(null);
@@ -26,7 +27,10 @@
     { name: "Red", hex: "#ef4444" },
     { name: "Green", hex: "#22c55e" },
     { name: "Yellow", hex: "#ffea00" },
+    { name: "White", hex: "#ffffff" },
   ];
+
+  const thicknessOptions = [1, 3, 5, 8, 12];
 
   const shapeVariants = [
     {
@@ -199,9 +203,32 @@
     >
   </button>
 
+  <div class="h-px w-6 bg-slate-800/60 mx-auto my-1 pointer-events-auto"></div>
+
+  <button
+    onclick={() => (doc.activeTool = "pen")}
+    class="w-8 h-8 flex items-center justify-center rounded transition-all {doc.activeTool === 'pen'
+      ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]'
+      : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+    title="Pen"
+  >
+    <svg viewBox="0 0 24 24" class="w-[14px] h-[14px] fill-none stroke-current" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+      <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+      <path d="M2 2l7.586 7.586"></path>
+      <circle cx="11" cy="11" r="2"></circle>
+    </svg>
+  </button>
+
   <div class="relative flex flex-col items-center">
     <button
-      onclick={() => (isShapeMenuOpen = !isShapeMenuOpen)}
+      onclick={(e) => {
+        e.stopPropagation();
+        isColorMenuOpen = false;
+        isMenuOpen = false;
+        isThicknessMenuOpen = false;
+        isShapeMenuOpen = !isShapeMenuOpen;
+      }}
       class="w-8 h-8 flex items-center justify-center rounded transition-all
         {[
         'rect',
@@ -315,7 +342,13 @@
 
   <div class="relative flex flex-col items-center">
     <button
-      onclick={() => (isMenuOpen = !isMenuOpen)}
+      onclick={(e) => {
+        e.stopPropagation();
+        isColorMenuOpen = false;
+        isShapeMenuOpen = false;
+        isThicknessMenuOpen = false;
+        isMenuOpen = !isMenuOpen;
+      }}
       class="w-8 h-8 flex items-center justify-center rounded transition-all relative {[
         'signature',
         'initial',
@@ -435,7 +468,13 @@
 
   <div class="relative mt-1 flex flex-col items-center">
     <button
-      onclick={() => (isColorMenuOpen = !isColorMenuOpen)}
+      onclick={(e) => {
+        e.stopPropagation();
+        isShapeMenuOpen = false;
+        isMenuOpen = false;
+        isThicknessMenuOpen = false;
+        isColorMenuOpen = !isColorMenuOpen;
+      }}
       class="w-[18px] h-[18px] rounded-full border transition-all duration-150 cursor-pointer shadow-md flex items-center justify-center relative hover:scale-105 active:scale-95 {doc.activeColor ===
       '#000000'
         ? 'border-slate-700/80 bg-black'
@@ -480,6 +519,47 @@
             </button>
           {/each}
         </div>
+      </div>
+    {/if}
+  </div>
+
+  <div class="relative flex flex-col items-center">
+    <button
+      onclick={(e) => {
+        e.stopPropagation();
+        isColorMenuOpen = false;
+        isShapeMenuOpen = false;
+        isMenuOpen = false;
+        isThicknessMenuOpen = !isThicknessMenuOpen;
+      }}
+      class="w-6 h-6 flex items-center justify-center transition-all bg-transparent pointer-events-auto relative overflow-hidden group/thickness hover:scale-110 active:scale-95"
+      title="Line Thickness"
+    >
+      <div class="w-4 rounded-full bg-slate-400 group-hover/thickness:bg-white transition-colors" style="height: {doc.activeThickness}px;"></div>
+    </button>
+
+    {#if isThicknessMenuOpen}
+      <div
+        onclick={() => (isThicknessMenuOpen = false)}
+        class="fixed inset-0 z-40 bg-transparent cursor-default"
+      ></div>
+      <div
+        onclick={(e) => e.stopPropagation()}
+        class="absolute left-10 top-0 flex flex-col gap-3 p-3 bg-[#090d16] border border-slate-900 rounded-lg shadow-2xl z-50 pointer-events-auto min-w-[48px]"
+      >
+        {#each thicknessOptions as thick}
+          <button
+            onclick={(e) => {
+              e.stopPropagation();
+              doc.activeThickness = thick;
+              isThicknessMenuOpen = false;
+            }}
+            class="w-full flex items-center justify-center py-2 cursor-pointer hover:bg-slate-800/50 rounded transition-colors {doc.activeThickness === thick ? 'bg-slate-800/80' : ''}"
+            title="{thick}px"
+          >
+            <div class="w-8 rounded-full transition-colors {doc.activeThickness === thick ? 'bg-cyan-400' : 'bg-slate-400'}" style="height: {thick}px;"></div>
+          </button>
+        {/each}
       </div>
     {/if}
   </div>
@@ -623,3 +703,14 @@
     </div>
   </div>
 {/if}
+
+<svelte:window
+  onclick={() => {
+    isMenuOpen = false;
+    isModalOpen = false;
+    isColorMenuOpen = false;
+    isShapeMenuOpen = false;
+    isThicknessMenuOpen = false;
+    setPendingDeletion = null;
+  }}
+/>
