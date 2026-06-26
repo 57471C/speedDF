@@ -425,6 +425,22 @@
 </div>
 
 <style>
+  /* Dark Cyber Scrollbar Custom Webkit Injectors */
+  .workspace-scroll-container::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .workspace-scroll-container::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .workspace-scroll-container::-webkit-scrollbar-thumb {
+    background: rgba(30, 41, 59, 0.8);
+    border-radius: 9999px;
+  }
+  .workspace-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(51, 65, 85, 1);
+  }
+
   input[type="number"]::-webkit-inner-spin-button,
   input[type="number"]::-webkit-outer-spin-button {
     -webkit-appearance: none;

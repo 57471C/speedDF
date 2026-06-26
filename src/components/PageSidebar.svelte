@@ -4,6 +4,7 @@
   import * as pdfjsLib from "pdfjs-dist";
   import { PDFDocument } from "pdf-lib";
   import { invoke } from "@tauri-apps/api/core";
+  import Sortable from "sortablejs";
   import {
     activeDoc,
     rotatePageAction,
@@ -287,46 +288,57 @@
     appendFileInput?.click();
   }
 
-  let draggedIndex = $state<number | null>(null);
-  let hoverIndex = $state<number | null>(null);
+  function setupSortableGrid(node: HTMLElement) {
+    const sortableInstance = Sortable.create(node, {
+      animation: 200,
+      forceFallback: true,      // Tells SortableJS to use pure mouse tracking instead of HTML5 Drag API
+      fallbackOnBody: true,     // Pops the moving item clone out of overflow structures to body
+      fallbackClass: "sortable-fallback",
+      ghostClass: "opacity-10",  // Shadow drop-slot target layout
+      chosenClass: "border-cyan-500/40",
+      dragClass: "cursor-grabbing",
+      onEnd: (evt) => {
+        const oldIndex = evt.oldIndex;
+        const newIndex = evt.newIndex;
+        if (oldIndex === undefined || newIndex === undefined || oldIndex === newIndex) return;
 
-function handleDragStart(e: DragEvent, index: number) {
-  e.stopPropagation();
-  draggedIndex = index;
-  if (e.dataTransfer) {
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.dropEffect = "move";
-    e.dataTransfer.setData("text/plain", index.toString());
-  }
-}
+        pushHistorySnapshot();
+        
+        const draggedPage = activeDoc.pageOrder[oldIndex];
+        let newOrder = [...activeDoc.pageOrder];
 
-function handleDragOver(e: DragEvent, index: number) {
-  e.preventDefault();
-  e.stopPropagation();
-  if (e.dataTransfer) {
-    e.dataTransfer.dropEffect = "move";
-  }
-  if (hoverIndex !== index) {
-    hoverIndex = index;
-  }
-}
+        // If the dragged page is part of a multi-selection batch, shift the entire group together
+        if (selectedPages.includes(draggedPage) && selectedPages.length > 1) {
+          const referencePage = activeDoc.pageOrder[newIndex];
+          
+          // Filter out all selected pages from their current positions
+          newOrder = newOrder.filter(p => !selectedPages.includes(p));
+          
+          // Find where the reference drop target sits in the filtered array
+          let insertAt = newOrder.indexOf(referencePage);
+          
+          // Adjust position offset based on drag direction mapping
+          if (oldIndex < newIndex) {
+            insertAt += 1;
+          }
+          
+          // Inject the entire batch of selected pages back into the target slot
+          newOrder.splice(insertAt, 0, ...selectedPages);
+        } else {
+          // Fall back to a standard single card reorder transaction
+          const [movedPage] = newOrder.splice(oldIndex, 1);
+          newOrder.splice(newIndex, 0, movedPage);
+        }
+        
+        activeDoc.pageOrder = newOrder;
+      }
+    });
 
-function handleDrop(e: DragEvent, targetIndex: number) {
-  e.preventDefault();
-  e.stopPropagation();
-  if (draggedIndex === null || draggedIndex === targetIndex) return;
-  
-  pushHistorySnapshot();
-  const newOrder = [...activeDoc.pageOrder];
-  const [movedPage] = newOrder.splice(draggedIndex, 1);
-  newOrder.splice(targetIndex, 0, movedPage);
-  
-  activeDoc.pageOrder = newOrder;
-}
-
-  function handleDragEnd() {
-    draggedIndex = null;
-    hoverIndex = null;
+    return {
+      destroy() {
+        sortableInstance.destroy();
+      }
+    };
   }
 </script>
 
@@ -541,21 +553,16 @@ function handleDrop(e: DragEvent, targetIndex: number) {
     </div>
     
     <div class="flex-1 overflow-y-auto p-8 bg-[#070a12]">
-      <div class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-6">
-        {#each activeDoc.pageOrder as pageNum, index (pageNum)}
-          <div 
-            animate:flip={{ duration: 250 }}
-            onclick={(e) => handleGridSelect(e, pageNum)}
-            draggable="true"
-            ondragstart={(e) => handleDragStart(e, index)}
-            ondragover={(e) => handleDragOver(e, index)}
-            ondrop={(e) => handleDrop(e, index)}
-            ondragend={handleDragEnd}
-            class="group relative flex flex-col items-center border rounded-xl p-4 transition-all cursor-grab active:cursor-grabbing select-none bg-[#0e131f]
-            {selectedPages.includes(pageNum) ? 'border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.1)] bg-[#1a160f]' : 'border-slate-800 hover:border-slate-700'}
-            {hoverIndex === index && draggedIndex !== index ? 'ring-2 ring-cyan-500/50 scale-[1.02]' : ''}
-            {draggedIndex === index ? 'opacity-30' : ''}"
-          >
+    <div 
+      use:setupSortableGrid
+      class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-6"
+    >
+      {#each activeDoc.pageOrder as pageNum, index (pageNum)}
+        <div 
+          onclick={(e) => handleGridSelect(e, pageNum)}
+          class="group relative flex flex-col items-center border rounded-xl p-4 transition-all cursor-grab active:cursor-grabbing select-none bg-[#0e131f]
+          {selectedPages.includes(pageNum) ? 'border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.1)] bg-[#1a160f]' : 'border-slate-800 hover:border-slate-700'}"
+        >
             <span class="absolute top-3 left-4 text-[10px] font-mono font-bold pointer-events-none {selectedPages.includes(pageNum) ? 'text-amber-400' : 'text-slate-500'}">#{index + 1}</span>
             
             {#if selectedPages.includes(pageNum)}
@@ -577,3 +584,25 @@ function handleDrop(e: DragEvent, targetIndex: number) {
     </div>
   </div>
 {/if}
+
+<style>
+  /* Styles the emulated floating card preview to track the cursor seamlessly over the modal panel layer */
+  :global(.sortable-fallback) {
+    position: fixed !important;
+    z-index: 9999 !important;
+    width: 146px !important;
+    height: 172px !important;
+    opacity: 0.85 !important;
+    pointer-events: none !important;
+    background-color: #0e131f !important;
+    border: 2px solid #38bdf8 !important; /* Glowing cyan tracking graphic border */
+    border-radius: 0.75rem !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7) !important;
+    transform: scale(1.04) !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+</style>

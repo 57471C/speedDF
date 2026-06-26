@@ -1,6 +1,6 @@
 {
 	"name": "speeddf",
-	"version": "0.8.0",
+	"version": "0.8.1",
 	"description": "",
 	"type": "module",
 	"scripts": {
@@ -19,7 +19,8 @@
 		"@tauri-apps/plugin-window-state": "^2.4.1",
 		"fabric": "^7.4.0",
 		"pdf-lib": "^1.17.1",
-		"pdfjs-dist": "^6.0.227"
+		"pdfjs-dist": "^6.0.227",
+		"sortablejs": "^1.15.7"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.0",
@@ -29,6 +30,7 @@
 		"@tailwindcss/postcss": "^4.3.1",
 		"@tauri-apps/cli": "^2",
 		"@types/node": "^25.9.3",
+		"@types/sortablejs": "^1.15.9",
 		"autoprefixer": "^10.5.0",
 		"postcss": "^8.5.15",
 		"svelte": "^5.0.0",
