@@ -10,6 +10,7 @@
     path: string;
     timestamp: number;
     thumbnail: string;
+    orientation?: string;
   }
 
   let recentFiles = $state<RecentFile[]>([]);
@@ -53,12 +54,25 @@
       if (activeDoc.fileType === "tiff") {
         console.log("Recent Tracker: Document type is TIFF. Registering basic file history metadata entry...");
         let dataUrl = "";
+        let orientation = "portrait";
         const pageData = activeDoc.tiffPages[0];
         if (pageData) {
           const blob = new Blob([pageData], { type: "image/png" });
+          const url = URL.createObjectURL(blob);
+          await new Promise<void>((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+              orientation = img.width > img.height ? "landscape" : "portrait";
+              resolve();
+            };
+            img.src = url;
+          });
           dataUrl = await new Promise<string>((resolve) => {
             const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
+            reader.onloadend = () => {
+              URL.revokeObjectURL(url);
+              resolve(reader.result as string);
+            };
             reader.readAsDataURL(blob);
           });
         }
@@ -67,7 +81,13 @@
         if (stored) currentList = JSON.parse(stored);
         
         currentList = currentList.filter(f => f.path !== path);
-        currentList.unshift({ name, path, timestamp: Date.now(), thumbnail: dataUrl });
+        currentList.unshift({
+          name,
+          path,
+          timestamp: Date.now(),
+          thumbnail: dataUrl,
+          orientation
+        });
         if (currentList.length > 10) currentList = currentList.slice(0, 10);
         
         localStorage.setItem("speeddf_recents", JSON.stringify(currentList));
@@ -93,7 +113,15 @@
         if (stored) currentList = JSON.parse(stored);
         
         currentList = currentList.filter(f => f.path !== path);
-        currentList.unshift({ name, path, timestamp: Date.now(), thumbnail: dataUrl });
+        
+        const isLandscape = viewport.width > viewport.height;
+        currentList.unshift({
+          name,
+          path,
+          timestamp: Date.now(),
+          thumbnail: dataUrl,
+          orientation: isLandscape ? "landscape" : "portrait"
+        });
         if (currentList.length > 10) currentList = currentList.slice(0, 10);
         
         localStorage.setItem("speeddf_recents", JSON.stringify(currentList));
