@@ -47,7 +47,7 @@
         let orientation = "portrait";
         const pageData = activeDoc.tiffPages[0];
         if (pageData) {
-          const blob = new Blob([pageData], { type: "image/png" });
+          const blob = new Blob([pageData as any], { type: "image/png" });
           const url = URL.createObjectURL(blob);
           await new Promise<void>((resolve) => {
             const img = new Image();
