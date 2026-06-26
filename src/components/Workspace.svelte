@@ -36,6 +36,18 @@
     }
   });
 
+  $effect(() => {
+    if (activeDoc.rawBytes && activeDoc.fileType === "tiff") {
+      // Auto-execute your window fitting routine once layout parameters are set
+      setTimeout(() => {
+        if (typeof shrinkToWindow === "function") {
+          shrinkToWindow();
+          console.log("Workspace Engine: Blueprint size detected. Auto-applied 'Fit to Window' layout constraint.");
+        }
+      }, 150);
+    }
+  });
+
   async function registerRecentFile(name: string, path: string, bytes: Uint8Array) {
     try {
       if (activeDoc.fileType === "tiff") {
