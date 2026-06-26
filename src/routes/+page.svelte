@@ -28,6 +28,7 @@
     path: string;
     timestamp: number;
     thumbnail: string;
+    orientation?: string;
   }
 
   let recentFiles = $state<RecentFile[]>([]);
@@ -43,12 +44,25 @@
       if (activeDoc.fileType === "tiff") {
         console.log("Recent Tracker: Document type is TIFF. Registering basic file history metadata entry...");
         let dataUrl = "";
+        let orientation = "portrait";
         const pageData = activeDoc.tiffPages[0];
         if (pageData) {
           const blob = new Blob([pageData], { type: "image/png" });
+          const url = URL.createObjectURL(blob);
+          await new Promise<void>((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+              orientation = img.width > img.height ? "landscape" : "portrait";
+              resolve();
+            };
+            img.src = url;
+          });
           dataUrl = await new Promise<string>((resolve) => {
             const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
+            reader.onloadend = () => {
+              URL.revokeObjectURL(url);
+              resolve(reader.result as string);
+            };
             reader.readAsDataURL(blob);
           });
         }
@@ -62,6 +76,7 @@
           path,
           timestamp: Date.now(),
           thumbnail: dataUrl,
+          orientation
         });
         if (currentList.length > 10) currentList = currentList.slice(0, 10);
 
@@ -91,12 +106,14 @@
         // Remove duplicate path strings if they already exist
         currentList = currentList.filter((f) => f.path !== path);
 
+        const isLandscape = viewport.width > viewport.height;
         // Prepend the new document item to the front of the tracking queue
         currentList.unshift({
           name,
           path,
           timestamp: Date.now(),
           thumbnail: dataUrl,
+          orientation: isLandscape ? "landscape" : "portrait"
         });
 
         // Cap array length at 10 items total
@@ -660,77 +677,47 @@
             Recent Documents
           </h2>
 
-          <div
-            class="flex overflow-x-auto gap-4 px-4 pb-2 scroll-smooth w-full select-none
-            [&::-webkit-scrollbar]:h-1.5
-            [&::-webkit-scrollbar-track]:bg-transparent
-            [&::-webkit-scrollbar-thumb]:bg-slate-800/80
-            [&::-webkit-scrollbar-thumb]:rounded-full
-            hover:[&::-webkit-scrollbar-thumb]:bg-slate-700 transition-colors"
-          >
+          <div class="flex gap-6 overflow-x-auto pb-6 pt-3 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent scroll-smooth snap-x">
             {#each recentFiles as file}
-              <button
-                onclick={() => {
-                  if (fileStatusMap[file.path] !== false)
-                    openRecentFile(file.name, file.path);
-                }}
-                class="group flex flex-col bg-[#0e131f] border border-slate-800/80 hover:border-slate-700 rounded-xl p-3 relative flex-shrink-0 transition-all text-left outline-none w-44 max-w-[180px] {fileStatusMap[
-                  file.path
-                ] === false
-                  ? 'opacity-40 cursor-not-allowed'
-                  : 'cursor-pointer hover:bg-[#121927]'}"
+              {@const exists = fileStatusMap[file.path] !== false}
+              {@const isLandscape = file.orientation === "landscape"}
+              
+              <div
+                onclick={() => exists && openRecentFile(file.name, file.path)}
+                onkeydown={(e) => e.key === "Enter" && exists && openRecentFile(file.name, file.path)}
+                role="button"
+                tabindex="0"
+                class="flex-none snap-start relative group bg-[#090d16] rounded-xl overflow-hidden border transition-all duration-300 ease-out shadow-lg transform
+                       {exists ? 'border-slate-800/60 shadow-slate-950/50 cursor-pointer hover:shadow-2xl hover:scale-106 hover:border-emerald-500/30' : 'border-slate-900 opacity-40 cursor-not-allowed select-none'}
+                       {isLandscape ? 'w-72 h-44' : 'w-44 h-56'}"
               >
-                <div class="absolute top-3 left-3 z-10">
-                  {#if fileStatusMap[file.path] === false}
-                    <div
-                      class="p-0.5 rounded-full bg-[#0e131f]"
-                      title="File can't be located"
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        class="w-3.5 h-3.5 text-red-500 fill-none stroke-current"
-                        stroke-width="3"
-                        stroke-linecap="round"
-                      >
-                        <circle cx="12" cy="12" r="10" /><line
-                          x1="4.93"
-                          y1="4.93"
-                          x2="19.07"
-                          y2="19.07"
-                        />
-                      </svg>
-                    </div>
-                  {:else if fileStatusMap[file.path] === true}
-                    <span class="flex h-2 w-2 relative">
-                      <span
-                        class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"
-                      ></span>
-                      <span
-                        class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_#10b981]"
-                      ></span>
-                    </span>
+                <div class="w-full h-full flex items-center justify-center bg-[#04060a] relative">
+                  {#if file.thumbnail}
+                    <img
+                      src={file.thumbnail}
+                      alt={file.name}
+                      class="w-full h-full object-contain transition-transform duration-500 group-hover:scale-102"
+                    />
                   {/if}
+                  
+                  <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-80 group-hover:opacity-100 transition-opacity"></div>
                 </div>
 
-                <div
-                  class="w-full aspect-[3/4] bg-[#070a12] rounded-lg border border-slate-950 flex items-center justify-center overflow-hidden mb-2.5 relative group-hover:border-slate-800 shadow-inner pointer-events-none"
-                >
-                  <img
-                    src={file.thumbnail}
-                    alt=""
-                    class="w-full h-full object-contain bg-white transition-transform group-hover:scale-[1.02]"
-                  />
+                <div class="absolute bottom-0 inset-x-0 p-3 flex flex-col justify-end">
+                  <p class="text-xs font-medium text-slate-200 truncate w-full tracking-wide drop-shadow-md">
+                    {file.name}
+                  </p>
                 </div>
 
-                <span
-                  class="text-xs font-bold text-slate-200 truncate w-full group-hover:text-cyan-400 transition-colors pointer-events-none"
-                  >{file.name}</span
-                >
-                <span
-                  class="text-[9px] font-medium text-slate-500 truncate w-full mt-0.5 pointer-events-none"
-                  title={file.path}>{file.path}</span
-                >
-              </button>
+                {#if exists}
+                  <div class="absolute top-3 right-3 flex h-2 w-2" title="File available on local storage disk">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
+                  </div>
+                {:else}
+                  <div class="absolute top-3 right-3 h-2 w-2 rounded-full bg-slate-700" title="File path missing or unreadable"></div>
+                {/if}
+              </div>
             {/each}
           </div>
         </div>
