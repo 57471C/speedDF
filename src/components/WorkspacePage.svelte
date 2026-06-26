@@ -47,7 +47,7 @@
       if (activeDoc.fileType === "tiff") {
         const pageData = activeDoc.tiffPages[pageNumber - 1];
         if (pageData) {
-          const blob = new Blob([pageData], { type: "image/png" });
+          const blob = new Blob([pageData as any], { type: "image/png" });
           const url = URL.createObjectURL(blob);
           const img = new Image();
           img.onload = () => {
@@ -91,7 +91,7 @@
       const rotation = activeDoc.rotations[pageNum] ?? 0;
       
       if (pageData) {
-        const blob = new Blob([pageData], { type: "image/png" });
+        const blob = new Blob([pageData as any], { type: "image/png" });
         const url = URL.createObjectURL(blob);
         const img = new Image();
         img.onload = () => {
@@ -238,7 +238,7 @@
       const rotation = activeDoc.rotations[pageNum] ?? 0;
       
       if (pageData) {
-        const blob = new Blob([pageData], { type: "image/png" });
+        const blob = new Blob([pageData as any], { type: "image/png" });
         const url = URL.createObjectURL(blob);
         const img = new Image();
         img.onload = () => {
