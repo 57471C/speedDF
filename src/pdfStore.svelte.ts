@@ -1,5 +1,5 @@
 export interface AnnotationShape {
-  type: "rect" | "text" | "tick" | "dash" | "signature" | "initial" | "highlight" | "round-rect" | "oval" | "rect-fill" | "round-rect-fill" | "oval-fill";
+  type: "rect" | "text" | "tick" | "dash" | "signature" | "initial" | "highlight" | "round-rect" | "oval" | "rect-fill" | "round-rect-fill" | "oval-fill" | "pen";
   x: number;                            // Percentage coordinate left (0-100)
   y: number;                            // Percentage coordinate top (0-100)
   width?: number;                       // Percentage width layout bounds
@@ -8,6 +8,7 @@ export interface AnnotationShape {
   dataUrl?: string;                     // Base64 PNG image stream string (for signatures)
   points?: { x: number; y: number }[];  // Array of percentage nodes tracking freehand highlighters
   color?: string;                       // Captures the unique hexadecimal ink value
+  thickness?: number;
   font?: string;                        // Custom font family name
   size?: number;                        // Custom font size in points
   style?: "Normal" | "Bold" | "Italic"; // Font style variant
@@ -28,7 +29,7 @@ export interface SharedDocumentState {
   clientHeight: number;
   isClickScrolling: boolean;
   rotations: Record<number, number>;
-  activeTool: "select" | "text" | "rect" | "tick" | "dash" | "signature" | "initial" | "highlight" | "rotate" | "round-rect" | "oval" | "rect-fill" | "round-rect-fill" | "oval-fill" | null;
+  activeTool: "select" | "text" | "rect" | "tick" | "dash" | "signature" | "initial" | "highlight" | "rotate" | "round-rect" | "oval" | "rect-fill" | "round-rect-fill" | "oval-fill" | "pen" | null;
   shapes: Record<number, AnnotationShape[]>;
   selectedShape: { pageNumber: number; index: number } | null;
   savedSignatureSets: SignatureSet[];
@@ -37,12 +38,15 @@ export interface SharedDocumentState {
   fileName: string | null;
   filePath: string | null;
   activeColor: string;
+  activeThickness: number;
   zoomScale: number;
   defaultFont: string;
   defaultSize: number;
   defaultStyle: "Normal" | "Bold" | "Italic";
-  fileType: "pdf" | "tiff";
+  fileType: "pdf" | "tiff" | null;
   tiffPages: Uint8Array[];
+  flushDocumentState(): void;
+  isDirty: boolean;
 }
 
 export const FONT_MAP: Record<
@@ -109,12 +113,28 @@ export const activeDoc = $state<SharedDocumentState>({
   fileName: null,
   filePath: null,
   activeColor: "#000000",
+  activeThickness: 3, // Default stroke width for pens and shape borders
   zoomScale: 120,
   defaultFont: "Helvetica",
   defaultSize: 12,
   defaultStyle: "Normal",
   fileType: "pdf",
-  tiffPages: []
+  tiffPages: [],
+  isDirty: false,
+  flushDocumentState() {
+    this.rawBytes = null;
+    this.fileType = null;
+    this.fileName = "";
+    this.filePath = "";
+    this.pageCount = 0;
+    this.tiffPages = [];
+    this.pageOrder = [];
+    this.rotations = {};
+    this.shapes = {};
+    this.selectedShape = null;
+    this.isDirty = false;
+    console.log("Global Store: Flushed old document structures. Ready for clean initialization.");
+  }
 });
 
 // ⚡ SURGICAL INSERTION: Append this directly below your "export const activeDoc = ..." declaration block
@@ -133,6 +153,7 @@ let redoStack: HistorySnapshot[] = [];
  * Call this immediately BEFORE executing any document mutation (drawing, deleting, reordering).
  */
 export function pushHistorySnapshot() {
+  activeDoc.isDirty = true;
   const snapshot: HistorySnapshot = {
     shapes: JSON.parse(JSON.stringify(activeDoc.shapes)),
     pageOrder: [...activeDoc.pageOrder]

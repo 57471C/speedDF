@@ -193,6 +193,15 @@
     activeDoc.zoomScale = zoomScale;
   });
 
+  // Reactively track changes to your annotations database layer
+  $effect(() => {
+    // Stringify or access the deep shapes map to trigger Svelte tracking dependencies
+    const shapeCount = Object.values(activeDoc.shapes || {}).reduce((acc: number, curr: any) => acc + (curr?.length || 0), 0);
+    if (shapeCount > 0 && activeDoc.rawBytes) {
+      activeDoc.isDirty = true;
+    }
+  });
+
   // Derived state to determine when to show the floating menu capsule
   const activeTextShape = $derived.by(() => {
     if (activeDoc.selectedShape) {
@@ -418,7 +427,7 @@
 >
   {#if showFloatingMenu}
     <div
-      class="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-[#090d16]/95 border border-slate-800/80 px-4 py-2 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.5)] flex items-center gap-3 backdrop-blur-md select-none pointer-events-auto transition-all duration-200"
+      class="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[#090d16]/95 border border-slate-800/80 px-4 py-2 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.5)] flex items-center gap-3 backdrop-blur-md select-none pointer-events-auto transition-all duration-200"
     >
       <div class="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold tracking-wider uppercase border-r border-slate-800 pr-3">
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-cyan-400"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>

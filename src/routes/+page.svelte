@@ -19,6 +19,9 @@
 
   let zoomScale = $state(120);
   let showHelpModal = $state(false);
+  let showUnsavedModal = $state(false);
+  let unsavedModalMessage = $state("");
+  let pendingNavigationAction = $state<(() => void) | null>(null);
   let titleBarRef = $state<any>(null);
   let isSystemPrinting = $state(false);
   let isPreparingPrint = $state(false);
@@ -42,7 +45,9 @@
   ) {
     try {
       if (activeDoc.fileType === "tiff") {
-        console.log("Recent Tracker: Document type is TIFF. Registering basic file history metadata entry...");
+        console.log(
+          "Recent Tracker: Document type is TIFF. Registering basic file history metadata entry...",
+        );
         let dataUrl = "";
         let orientation = "portrait";
         const pageData = activeDoc.tiffPages[0];
@@ -76,7 +81,7 @@
           path,
           timestamp: Date.now(),
           thumbnail: dataUrl,
-          orientation
+          orientation,
         });
         if (currentList.length > 10) currentList = currentList.slice(0, 10);
 
@@ -113,7 +118,7 @@
           path,
           timestamp: Date.now(),
           thumbnail: dataUrl,
-          orientation: isLandscape ? "landscape" : "portrait"
+          orientation: isLandscape ? "landscape" : "portrait",
         });
 
         // Cap array length at 10 items total
@@ -130,25 +135,37 @@
     }
   }
 
-  async function loadDocument(rawBytes: Uint8Array, fileName: string, filePath: string) {
+  async function loadDocument(
+    rawBytes: Uint8Array,
+    fileName: string,
+    filePath: string,
+  ) {
     // Detect technical drawing file signatures by matching path extensions
-    const isTiff = fileName.toLowerCase().endsWith(".tiff") || fileName.toLowerCase().endsWith(".tif");
+    const isTiff =
+      fileName.toLowerCase().endsWith(".tiff") ||
+      fileName.toLowerCase().endsWith(".tif");
 
     if (isTiff) {
       try {
         // Direct binary handoff over the IPC bridge to your high-performance Rust extraction crate
-        const decodedPages = await invoke<number[][] | Uint8Array[]>("parse_tiff_document", {
-          path: filePath
-        });
+        const decodedPages = await invoke<number[][] | Uint8Array[]>(
+          "parse_tiff_document",
+          {
+            path: filePath,
+          },
+        );
 
         activeDoc.fileType = "tiff";
         activeDoc.rawBytes = rawBytes;
         activeDoc.fileName = fileName;
         activeDoc.filePath = filePath;
         activeDoc.pageCount = decodedPages.length;
-        activeDoc.tiffPages = decodedPages.map(page => new Uint8Array(page));
-        activeDoc.pageOrder = Array.from({ length: decodedPages.length }, (_, i) => i + 1);
-        
+        activeDoc.tiffPages = decodedPages.map((page) => new Uint8Array(page));
+        activeDoc.pageOrder = Array.from(
+          { length: decodedPages.length },
+          (_, i) => i + 1,
+        );
+
         return; // Handoff completed successfully; bypass PDF.js initialization loops
       } catch (err) {
         console.error("Native Rust TIFF parsing fault details:", err);
@@ -186,6 +203,24 @@
 
   async function openRecentFile(name: string, path: string) {
     try {
+      // Block transition if old workspace data contains unsaved alterations
+      if (activeDoc.isDirty) {
+        unsavedModalMessage = "You have unsaved changes on this layout sheet. Are you sure you want to load this recent file and discard your progress?";
+        pendingNavigationAction = async () => {
+          activeDoc.flushDocumentState();
+          const payload = await invoke<StartupPayload>("read_file_bytes", { path });
+          if (payload && payload.bytes) {
+            const typedBytes = new Uint8Array(payload.bytes);
+            await loadDocument(typedBytes, payload.name, payload.path);
+          }
+        };
+        showUnsavedModal = true;
+        return;
+      }
+
+      // Flush out all stale metadata to prevent memory layout bleeding
+      activeDoc.flushDocumentState();
+
       const payload = await invoke<StartupPayload>("read_file_bytes", { path });
       if (payload && payload.bytes) {
         const typedBytes = new Uint8Array(payload.bytes);
@@ -203,31 +238,87 @@
       filters: [
         {
           name: "Supported Documents",
-          extensions: ["pdf", "tiff", "tif"]
-        }
-      ]
+          extensions: ["pdf", "tiff", "tif"],
+        },
+      ],
     });
 
     if (!selected) return;
 
     // 2. When reading the file name and processing path coordinates:
-    const filePath = typeof selected === 'string' ? selected : (selected as any).path;
+    const filePath =
+      typeof selected === "string" ? selected : (selected as any).path;
     const fileName = filePath.split(/[/\\]/).pop() || "Document";
 
+    // Block loading sequence if old workspace data contains unsaved alterations
+    if (activeDoc.isDirty) {
+      unsavedModalMessage = "You have unsaved changes on this document layout. Are you sure you want to open a new file and discard your progress?";
+      pendingNavigationAction = () => {
+        activeDoc.isDirty = false;
+        // Trigger file loading sequence natively now that state is clean
+        setTimeout(async () => {
+          activeDoc.flushDocumentState();
+          const payload = await invoke<StartupPayload>("read_file_bytes", { path: filePath });
+          const uint8Bytes = new Uint8Array(payload.bytes);
+          const isTiff = fileName.toLowerCase().endsWith(".tiff") || fileName.toLowerCase().endsWith(".tif");
+          if (isTiff) {
+            const decodedPages = await invoke<number[][]>("parse_tiff_document", { path: filePath });
+            activeDoc.fileType = "tiff";
+            activeDoc.rawBytes = uint8Bytes;
+            activeDoc.fileName = fileName;
+            activeDoc.filePath = filePath;
+            activeDoc.pageCount = decodedPages.length;
+            activeDoc.tiffPages = decodedPages.map((page) => new Uint8Array(page));
+            activeDoc.pageOrder = Array.from({ length: decodedPages.length }, (_, i) => i + 1);
+            return;
+          }
+          activeDoc.fileType = "pdf";
+          activeDoc.tiffPages = [];
+          const loadingTask = pdfjsLib.getDocument({
+            data: uint8Bytes.slice(0),
+            cMapUrl: window.location.origin + "/cmaps/",
+            cMapPacked: true,
+            standardFontDataUrl: window.location.origin + "/standard_fonts/",
+            wasmUrl: window.location.origin + "/",
+          });
+          const pdfDocument = await loadingTask.promise;
+          activeDoc.rawBytes = uint8Bytes;
+          activeDoc.pageCount = pdfDocument.numPages;
+          activeDoc.pageOrder = Array.from({ length: pdfDocument.numPages }, (_, idx) => idx + 1);
+          activeDoc.currentPage = 1;
+          activeDoc.shapes = {};
+          activeDoc.fileName = fileName;
+          activeDoc.filePath = filePath;
+          await registerRecentFile(fileName, filePath, uint8Bytes);
+        }, 50);
+      };
+      showUnsavedModal = true;
+      return;
+    }
+
+    // Flush out all stale metadata to prevent memory layout bleeding
+    activeDoc.flushDocumentState();
+
     // Read the document stream into a raw binary allocation vector
-    const rawBytes = await invoke<number[]>("read_file_bytes", { path: filePath });
-    const uint8Bytes = new Uint8Array(rawBytes);
+    const payload = await invoke<StartupPayload>("read_file_bytes", {
+      path: filePath,
+    });
+    const uint8Bytes = new Uint8Array(payload.bytes);
 
     // ROUTING BLOCK: Intercept images before they hit the PDF.js worker pipeline
-    const isTiff = fileName.toLowerCase().endsWith(".tiff") || fileName.toLowerCase().endsWith(".tif");
+    const isTiff =
+      fileName.toLowerCase().endsWith(".tiff") ||
+      fileName.toLowerCase().endsWith(".tif");
 
     if (isTiff) {
       try {
-        console.log("+page.svelte: TIFF extension verified. Passing file path straight to native Rust parser...");
-        
+        console.log(
+          "+page.svelte: TIFF extension verified. Passing file path straight to native Rust parser...",
+        );
+
         // Pass the file path string directly to avoid IPC serialization overhead and data truncation
         const decodedPages = await invoke<number[][]>("parse_tiff_document", {
-          path: filePath
+          path: filePath,
         });
 
         activeDoc.fileType = "tiff";
@@ -235,10 +326,16 @@
         activeDoc.fileName = fileName;
         activeDoc.filePath = filePath;
         activeDoc.pageCount = decodedPages.length;
-        activeDoc.tiffPages = decodedPages.map(page => new Uint8Array(page));
-        activeDoc.pageOrder = Array.from({ length: decodedPages.length }, (_, i) => i + 1);
-        
-        console.log("+page.svelte: TIFF document initialized successfully with pages:", decodedPages.length);
+        activeDoc.tiffPages = decodedPages.map((page) => new Uint8Array(page));
+        activeDoc.pageOrder = Array.from(
+          { length: decodedPages.length },
+          (_, i) => i + 1,
+        );
+
+        console.log(
+          "+page.svelte: TIFF document initialized successfully with pages:",
+          decodedPages.length,
+        );
         return; // STOP HERE: Do not let execution run downstream into PDF.js loops
       } catch (err) {
         console.error("Native Rust TIFF parsing fault details:", err);
@@ -272,6 +369,20 @@
     activeDoc.filePath = filePath;
 
     await registerRecentFile(fileName, filePath, uint8Bytes);
+  }
+
+  function closeDocument() {
+    // Intercept if the document has active modifications on screen
+    if (activeDoc.isDirty) {
+      unsavedModalMessage = "You have unsaved markup changes on this layout drawing. Are you sure you want to close this document and discard your progress?";
+      pendingNavigationAction = () => {
+        activeDoc.isDirty = false;
+        activeDoc.flushDocumentState();
+      };
+      showUnsavedModal = true;
+    } else {
+      activeDoc.flushDocumentState();
+    }
   }
 
   // Auto-track files when they are loaded into activeDoc
@@ -358,7 +469,7 @@
     }
   }
 
-  onMount(async () => {
+  onMount(() => {
     // Load recents list on app mount and audit file locations using our Rust command
     const stored = localStorage.getItem("speeddf_recents");
     if (stored) {
@@ -377,39 +488,66 @@
       }
     }
 
-    try {
-      console.log(
-        "Checking for startup single-file execution arguments handshake...",
-      );
-      const payload = await invoke<StartupPayload | null>("check_startup_file");
+    async function initStartupFile() {
+      try {
+        console.log(
+          "Checking for startup single-file execution arguments handshake...",
+        );
+        const payload = await invoke<StartupPayload | null>("check_startup_file");
 
-      if (payload && payload.bytes && payload.bytes.length > 0) {
-        console.log(`Loading single-file payload launch: ${payload.name}`);
-        const typedBytes = new Uint8Array(payload.bytes);
-        await loadDocument(typedBytes, payload.name, payload.path);
+        if (payload && payload.bytes && payload.bytes.length > 0) {
+          console.log(`Loading single-file payload launch: ${payload.name}`);
+          const typedBytes = new Uint8Array(payload.bytes);
+          await loadDocument(typedBytes, payload.name, payload.path);
+        }
+      } catch (err) {
+        console.warn("Startup file handshake processing failed:", err);
       }
-    } catch (err) {
-      console.warn("Startup file handshake processing failed:", err);
     }
+    initStartupFile();
 
     // Listen for drag-drop events natively from Tauri
     appWindow.listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
       const paths = event.payload.paths;
       if (paths && paths.length > 0) {
         const path = paths[0];
-        const parts = path.split(/[\\/]/);
-        const name = parts[parts.length - 1];
-        try {
-          const payload = await invoke<StartupPayload>("read_file_bytes", { path });
-          if (payload && payload.bytes) {
-            const typedBytes = new Uint8Array(payload.bytes);
-            await loadDocument(typedBytes, name, path);
-          }
-        } catch (err) {
-          console.error("Failed to load dropped file:", err);
+        
+        // Block workspace injection if old canvas elements contain unsaved modifications
+        if (activeDoc.isDirty) {
+          unsavedModalMessage = "You have unsaved markup layers. Do you want to discard your progress and drop this new drawing sheet in?";
+          pendingNavigationAction = async () => {
+            activeDoc.flushDocumentState();
+            const parts = path.split(/[\\/]/);
+            const name = parts[parts.length - 1];
+            const payload = await invoke<StartupPayload>("read_file_bytes", { path });
+            if (payload && payload.bytes) {
+              const typedBytes = new Uint8Array(payload.bytes);
+              await loadDocument(typedBytes, name, path);
+            }
+          };
+          showUnsavedModal = true;
+          return;
         }
-      }
-    });
+
+        // Flush out all stale metadata to prevent memory layout bleeding
+        activeDoc.flushDocumentState();
+
+          const parts = path.split(/[\\/]/);
+          const name = parts[parts.length - 1];
+          try {
+            const payload = await invoke<StartupPayload>("read_file_bytes", {
+              path,
+            });
+            if (payload && payload.bytes) {
+              const typedBytes = new Uint8Array(payload.bytes);
+              await loadDocument(typedBytes, name, path);
+            }
+          } catch (err) {
+            console.error("Failed to load dropped file:", err);
+          }
+        }
+      },
+    );
 
     window.addEventListener("keydown", (e: KeyboardEvent) => {
       if (
@@ -435,7 +573,9 @@
             }
           } else {
             if (activeDoc.fileType === "tiff") {
-              console.warn("Keyboard Shortcut: Overwrite blocked for TIFF. Redirecting user transaction to Save As dialog...");
+              console.warn(
+                "Keyboard Shortcut: Overwrite blocked for TIFF. Redirecting user transaction to Save As dialog...",
+              );
               if (titleBarRef?.triggerSaveAs) {
                 titleBarRef.triggerSaveAs();
               }
@@ -476,6 +616,24 @@
         }
       }
     });
+
+    // Capture system Close Button actions cleanly via browser-native confirmation prompts
+    const unlistenCloseRequest = appWindow.onCloseRequested((event) => {
+      if (activeDoc.isDirty) {
+        event.preventDefault(); // 🛡️ STOP EXITING SYNCHRONOUSLY IMMEDIATELY
+        unsavedModalMessage = "Warning: You have unsaved markups on this engineering layout drawing. Are you sure you want to exit speedDF and discard your modifications?";
+        pendingNavigationAction = () => {
+          activeDoc.isDirty = false;
+          // Directly invoke native close thread bypassing the dirty trap rule
+          appWindow.close();
+        };
+        showUnsavedModal = true;
+      }
+    });
+
+    return () => {
+      unlistenCloseRequest.then(f => f());
+    };
   });
 </script>
 
@@ -493,6 +651,7 @@
     onToggleHelp={() => (showHelpModal = !showHelpModal)}
     onPrint={executeNativePrint}
     onOpenFile={openFile}
+    onCloseDocument={closeDocument}
   />
 
   {#if activeDoc.rawBytes}
@@ -677,21 +836,30 @@
             Recent Documents
           </h2>
 
-          <div class="flex gap-6 overflow-x-auto pb-6 pt-3 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent scroll-smooth snap-x">
+          <div
+            class="flex gap-6 overflow-x-auto pb-6 pt-3 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent scroll-smooth snap-x"
+          >
             {#each recentFiles as file}
               {@const exists = fileStatusMap[file.path] !== false}
               {@const isLandscape = file.orientation === "landscape"}
-              
+
               <div
                 onclick={() => exists && openRecentFile(file.name, file.path)}
-                onkeydown={(e) => e.key === "Enter" && exists && openRecentFile(file.name, file.path)}
+                onkeydown={(e) =>
+                  e.key === "Enter" &&
+                  exists &&
+                  openRecentFile(file.name, file.path)}
                 role="button"
                 tabindex="0"
                 class="flex-none snap-start relative group bg-[#090d16] rounded-xl overflow-hidden border transition-all duration-300 ease-out shadow-lg transform
-                       {exists ? 'border-slate-800/60 shadow-slate-950/50 cursor-pointer hover:shadow-2xl hover:scale-106 hover:border-emerald-500/30' : 'border-slate-900 opacity-40 cursor-not-allowed select-none'}
+                       {exists
+                  ? 'border-slate-800/60 shadow-slate-950/50 cursor-pointer hover:shadow-2xl hover:scale-106 hover:border-emerald-500/30'
+                  : 'border-slate-900 opacity-40 cursor-not-allowed select-none'}
                        {isLandscape ? 'w-72 h-44' : 'w-44 h-56'}"
               >
-                <div class="w-full h-full flex items-center justify-center bg-[#04060a] relative">
+                <div
+                  class="w-full h-full flex items-center justify-center bg-[#04060a] relative"
+                >
                   {#if file.thumbnail}
                     <img
                       src={file.thumbnail}
@@ -699,23 +867,39 @@
                       class="w-full h-full object-contain transition-transform duration-500 group-hover:scale-102"
                     />
                   {/if}
-                  
-                  <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-80 group-hover:opacity-100 transition-opacity"></div>
+
+                  <div
+                    class="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-80 group-hover:opacity-100 transition-opacity"
+                  ></div>
                 </div>
 
-                <div class="absolute bottom-0 inset-x-0 p-3 flex flex-col justify-end">
-                  <p class="text-xs font-medium text-slate-200 truncate w-full tracking-wide drop-shadow-md">
+                <div
+                  class="absolute bottom-0 inset-x-0 p-3 flex flex-col justify-end"
+                >
+                  <p
+                    class="text-xs font-medium text-slate-200 truncate w-full tracking-wide drop-shadow-md"
+                  >
                     {file.name}
                   </p>
                 </div>
 
                 {#if exists}
-                  <div class="absolute top-3 right-3 flex h-2 w-2" title="File available on local storage disk">
-                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
+                  <div
+                    class="absolute top-3 right-3 flex h-2 w-2"
+                    title="File available on local storage disk"
+                  >
+                    <span
+                      class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"
+                    ></span>
+                    <span
+                      class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_#10b981]"
+                    ></span>
                   </div>
                 {:else}
-                  <div class="absolute top-3 right-3 h-2 w-2 rounded-full bg-slate-700" title="File path missing or unreadable"></div>
+                  <div
+                    class="absolute top-3 right-3 h-2 w-2 rounded-full bg-slate-700"
+                    title="File path missing or unreadable"
+                  ></div>
                 {/if}
               </div>
             {/each}
@@ -745,7 +929,7 @@
           >
           <span
             class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v0.8.1</span
+            >v0.9.1</span
           >
         </div>
         <button
@@ -919,6 +1103,33 @@
           class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-[11px] font-bold transition-colors shadow-md"
         >
           Acknowledge & Close
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showUnsavedModal}
+  <div class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[1000] flex items-center justify-center p-6 font-sans select-none">
+    <div class="bg-[#0b101c] border border-red-500/30 w-full max-w-md rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-300 animate-fade-in animate-duration-150">
+      <div class="p-4 border-b border-slate-900/60 flex items-center gap-2 bg-[#120b0e]">
+        <span class="text-xs font-bold uppercase tracking-widest text-red-400">⚠️ Unsaved Layout Modifications</span>
+      </div>
+      <div class="p-5 text-xs text-slate-300 leading-relaxed font-sans font-medium">
+        {unsavedModalMessage}
+      </div>
+      <div class="p-3 border-t border-slate-900/60 bg-[#0e1524]/40 flex justify-end gap-2.5">
+        <button 
+          onclick={() => { showUnsavedModal = false; pendingNavigationAction = null; }}
+          class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[11px] font-bold transition-colors"
+        >
+          Cancel
+        </button>
+        <button 
+          onclick={() => { showUnsavedModal = false; if (pendingNavigationAction) pendingNavigationAction(); }}
+          class="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-[11px] font-bold transition-colors shadow-lg shadow-red-950/40"
+        >
+          Discard & Continue
         </button>
       </div>
     </div>

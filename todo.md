@@ -1,4 +1,15 @@
-fix logo
+
+ok there's some more house keeping to do before the merge to main.
+
+recently opened:
+can't open the tiff
+console error:
+2.CQnTOMOU.js:151 Checking for startup single-file execution arguments handshake...
+2.CQnTOMOU.js:151 Native Rust TIFF parsing fault details: invalid args `path` for command `parse_tiff_document`: command parse_tiff_document missing required key path
+h @ 2.CQnTOMOU.js:151
+
+
+
 
 print protected:
 2.KcokGFzj.js:141 Checking for startup single-file execution arguments handshake...

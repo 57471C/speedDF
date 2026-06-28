@@ -11,6 +11,7 @@
     onToggleHelp,
     onPrint,
     onOpenFile,
+    onCloseDocument,
   }: {
     onMinimize: () => void;
     onMaximize: () => void;
@@ -18,6 +19,7 @@
     onToggleHelp: () => void;
     onPrint?: () => void;
     onOpenFile?: () => void;
+    onCloseDocument?: () => void;
   } = $props();
 
   interface FilePayload {
@@ -162,6 +164,29 @@
             thickness: (2.0 / 100) * pageWidth,
             opacity: 0.40,
             blendMode: BlendMode.Multiply,
+            lineCap: LineCapStyle.Round,
+          });
+        }
+      } else if (
+        s.type === "pen" &&
+        s.points &&
+        s.points.length > 1
+      ) {
+        for (let k = 0; k < s.points.length - 1; k++) {
+          const p1 = s.points[k];
+          const p2 = s.points[k + 1];
+          page.drawLine({
+            start: {
+              x: (p1.x / 100) * pageWidth,
+              y: pageHeight - (p1.y / 100) * pageHeight,
+            },
+            end: {
+              x: (p2.x / 100) * pageWidth,
+              y: pageHeight - (p2.y / 100) * pageHeight,
+            },
+            color: resolvedColorRgb,
+            thickness: s.thickness || 3,
+            opacity: 1.0,
             lineCap: LineCapStyle.Round,
           });
         }
@@ -436,7 +461,7 @@
         </span>
         {#if activeDoc.fileName}
           <button
-            onclick={closeActiveDocument}
+            onclick={() => { if (typeof onCloseDocument === 'function') onCloseDocument(); else closeActiveDocument(); }}
             class="titlebar-btn w-5 h-5 flex items-center justify-center rounded-full text-slate-400 hover:!text-white transition-colors pointer-events-auto"
             title="Close Document"
           >

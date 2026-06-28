@@ -600,8 +600,9 @@
             bind:this={sigCanvas}
             width="380"
             height="160"
-            onpointerdown={(e) => startDraw(e, "sig")}
-            onpointermove={(e) => drawMove(e, "sig")}
+            onclick={(e) => e.stopPropagation()}
+            onpointerdown={(e) => { e.stopPropagation(); startDraw(e, "sig"); }}
+            onpointermove={(e) => { e.stopPropagation(); drawMove(e, "sig"); }}
             onpointerup={() => stopDraw("sig")}
             onpointerleave={() => stopDraw("sig")}
             class="w-full bg-white rounded-lg border border-slate-800/40 cursor-crosshair block touch-none"
@@ -622,8 +623,9 @@
             bind:this={initCanvas}
             width="170"
             height="160"
-            onpointerdown={(e) => startDraw(e, "init")}
-            onpointermove={(e) => drawMove(e, "init")}
+            onclick={(e) => e.stopPropagation()}
+            onpointerdown={(e) => { e.stopPropagation(); startDraw(e, "init"); }}
+            onpointermove={(e) => { e.stopPropagation(); drawMove(e, "init"); }}
             onpointerup={() => stopDraw("init")}
             onpointerleave={() => stopDraw("init")}
             class="w-full bg-white rounded-lg border border-slate-800/40 cursor-crosshair block touch-none"

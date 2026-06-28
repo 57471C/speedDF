@@ -329,7 +329,7 @@
       activeDoc.selectedShape = null;
       return;
     }
-    if (activeDoc.activeTool === "highlight") {
+    if (activeDoc.activeTool === "highlight" || activeDoc.activeTool === "pen") {
       e.preventDefault();
       isDrawing = true;
       liveHighlightPoints = [{ x: mousePctX, y: mousePctY }];
@@ -450,7 +450,7 @@
     hoverPctX = mousePctX;
     hoverPctY = mousePctY;
 
-    if (isDrawing && activeDoc.activeTool === "highlight") {
+    if (isDrawing && (activeDoc.activeTool === "highlight" || activeDoc.activeTool === "pen")) {
       liveHighlightPoints = [
         ...liveHighlightPoints,
         { x: mousePctX, y: mousePctY },
@@ -519,19 +519,22 @@
   }
 
   function handleMouseUp(e: MouseEvent) {
-    if (isDrawing && activeDoc.activeTool === "highlight") {
+    if (isDrawing && (activeDoc.activeTool === "highlight" || activeDoc.activeTool === "pen")) {
+      const currentTool = activeDoc.activeTool;
       isDrawing = false;
       if (liveHighlightPoints.length > 1) {
-        const newHighlight: AnnotationShape = {
-          type: "highlight",
+        const newFreehand: AnnotationShape = {
+          type: currentTool as any,
           x: liveHighlightPoints[0].x,
           y: liveHighlightPoints[0].y,
           points: [...liveHighlightPoints],
+          color: currentTool === "pen" ? activeDoc.activeColor : "#fff200",
+          thickness: activeDoc.activeThickness
         };
         const existing = activeDoc.shapes[pageNumber] || [];
         activeDoc.shapes = {
           ...activeDoc.shapes,
-          [pageNumber]: [...existing, newHighlight],
+          [pageNumber]: [...existing, newFreehand],
         };
       }
       liveHighlightPoints = [];
@@ -587,6 +590,7 @@
         width: (widthPixels / rect.width) * 100,
         height: (heightPixels / rect.height) * 100,
         color: activeDoc.activeColor,
+        thickness: activeDoc.activeThickness,
       };
       const existing = activeDoc.shapes[pageNumber] || [];
       activeDoc.shapes = {
@@ -754,7 +758,7 @@
       'oval-fill',
     ].includes(activeDoc.activeTool || '')
       ? 'pointer-events-auto'
-      : 'pointer-events-none'} {[...shapeTypesList, 'highlight'].includes(
+      : 'pointer-events-none'} {[...shapeTypesList, 'highlight', 'pen'].includes(
       activeDoc.activeTool || '',
     )
       ? 'cursor-crosshair'
@@ -780,24 +784,50 @@
             fill="none"
             stroke-linecap="round"
             stroke-linejoin="round"
-            class="cursor-pointer pointer-events-auto hover:stroke-yellow-300 transition-colors {activeDoc
-              .selectedShape?.pageNumber === pageNumber &&
-            activeDoc.selectedShape?.index === idx
-              ? 'stroke-yellow-300 stroke-opacity-60'
-              : ''}"
+            class="cursor-pointer pointer-events-auto hover:stroke-yellow-300 transition-colors {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke-yellow-300 stroke-opacity-60' : ''}"
           />
+        {:else}
+          {#if shape.type === "pen" && shape.points}
+            <polyline
+              onclick={(e) => {
+                e.stopPropagation();
+                if (activeDoc.activeTool === "select")
+                  activeDoc.selectedShape = { pageNumber, index: idx };
+              }}
+              points={shape.points.map((p) => `${p.x},${p.y}`).join(" ")}
+              stroke={shape.color || "#ef4444"}
+              stroke-width={(shape.thickness || 3) * 0.22}
+              stroke-opacity="1"
+              fill="none"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="cursor-pointer pointer-events-auto hover:stroke-cyan-400 transition-colors {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke-cyan-400' : ''}"
+            />
+          {/if}
         {/if}
       {/each}
-      {#if liveHighlightPoints.length > 1 && activeDoc.activeTool === "highlight"}
-        <polyline
-          points={liveHighlightPoints.map((p) => `${p.x},${p.y}`).join(" ")}
-          stroke="#fff200"
-          stroke-width="2.0"
-          stroke-opacity="0.48"
-          fill="none"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
+      {#if liveHighlightPoints.length > 1}
+        {#if activeDoc.activeTool === "highlight"}
+          <polyline
+            points={liveHighlightPoints.map((p) => `${p.x},${p.y}`).join(" ")}
+            stroke="#fff200"
+            stroke-width="2.0"
+            stroke-opacity="0.48"
+            fill="none"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        {:else if activeDoc.activeTool === "pen"}
+          <polyline
+            points={liveHighlightPoints.map((p) => `${p.x},${p.y}`).join(" ")}
+            stroke={activeDoc.activeColor}
+            stroke-width={(activeDoc.activeThickness || 3) * 0.22}
+            stroke-opacity="1"
+            fill="none"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        {/if}
       {/if}
     </svg>
 
@@ -824,7 +854,7 @@
                 rx="48"
                 ry="48"
                 stroke={shape.color || "#000000"}
-                stroke-width={shape.type === "oval" ? "4" : "0"}
+                stroke-width={shape.type === "oval" ? (shape.thickness || 3) : "0"}
                 fill={shape.type === "oval-fill" ? shape.color || "#000000" : "none"}
               />
             </svg>
@@ -854,17 +884,15 @@
         {:else}
           <div
             onmousedown={(e) => initShapeMove(e, idx)}
-            class="absolute border-2 cursor-move z-20 transition-all duration-100
+            class="absolute cursor-move z-20 transition-all duration-100
               {shape.type.includes('round') ? 'rounded-lg' : 'rounded-none'}
               {activeDoc.selectedShape?.pageNumber === pageNumber &&
             activeDoc.selectedShape?.index === idx
               ? 'shadow-[0_0_12px_rgba(0,210,255,0.35)] ring-1 ring-[#00d2ff]/40'
               : ''}"
             style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%; 
-                   border-color: {shape.color || '#000000'}; 
-                   background-color: {shape.type.includes('-fill')
-              ? shape.color || '#000000'
-              : 'transparent'};"
+                   border: {shape.type.includes('-fill') ? '0px' : (shape.thickness || 3) + 'px'} solid {shape.color || '#000000'}; 
+                   background-color: {shape.type.includes('-fill') ? shape.color || '#000000' : 'transparent'};"
           >
             {#if activeDoc.activeTool === "select" && activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx}
               <div

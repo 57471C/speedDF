@@ -42,6 +42,6 @@
       <span>Save As...</span>
       <span class="text-xs text-zinc-500 font-mono">Ctrl+Shift+S</span>
     </button>
-    <div class="px-4 py-1.5 text-xs text-zinc-500 italic">speedDF v0.8.1</div>
+    <div class="px-4 py-1.5 text-xs text-zinc-500 italic">speedDF v0.9.1</div>
   </div>
 {/if}
