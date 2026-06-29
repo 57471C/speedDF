@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { loadSavedSets, activeDoc, pushHistorySnapshot, executeUndoAction, executeRedoAction } from './pdfStore.svelte.ts';
+import { loadSavedSets, activeDoc, pushHistorySnapshot, executeUndoAction, executeRedoAction, undoStack, redoStack } from './pdfStore.svelte.ts';
 
 describe('loadSavedSets', () => {
   beforeEach(() => {
@@ -41,6 +41,60 @@ describe('loadSavedSets', () => {
     const validData = [{ id: '1', signatureDataUrl: 'data:image/png;base64,...', initialDataUrl: '' }];
     localStorage.setItem('speeddf_signature_sets', JSON.stringify(validData));
     expect(loadSavedSets()).toEqual(validData);
+  });
+});
+
+describe('pushHistorySnapshot', () => {
+  beforeEach(() => {
+    // Reset activeDoc and history stacks explicitly
+    activeDoc.flushDocumentState();
+    undoStack.length = 0;
+    redoStack.length = 0;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should push a deep clone of shapes and pageOrder to the undo stack', () => {
+    activeDoc.shapes = { 1: [{ type: 'rect', x: 10, y: 10 }] as any };
+    activeDoc.pageOrder = [1, 2];
+
+    pushHistorySnapshot();
+
+    expect(undoStack.length).toBe(1);
+    expect(undoStack[0].shapes).toEqual({ 1: [{ type: 'rect', x: 10, y: 10 }] });
+    expect(undoStack[0].pageOrder).toEqual([1, 2]);
+
+    // Mutate state after pushing
+    activeDoc.shapes[1][0].x = 20;
+    activeDoc.pageOrder.push(3);
+
+    // Verify it restored to the unmutated state (deep cloned)
+    expect(undoStack[0].shapes).toEqual({ 1: [{ type: 'rect', x: 10, y: 10 }] });
+    expect(undoStack[0].pageOrder).toEqual([1, 2]);
+  });
+
+  it('should clear the redo stack', () => {
+    activeDoc.shapes = { 1: [] };
+    activeDoc.pageOrder = [1];
+
+    pushHistorySnapshot(); // Snapshot 1
+
+    activeDoc.shapes = { 1: [{ type: 'rect', x: 10, y: 10 }] as any };
+    activeDoc.pageOrder = [1, 2];
+
+    pushHistorySnapshot(); // Snapshot 2
+
+    // Undo to populate redo stack
+    executeUndoAction();
+    expect(redoStack.length).toBe(1);
+
+    // Push new snapshot to clear redo stack
+    activeDoc.shapes = { 1: [{ type: 'text', x: 5, y: 5 }] as any };
+    pushHistorySnapshot();
+
+    expect(redoStack.length).toBe(0);
   });
 });
 
