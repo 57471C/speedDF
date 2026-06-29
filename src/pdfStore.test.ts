@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { loadSavedSets, activeDoc, pushHistorySnapshot, executeUndoAction, executeRedoAction, undoStack, redoStack } from './pdfStore.svelte.ts';
+import { loadSavedSets, activeDoc, pushHistorySnapshot, executeUndoAction, executeRedoAction, undoStack, redoStack, rotatePageAction } from './pdfStore.svelte.ts';
 
 describe('loadSavedSets', () => {
   beforeEach(() => {
@@ -167,5 +167,37 @@ describe('executeUndoAction', () => {
     expect(activeDoc.shapes).toEqual({ 1: [{ type: 'rect', x: 10, y: 10 }] });
     expect(activeDoc.pageOrder).toEqual([1, 2]);
     expect(activeDoc.selectedShape).toBeNull();
+  });
+});
+
+describe('rotatePageAction', () => {
+  beforeEach(() => {
+    activeDoc.flushDocumentState();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should rotate page 90 degrees clockwise from default', () => {
+    rotatePageAction(1, 'clockwise');
+    expect(activeDoc.rotations[1]).toBe(90);
+  });
+
+  it('should wrap around to 0 degrees when rotating clockwise past 270', () => {
+    activeDoc.rotations[1] = 270;
+    rotatePageAction(1, 'clockwise');
+    expect(activeDoc.rotations[1]).toBe(0);
+  });
+
+  it('should rotate page 90 degrees counter-clockwise from default (wraps to 270)', () => {
+    rotatePageAction(2, 'counter');
+    expect(activeDoc.rotations[2]).toBe(270);
+  });
+
+  it('should rotate page counter-clockwise correctly from an existing rotation', () => {
+    activeDoc.rotations[2] = 180;
+    rotatePageAction(2, 'counter');
+    expect(activeDoc.rotations[2]).toBe(90);
   });
 });
