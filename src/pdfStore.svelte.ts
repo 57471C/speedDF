@@ -86,7 +86,7 @@ export const FONT_MAP: Record<
   },
 };
 
-const loadSavedSets = (): SignatureSet[] => {
+export const loadSavedSets = (): SignatureSet[] => {
   try {
     const raw = localStorage.getItem("speeddf_signature_sets");
     return raw ? JSON.parse(raw) : [];
