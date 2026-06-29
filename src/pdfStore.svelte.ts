@@ -145,8 +145,8 @@ interface HistorySnapshot {
 }
 
 // Memory-tracked transaction arrays
-let undoStack: HistorySnapshot[] = [];
-let redoStack: HistorySnapshot[] = [];
+export let undoStack: HistorySnapshot[] = [];
+export let redoStack: HistorySnapshot[] = [];
 
 /**
  * ⏳ Commits a deep-cloned historical snapshot of the current canvas layout state onto the undo stack.
