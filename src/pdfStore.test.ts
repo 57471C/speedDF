@@ -15,8 +15,26 @@ describe('loadSavedSets', () => {
   });
 
   it('should return an empty array if invalid JSON is in localStorage', () => {
-    localStorage.setItem('speeddf_signature_sets', 'invalid-json');
+    const invalidStrings = [
+      'invalid-json',
+      '{ malformed object }',
+      '[{ "id": "1", "signatureDataUrl": "data" }',
+      '{"id": "1",',
+      'undefined',
+    ];
+
+    for (const invalidString of invalidStrings) {
+      localStorage.setItem('speeddf_signature_sets', invalidString);
+      expect(loadSavedSets()).toEqual([]);
+    }
+  });
+
+  it('should return an empty array if localStorage.getItem throws', () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('Access denied');
+    });
     expect(loadSavedSets()).toEqual([]);
+    spy.mockRestore();
   });
 
   it('should return parsed array if valid JSON is in localStorage', () => {
