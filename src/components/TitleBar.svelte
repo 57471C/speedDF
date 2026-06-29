@@ -42,6 +42,7 @@
     originalPageNumber: number,
     pageWidth: number,
     pageHeight: number,
+    imageCache: Map<string, any>,
   ) {
     const pageShapes = activeDoc.shapes[originalPageNumber] || [];
     for (const shape of pageShapes) {
@@ -138,7 +139,11 @@
         (s.type === "signature" || s.type === "initial") &&
         s.dataUrl
       ) {
-        const embeddedImageDest = await destDoc.embedPng(s.dataUrl);
+        let embeddedImageDest = imageCache.get(s.dataUrl);
+        if (!embeddedImageDest) {
+          embeddedImageDest = await destDoc.embedPng(s.dataUrl);
+          imageCache.set(s.dataUrl, embeddedImageDest);
+        }
         const imgW = embeddedImageDest.width;
         const imgH = embeddedImageDest.height;
         const targetW = h * (imgW / imgH);
@@ -199,6 +204,7 @@
 
     try {
       const destDoc = await PDFDocument.create();
+      const imageCache = new Map<string, any>();
 
       if (activeDoc.fileType === "tiff") {
         console.log("Save Engine: Compiling native multi-page TIFF drawing into a standard PDF structure...");
@@ -242,7 +248,7 @@
             rotate: degrees(-rotationAngle)
           });
 
-          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight);
+          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache);
         }
       } else {
         const srcDoc = await PDFDocument.load(activeDoc.rawBytes);
@@ -267,7 +273,7 @@
             );
           }
 
-          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight);
+          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache);
         }
       }
 
