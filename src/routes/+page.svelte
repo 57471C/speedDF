@@ -260,36 +260,7 @@
           activeDoc.flushDocumentState();
           const payload = await invoke<StartupPayload>("read_file_bytes", { path: filePath });
           const uint8Bytes = new Uint8Array(payload.bytes);
-          const isTiff = fileName.toLowerCase().endsWith(".tiff") || fileName.toLowerCase().endsWith(".tif");
-          if (isTiff) {
-            const decodedPages = await invoke<number[][]>("parse_tiff_document", { path: filePath });
-            activeDoc.fileType = "tiff";
-            activeDoc.rawBytes = uint8Bytes;
-            activeDoc.fileName = fileName;
-            activeDoc.filePath = filePath;
-            activeDoc.pageCount = decodedPages.length;
-            activeDoc.tiffPages = decodedPages.map((page) => new Uint8Array(page));
-            activeDoc.pageOrder = Array.from({ length: decodedPages.length }, (_, i) => i + 1);
-            return;
-          }
-          activeDoc.fileType = "pdf";
-          activeDoc.tiffPages = [];
-          const loadingTask = pdfjsLib.getDocument({
-            data: uint8Bytes.slice(0),
-            cMapUrl: window.location.origin + "/cmaps/",
-            cMapPacked: true,
-            standardFontDataUrl: window.location.origin + "/standard_fonts/",
-            wasmUrl: window.location.origin + "/",
-          });
-          const pdfDocument = await loadingTask.promise;
-          activeDoc.rawBytes = uint8Bytes;
-          activeDoc.pageCount = pdfDocument.numPages;
-          activeDoc.pageOrder = Array.from({ length: pdfDocument.numPages }, (_, idx) => idx + 1);
-          activeDoc.currentPage = 1;
-          activeDoc.shapes = {};
-          activeDoc.fileName = fileName;
-          activeDoc.filePath = filePath;
-          await registerRecentFile(fileName, filePath, uint8Bytes);
+          await loadDocument(uint8Bytes, fileName, filePath);
         }, 50);
       };
       showUnsavedModal = true;
@@ -305,70 +276,7 @@
     });
     const uint8Bytes = new Uint8Array(payload.bytes);
 
-    // ROUTING BLOCK: Intercept images before they hit the PDF.js worker pipeline
-    const isTiff =
-      fileName.toLowerCase().endsWith(".tiff") ||
-      fileName.toLowerCase().endsWith(".tif");
-
-    if (isTiff) {
-      try {
-        console.log(
-          "+page.svelte: TIFF extension verified. Passing file path straight to native Rust parser...",
-        );
-
-        // Pass the file path string directly to avoid IPC serialization overhead and data truncation
-        const decodedPages = await invoke<number[][]>("parse_tiff_document", {
-          path: filePath,
-        });
-
-        activeDoc.fileType = "tiff";
-        activeDoc.rawBytes = uint8Bytes;
-        activeDoc.fileName = fileName;
-        activeDoc.filePath = filePath;
-        activeDoc.pageCount = decodedPages.length;
-        activeDoc.tiffPages = decodedPages.map((page) => new Uint8Array(page));
-        activeDoc.pageOrder = Array.from(
-          { length: decodedPages.length },
-          (_, i) => i + 1,
-        );
-
-        console.log(
-          "+page.svelte: TIFF document initialized successfully with pages:",
-          decodedPages.length,
-        );
-        return; // STOP HERE: Do not let execution run downstream into PDF.js loops
-      } catch (err) {
-        console.error("Native Rust TIFF parsing fault details:", err);
-        alert("Failed to decode the multi-page TIFF blueprint layout.");
-        return;
-      }
-    } else {
-      // Keep your existing standard PDF.js document initialization configuration completely untouched here
-      activeDoc.fileType = "pdf";
-      activeDoc.tiffPages = [];
-    }
-
-    const loadingTask = pdfjsLib.getDocument({
-      data: uint8Bytes.slice(0),
-      cMapUrl: window.location.origin + "/cmaps/",
-      cMapPacked: true,
-      standardFontDataUrl: window.location.origin + "/standard_fonts/",
-      wasmUrl: window.location.origin + "/",
-    });
-    const pdfDocument = await loadingTask.promise;
-
-    activeDoc.rawBytes = uint8Bytes;
-    activeDoc.pageCount = pdfDocument.numPages;
-    activeDoc.pageOrder = Array.from(
-      { length: pdfDocument.numPages },
-      (_, idx) => idx + 1,
-    );
-    activeDoc.currentPage = 1;
-    activeDoc.shapes = {};
-    activeDoc.fileName = fileName;
-    activeDoc.filePath = filePath;
-
-    await registerRecentFile(fileName, filePath, uint8Bytes);
+    await loadDocument(uint8Bytes, fileName, filePath);
   }
 
   function closeDocument() {
