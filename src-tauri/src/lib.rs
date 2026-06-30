@@ -124,8 +124,8 @@ async fn write_temp_file(bytes: Vec<u8>, file_name: String) -> Result<String, St
 fn print_via_edge(file_path: String) {
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/c", "start", "msedge", "--start-fullscreen", &file_path])
+        std::process::Command::new("msedge")
+            .args(["--start-fullscreen", &file_path])
             .spawn()
             .ok();
     }
