@@ -137,8 +137,12 @@ fn unprotect_pdf(bytes: Vec<u8>) -> Result<tauri::ipc::Response, String> {
 
 #[tauri::command]
 async fn write_temp_file(bytes: Vec<u8>, file_name: String) -> Result<String, String> {
+    let safe_file_name = std::path::Path::new(&file_name)
+        .file_name()
+        .ok_or_else(|| "Invalid file name provided".to_string())?;
+
     let mut temp_path = std::env::temp_dir();
-    temp_path.push(file_name);
+    temp_path.push(safe_file_name);
     std::fs::write(&temp_path, bytes).map_err(|e| e.to_string())?;
     Ok(temp_path.to_string_lossy().into_owned())
 }
