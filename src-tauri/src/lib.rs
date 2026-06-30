@@ -172,127 +172,131 @@ async fn read_file_bytes(path: String) -> Result<FilePayload, String> {
 
 #[tauri::command]
 async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
-    // Read the file natively straight from disk to avoid frontend JSON serialization overhead
-    let bytes = std::fs::read(&path).map_err(|e| format!("Failed to read file from disk: {}", e))?;
-    let cursor = Cursor::new(bytes);
-    let mut decoder = Decoder::new(cursor).map_err(|e| format!("TIFF Decoder initialization error: {}", e))?;
-    let mut pages = Vec::new();
+    tauri::async_runtime::spawn_blocking(move || {
+        // Read the file natively straight from disk to avoid frontend JSON serialization overhead
+        let bytes = std::fs::read(&path).map_err(|e| format!("Failed to read file from disk: {}", e))?;
+        let cursor = Cursor::new(bytes);
+        let mut decoder = Decoder::new(cursor).map_err(|e| format!("TIFF Decoder initialization error: {}", e))?;
+        let mut pages = Vec::new();
 
-    loop {
-        let (width, height) = decoder.dimensions().map_err(|e| e.to_string())?;
-        let colortype = decoder.colortype().map_err(|e| format!("Failed to read color type: {}", e))?;
-        let img_data = decoder.read_image().map_err(|e| e.to_string())?;
-        
-        let mut rgba_buffer = Vec::with_capacity((width * height * 4) as usize);
+        loop {
+            let (width, height) = decoder.dimensions().map_err(|e| e.to_string())?;
+            let colortype = decoder.colortype().map_err(|e| format!("Failed to read color type: {}", e))?;
+            let img_data = decoder.read_image().map_err(|e| e.to_string())?;
 
-        match img_data {
-            DecodingResult::U8(data) => {
-                match colortype {
-                    tiff::ColorType::RGB(_) => {
-                        for chunk in data.chunks_exact(3) {
-                            rgba_buffer.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
+            let mut rgba_buffer = Vec::with_capacity((width * height * 4) as usize);
+
+            match img_data {
+                DecodingResult::U8(data) => {
+                    match colortype {
+                        tiff::ColorType::RGB(_) => {
+                            for chunk in data.chunks_exact(3) {
+                                rgba_buffer.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
+                            }
                         }
-                    }
-                    tiff::ColorType::RGBA(_) => {
-                        rgba_buffer.extend(data);
-                    }
-                    tiff::ColorType::Gray(bits) => {
-                        if bits == 1 {
-                            if data.len() == (width * height) as usize {
-                                // If it's already unpacked/expanded to 1 byte per pixel by the decoder layer
-                                for gray in data {
-                                    rgba_buffer.extend_from_slice(&[gray, gray, gray, 255]);
-                                }
-                            } else {
-                                // Unpack packed bits (1 bit per pixel, with each row padded to a byte boundary per TIFF spec)
-                                let bytes_per_row = ((width + 7) / 8) as usize;
-                                for r in 0..height as usize {
-                                    let row_offset = r * bytes_per_row;
-                                    for c in 0..width as usize {
-                                        let byte_idx = row_offset + (c / 8);
-                                        let bit_idx = 7 - (c % 8); // Standard MSB-to-LSB bit arrangement
-                                        if byte_idx < data.len() {
-                                            let bit = (data[byte_idx] >> bit_idx) & 1;
-                                            // Map 1-bit binary values to standard technical blueprint layouts
-                                            // 1 = White Paper Background (255), 0 = Black Ink Line (0)
-                                            let gray = if bit == 1 { 255 } else { 0 };
-                                            rgba_buffer.extend_from_slice(&[gray, gray, gray, 255]);
+                        tiff::ColorType::RGBA(_) => {
+                            rgba_buffer.extend(data);
+                        }
+                        tiff::ColorType::Gray(bits) => {
+                            if bits == 1 {
+                                if data.len() == (width * height) as usize {
+                                    // If it's already unpacked/expanded to 1 byte per pixel by the decoder layer
+                                    for gray in data {
+                                        rgba_buffer.extend_from_slice(&[gray, gray, gray, 255]);
+                                    }
+                                } else {
+                                    // Unpack packed bits (1 bit per pixel, with each row padded to a byte boundary per TIFF spec)
+                                    let bytes_per_row = ((width + 7) / 8) as usize;
+                                    for r in 0..height as usize {
+                                        let row_offset = r * bytes_per_row;
+                                        for c in 0..width as usize {
+                                            let byte_idx = row_offset + (c / 8);
+                                            let bit_idx = 7 - (c % 8); // Standard MSB-to-LSB bit arrangement
+                                            if byte_idx < data.len() {
+                                                let bit = (data[byte_idx] >> bit_idx) & 1;
+                                                // Map 1-bit binary values to standard technical blueprint layouts
+                                                // 1 = White Paper Background (255), 0 = Black Ink Line (0)
+                                                let gray = if bit == 1 { 255 } else { 0 };
+                                                rgba_buffer.extend_from_slice(&[gray, gray, gray, 255]);
+                                            }
                                         }
                                     }
                                 }
+                            } else {
+                                // Standard 8-bit grayscale channels (1 byte per pixel)
+                                for gray in data {
+                                    rgba_buffer.extend_from_slice(&[gray, gray, gray, 255]);
+                                }
                             }
-                        } else {
-                            // Standard 8-bit grayscale channels (1 byte per pixel)
+                        }
+                        _ => return Err(format!("Unsupported TIFF color profile depth: {:?}", colortype)),
+                    }
+                }
+                DecodingResult::U16(data) => {
+                    match colortype {
+                        tiff::ColorType::RGB(_) => {
+                            for chunk in data.chunks_exact(3) {
+                                rgba_buffer.extend_from_slice(&[
+                                    (chunk[0] >> 8) as u8,
+                                    (chunk[1] >> 8) as u8,
+                                    (chunk[2] >> 8) as u8,
+                                    255,
+                                ]);
+                            }
+                        }
+                        tiff::ColorType::RGBA(_) => {
+                            for chunk in data.chunks_exact(4) {
+                                rgba_buffer.extend_from_slice(&[
+                                    (chunk[0] >> 8) as u8,
+                                    (chunk[1] >> 8) as u8,
+                                    (chunk[2] >> 8) as u8,
+                                    (chunk[3] >> 8) as u8,
+                                ]);
+                            }
+                        }
+                        tiff::ColorType::Gray(_) => {
                             for gray in data {
-                                rgba_buffer.extend_from_slice(&[gray, gray, gray, 255]);
+                                let val = (gray >> 8) as u8;
+                                rgba_buffer.extend_from_slice(&[val, val, val, 255]);
                             }
                         }
+                        _ => return Err(format!("Unsupported 16-bit TIFF color layout: {:?}", colortype)),
                     }
-                    _ => return Err(format!("Unsupported TIFF color profile depth: {:?}", colortype)),
                 }
+                _ => return Err("Unsupported binary block bitstream format layout encountered".to_string()),
             }
-            DecodingResult::U16(data) => {
-                match colortype {
-                    tiff::ColorType::RGB(_) => {
-                        for chunk in data.chunks_exact(3) {
-                            rgba_buffer.extend_from_slice(&[
-                                (chunk[0] >> 8) as u8,
-                                (chunk[1] >> 8) as u8,
-                                (chunk[2] >> 8) as u8,
-                                255,
-                            ]);
-                        }
-                    }
-                    tiff::ColorType::RGBA(_) => {
-                        for chunk in data.chunks_exact(4) {
-                            rgba_buffer.extend_from_slice(&[
-                                (chunk[0] >> 8) as u8,
-                                (chunk[1] >> 8) as u8,
-                                (chunk[2] >> 8) as u8,
-                                (chunk[3] >> 8) as u8,
-                            ]);
-                        }
-                    }
-                    tiff::ColorType::Gray(_) => {
-                        for gray in data {
-                            let val = (gray >> 8) as u8;
-                            rgba_buffer.extend_from_slice(&[val, val, val, 255]);
-                        }
-                    }
-                    _ => return Err(format!("Unsupported 16-bit TIFF color layout: {:?}", colortype)),
-                }
+
+            // Safety verification: Ensure the byte buffer length perfectly matches the expected canvas dimensions
+            if rgba_buffer.len() != (width * height * 4) as usize {
+                return Err(format!(
+                    "Extracted pixel buffer dimension constraint violation: expected {}, got {}",
+                    width * height * 4, rgba_buffer.len()
+                ));
             }
-            _ => return Err("Unsupported binary block bitstream format layout encountered".to_string()),
+
+            // Compress the normalized pixel array into a web-safe PNG byte vector wrapper
+            let mut png_bytes = Vec::new();
+            let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
+            image::ImageEncoder::write_image(
+                encoder,
+                &rgba_buffer,
+                width,
+                height,
+                image::ExtendedColorType::Rgba8,
+            ).map_err(|e| format!("PNG generation fallback encoder error: {}", e))?;
+
+            pages.push(png_bytes);
+
+            if !decoder.more_images() {
+                break;
+            }
+            decoder.next_image().map_err(|e| e.to_string())?;
         }
 
-        // Safety verification: Ensure the byte buffer length perfectly matches the expected canvas dimensions
-        if rgba_buffer.len() != (width * height * 4) as usize {
-            return Err(format!(
-                "Extracted pixel buffer dimension constraint violation: expected {}, got {}", 
-                width * height * 4, rgba_buffer.len()
-            ));
-        }
-
-        // Compress the normalized pixel array into a web-safe PNG byte vector wrapper
-        let mut png_bytes = Vec::new();
-        let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
-        image::ImageEncoder::write_image(
-            encoder,
-            &rgba_buffer,
-            width,
-            height,
-            image::ExtendedColorType::Rgba8,
-        ).map_err(|e| format!("PNG generation fallback encoder error: {}", e))?;
-
-        pages.push(png_bytes);
-
-        if !decoder.more_images() {
-            break;
-        }
-        decoder.next_image().map_err(|e| e.to_string())?;
-    }
-
-    Ok(pages)
+        Ok(pages)
+    })
+    .await
+    .map_err(|e| format!("Failed to execute blocking task: {}", e))?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
