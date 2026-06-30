@@ -350,15 +350,12 @@
   }
 
   async function executeNativePrint() {
-    console.log("MAIN PAGE: Initiating Native Shell Print Handoff...");
     try {
       // 1. Grab the raw PDF byte array
-      console.log("MAIN PAGE: Fetching vector bytes...");
       const pdfBytes = await titleBarRef.getAnnotatedPdfBytes();
 
       // 2. Define a temp file path
       const tempFileName = `speedDF_print_${Date.now()}.pdf`;
-      console.log(`MAIN PAGE: Writing to Temp directory: ${tempFileName}`);
 
       // 3. Write directly to the OS Temp folder
       const fullPath = await invoke<string>("write_temp_file", {
@@ -366,12 +363,7 @@
         fileName: tempFileName,
       });
 
-      console.log(
-        `MAIN PAGE: Bypassing default reader trap. Forcing Edge handoff for: ${fullPath}`,
-      );
-
       await invoke("print_via_edge", { filePath: fullPath });
-      console.log("MAIN PAGE: Rust print handoff complete.");
     } catch (err) {
       console.error("MAIN PAGE: Shell Handoff Failed:", err);
     }
