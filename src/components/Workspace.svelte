@@ -43,7 +43,6 @@
       setTimeout(() => {
         if (typeof shrinkToWindow === "function") {
           shrinkToWindow();
-          console.log("Workspace Engine: Blueprint size detected. Auto-applied 'Fit to Window' layout constraint.");
         }
       }, 150);
     }
