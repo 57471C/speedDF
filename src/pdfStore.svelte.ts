@@ -155,7 +155,7 @@ export let redoStack: HistorySnapshot[] = [];
 export function pushHistorySnapshot() {
   activeDoc.isDirty = true;
   const snapshot: HistorySnapshot = {
-    shapes: JSON.parse(JSON.stringify(activeDoc.shapes)),
+    shapes: structuredClone($state.snapshot(activeDoc.shapes)),
     pageOrder: [...activeDoc.pageOrder]
   };
   undoStack.push(snapshot);
@@ -173,7 +173,7 @@ export function executeUndoAction() {
   if (undoStack.length === 0) return;
 
   const currentStatus: HistorySnapshot = {
-    shapes: JSON.parse(JSON.stringify(activeDoc.shapes)),
+    shapes: structuredClone($state.snapshot(activeDoc.shapes)),
     pageOrder: [...activeDoc.pageOrder]
   };
   redoStack.push(currentStatus);
@@ -193,7 +193,7 @@ export function executeRedoAction() {
   if (redoStack.length === 0) return;
 
   const currentStatus: HistorySnapshot = {
-    shapes: JSON.parse(JSON.stringify(activeDoc.shapes)),
+    shapes: structuredClone($state.snapshot(activeDoc.shapes)),
     pageOrder: [...activeDoc.pageOrder]
   };
   undoStack.push(currentStatus);
