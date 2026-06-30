@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::Cursor;
+
 use std::io::{Read, Write};
 use tiff::decoder::{Decoder, DecodingResult};
 
@@ -203,10 +203,10 @@ async fn read_file_bytes(path: String) -> Result<FilePayload, String> {
 async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         // Read the file natively straight from disk to avoid frontend JSON serialization overhead
-        let bytes =
-            std::fs::read(&path).map_err(|e| format!("Failed to read file from disk: {}", e))?;
-        let cursor = Cursor::new(bytes);
-        let mut decoder = Decoder::new(cursor)
+        let file = std::fs::File::open(&path)
+            .map_err(|e| format!("Failed to read file from disk: {}", e))?;
+        let reader = std::io::BufReader::new(file);
+        let mut decoder = Decoder::new(reader)
             .map_err(|e| format!("TIFF Decoder initialization error: {}", e))?;
         let mut pages = Vec::new();
 
