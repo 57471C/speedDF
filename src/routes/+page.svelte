@@ -201,34 +201,44 @@
     await registerRecentFile(fileName, filePath, rawBytes);
   }
 
-  async function openRecentFile(name: string, path: string) {
-    try {
-      // Block transition if old workspace data contains unsaved alterations
-      if (activeDoc.isDirty) {
-        unsavedModalMessage = "You have unsaved changes on this layout sheet. Are you sure you want to load this recent file and discard your progress?";
-        pendingNavigationAction = async () => {
-          activeDoc.flushDocumentState();
-          const payload = await invoke<StartupPayload>("read_file_bytes", { path });
-          if (payload && payload.bytes) {
-            const typedBytes = new Uint8Array(payload.bytes);
-            await loadDocument(typedBytes, payload.name, payload.path);
-          }
-        };
-        showUnsavedModal = true;
-        return;
-      }
-
-      // Flush out all stale metadata to prevent memory layout bleeding
+  async function promptAndLoadFile(
+    filePath: string,
+    fileName: string,
+    unsavedMessage: string,
+  ) {
+    const doLoad = async () => {
       activeDoc.flushDocumentState();
-
-      const payload = await invoke<StartupPayload>("read_file_bytes", { path });
-      if (payload && payload.bytes) {
-        const typedBytes = new Uint8Array(payload.bytes);
-        await loadDocument(typedBytes, payload.name, payload.path);
+      try {
+        const payload = await invoke<StartupPayload>("read_file_bytes", {
+          path: filePath,
+        });
+        if (payload && payload.bytes) {
+          const typedBytes = new Uint8Array(payload.bytes);
+          await loadDocument(typedBytes, fileName || payload.name, filePath);
+        }
+      } catch (err) {
+        console.error(`Failed to load document from ${filePath}:`, err);
       }
-    } catch (err) {
-      console.error("Failed to load recent file:", err);
+    };
+
+    if (activeDoc.isDirty) {
+      unsavedModalMessage = unsavedMessage;
+      pendingNavigationAction = () => {
+        activeDoc.isDirty = false;
+        setTimeout(doLoad, 50);
+      };
+      showUnsavedModal = true;
+    } else {
+      await doLoad();
     }
+  }
+
+  async function openRecentFile(name: string, path: string) {
+    await promptAndLoadFile(
+      path,
+      name,
+      "You have unsaved changes on this layout sheet. Are you sure you want to load this recent file and discard your progress?",
+    );
   }
 
   async function openFile() {
@@ -250,33 +260,11 @@
       typeof selected === "string" ? selected : (selected as any).path;
     const fileName = filePath.split(/[/\\]/).pop() || "Document";
 
-    // Block loading sequence if old workspace data contains unsaved alterations
-    if (activeDoc.isDirty) {
-      unsavedModalMessage = "You have unsaved changes on this document layout. Are you sure you want to open a new file and discard your progress?";
-      pendingNavigationAction = () => {
-        activeDoc.isDirty = false;
-        // Trigger file loading sequence natively now that state is clean
-        setTimeout(async () => {
-          activeDoc.flushDocumentState();
-          const payload = await invoke<StartupPayload>("read_file_bytes", { path: filePath });
-          const uint8Bytes = new Uint8Array(payload.bytes);
-          await loadDocument(uint8Bytes, fileName, filePath);
-        }, 50);
-      };
-      showUnsavedModal = true;
-      return;
-    }
-
-    // Flush out all stale metadata to prevent memory layout bleeding
-    activeDoc.flushDocumentState();
-
-    // Read the document stream into a raw binary allocation vector
-    const payload = await invoke<StartupPayload>("read_file_bytes", {
-      path: filePath,
-    });
-    const uint8Bytes = new Uint8Array(payload.bytes);
-
-    await loadDocument(uint8Bytes, fileName, filePath);
+    await promptAndLoadFile(
+      filePath,
+      fileName,
+      "You have unsaved changes on this document layout. Are you sure you want to open a new file and discard your progress?",
+    );
   }
 
   function closeDocument() {
@@ -411,43 +399,16 @@
       const paths = event.payload.paths;
       if (paths && paths.length > 0) {
         const path = paths[0];
+        const parts = path.split(/[\\/]/);
+        const name = parts[parts.length - 1];
         
-        // Block workspace injection if old canvas elements contain unsaved modifications
-        if (activeDoc.isDirty) {
-          unsavedModalMessage = "You have unsaved markup layers. Do you want to discard your progress and drop this new drawing sheet in?";
-          pendingNavigationAction = async () => {
-            activeDoc.flushDocumentState();
-            const parts = path.split(/[\\/]/);
-            const name = parts[parts.length - 1];
-            const payload = await invoke<StartupPayload>("read_file_bytes", { path });
-            if (payload && payload.bytes) {
-              const typedBytes = new Uint8Array(payload.bytes);
-              await loadDocument(typedBytes, name, path);
-            }
-          };
-          showUnsavedModal = true;
-          return;
-        }
-
-        // Flush out all stale metadata to prevent memory layout bleeding
-        activeDoc.flushDocumentState();
-
-          const parts = path.split(/[\\/]/);
-          const name = parts[parts.length - 1];
-          try {
-            const payload = await invoke<StartupPayload>("read_file_bytes", {
-              path,
-            });
-            if (payload && payload.bytes) {
-              const typedBytes = new Uint8Array(payload.bytes);
-              await loadDocument(typedBytes, name, path);
-            }
-          } catch (err) {
-            console.error("Failed to load dropped file:", err);
-          }
-        }
-      },
-    );
+        await promptAndLoadFile(
+          path,
+          name,
+          "You have unsaved markup layers. Do you want to discard your progress and drop this new drawing sheet in?",
+        );
+      }
+    });
 
     window.addEventListener("keydown", (e: KeyboardEvent) => {
       if (
