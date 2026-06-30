@@ -36,28 +36,24 @@
     {
       id: "rect",
       label: "Box Outline",
-      icon: `<rect x="3" y="3" width="18" height="18" rx="0" fill="none" stroke="currentColor" stroke-width="2.5"/>`,
     },
     {
       id: "oval",
       label: "Oval Outline",
-      icon: `<ellipse cx="12" cy="12" rx="9" ry="7" fill="none" stroke="currentColor" stroke-width="2.5"/>`,
     },
     {
       id: "rect-fill",
       label: "Box Filled",
-      icon: `<rect x="3" y="3" width="18" height="18" rx="0" fill="currentColor" stroke="currentColor" stroke-width="1"/>`,
     },
     {
       id: "oval-fill",
       label: "Oval Filled",
-      icon: `<ellipse cx="12" cy="12" rx="9" ry="7" fill="currentColor" stroke="currentColor" stroke-width="1"/>`,
     },
   ];
 
-  let activeShapeIcon = $derived(() => {
+  let activeShapeId = $derived(() => {
     const matched = shapeVariants.find((s) => s.id === doc.activeTool);
-    return matched ? matched.icon : shapeVariants[0].icon;
+    return matched ? matched.id : shapeVariants[0].id;
   });
 
   function handleSelectStamp(type: "signature" | "initial", dataUrl: string) {
@@ -248,7 +244,15 @@
         fill="none"
         class="block"
       >
-        {@html activeShapeIcon()}
+        {#if activeShapeId() === "rect"}
+          <rect x="3" y="3" width="18" height="18" rx="0" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        {:else if activeShapeId() === "oval"}
+          <ellipse cx="12" cy="12" rx="9" ry="7" fill="none" stroke="currentColor" stroke-width="2.5"/>
+        {:else if activeShapeId() === "rect-fill"}
+          <rect x="3" y="3" width="18" height="18" rx="0" fill="currentColor" stroke="currentColor" stroke-width="1"/>
+        {:else if activeShapeId() === "oval-fill"}
+          <ellipse cx="12" cy="12" rx="9" ry="7" fill="currentColor" stroke="currentColor" stroke-width="1"/>
+        {/if}
       </svg>
     </button>
 
@@ -284,7 +288,15 @@
               fill="none"
               class="shrink-0"
             >
-              {@html shape.icon}
+              {#if shape.id === "rect"}
+                <rect x="3" y="3" width="18" height="18" rx="0" fill="none" stroke="currentColor" stroke-width="2.5"/>
+              {:else if shape.id === "oval"}
+                <ellipse cx="12" cy="12" rx="9" ry="7" fill="none" stroke="currentColor" stroke-width="2.5"/>
+              {:else if shape.id === "rect-fill"}
+                <rect x="3" y="3" width="18" height="18" rx="0" fill="currentColor" stroke="currentColor" stroke-width="1"/>
+              {:else if shape.id === "oval-fill"}
+                <ellipse cx="12" cy="12" rx="9" ry="7" fill="currentColor" stroke="currentColor" stroke-width="1"/>
+              {/if}
             </svg>
             <span>{shape.label}</span>
           </button>
