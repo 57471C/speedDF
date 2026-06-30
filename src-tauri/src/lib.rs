@@ -1,6 +1,6 @@
 use std::fs::File;
-use std::io::{Read, Write};
 use std::io::Cursor;
+use std::io::{Read, Write};
 use tiff::decoder::{Decoder, DecodingResult};
 
 // ⚡ NEW: Shared payload structure to wrap both the byte array and filename together
@@ -39,6 +39,26 @@ async fn check_startup_file() -> Option<FilePayload> {
 }
 
 // 1. NATIVE WINDOWS FILE OPEN DIALOG
+const fn generate_lut() -> [[u8; 32]; 256] {
+    let mut lut = [[0u8; 32]; 256];
+    let mut byte = 0;
+    while byte < 256 {
+        let mut i = 0;
+        while i < 8 {
+            let bit = (byte >> (7 - i)) & 1;
+            let gray = if bit == 1 { 255 } else { 0 };
+            lut[byte as usize][i * 4] = gray;
+            lut[byte as usize][i * 4 + 1] = gray;
+            lut[byte as usize][i * 4 + 2] = gray;
+            lut[byte as usize][i * 4 + 3] = 255;
+            i += 1;
+        }
+        byte += 1;
+    }
+    lut
+}
+const TIFF_1BIT_LUT: [[u8; 32]; 256] = generate_lut();
+
 #[tauri::command]
 async fn native_open_file() -> Result<FilePayload, String> {
     // Native Windows system dialog abstraction via rfd (Tauri default engine)
@@ -71,7 +91,10 @@ async fn native_open_file() -> Result<FilePayload, String> {
 
 // 2. NATIVE WINDOWS FILE SAVE AS DIALOG
 #[tauri::command]
-async fn native_save_as_file(file_bytes: Vec<u8>, default_path: Option<String>) -> Result<String, String> {
+async fn native_save_as_file(
+    file_bytes: Vec<u8>,
+    default_path: Option<String>,
+) -> Result<String, String> {
     let file_name = default_path.unwrap_or_else(|| "edited_document.pdf".to_string());
     let file_path = rfd::AsyncFileDialog::new()
         .add_filter("PDF Document", &["pdf"])
@@ -121,7 +144,7 @@ async fn write_temp_file(bytes: Vec<u8>, file_name: String) -> Result<String, St
 }
 
 #[tauri::command]
-fn print_via_edge(file_path: String) {
+fn print_via_edge(_file_path: String) {
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("msedge")
@@ -133,7 +156,8 @@ fn print_via_edge(file_path: String) {
 
 #[tauri::command]
 fn check_files_exist(paths: Vec<String>) -> std::collections::HashMap<String, bool> {
-    paths.into_iter()
+    paths
+        .into_iter()
         .map(|path| {
             let exists = std::path::Path::new(&path).exists();
             (path, exists)
@@ -155,14 +179,15 @@ async fn read_file_bytes(path: String) -> Result<FilePayload, String> {
     if !path_buf.exists() || !path_buf.is_file() {
         return Err("File does not exist or is not a file".to_string());
     }
-    let file_name = path_buf.file_name()
+    let file_name = path_buf
+        .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "document.pdf".to_string());
-    
+
     let mut file = File::open(path_buf).map_err(|e| e.to_string())?;
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
-    
+
     Ok(FilePayload {
         bytes: buffer,
         name: file_name,
@@ -174,14 +199,18 @@ async fn read_file_bytes(path: String) -> Result<FilePayload, String> {
 async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         // Read the file natively straight from disk to avoid frontend JSON serialization overhead
-        let bytes = std::fs::read(&path).map_err(|e| format!("Failed to read file from disk: {}", e))?;
+        let bytes =
+            std::fs::read(&path).map_err(|e| format!("Failed to read file from disk: {}", e))?;
         let cursor = Cursor::new(bytes);
-        let mut decoder = Decoder::new(cursor).map_err(|e| format!("TIFF Decoder initialization error: {}", e))?;
+        let mut decoder = Decoder::new(cursor)
+            .map_err(|e| format!("TIFF Decoder initialization error: {}", e))?;
         let mut pages = Vec::new();
 
         loop {
             let (width, height) = decoder.dimensions().map_err(|e| e.to_string())?;
-            let colortype = decoder.colortype().map_err(|e| format!("Failed to read color type: {}", e))?;
+            let colortype = decoder
+                .colortype()
+                .map_err(|e| format!("Failed to read color type: {}", e))?;
             let img_data = decoder.read_image().map_err(|e| e.to_string())?;
 
             let mut rgba_buffer = Vec::with_capacity((width * height * 4) as usize);
@@ -206,18 +235,37 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
                                     }
                                 } else {
                                     // Unpack packed bits (1 bit per pixel, with each row padded to a byte boundary per TIFF spec)
-                                    let bytes_per_row = ((width + 7) / 8) as usize;
+                                    let bytes_per_row = width.div_ceil(8) as usize;
                                     for r in 0..height as usize {
                                         let row_offset = r * bytes_per_row;
-                                        for c in 0..width as usize {
-                                            let byte_idx = row_offset + (c / 8);
-                                            let bit_idx = 7 - (c % 8); // Standard MSB-to-LSB bit arrangement
-                                            if byte_idx < data.len() {
-                                                let bit = (data[byte_idx] >> bit_idx) & 1;
-                                                // Map 1-bit binary values to standard technical blueprint layouts
-                                                // 1 = White Paper Background (255), 0 = Black Ink Line (0)
-                                                let gray = if bit == 1 { 255 } else { 0 };
-                                                rgba_buffer.extend_from_slice(&[gray, gray, gray, 255]);
+                                        let mut cols_remaining = width as usize;
+
+                                        if row_offset >= data.len() {
+                                            break;
+                                        }
+
+                                        let row_end =
+                                            std::cmp::min(row_offset + bytes_per_row, data.len());
+                                        let row_data = &data[row_offset..row_end];
+
+                                        for &byte in row_data {
+                                            let pixels_to_process =
+                                                std::cmp::min(8, cols_remaining);
+
+                                            if pixels_to_process == 8 {
+                                                rgba_buffer.extend_from_slice(
+                                                    &TIFF_1BIT_LUT[byte as usize],
+                                                );
+                                            } else {
+                                                rgba_buffer.extend_from_slice(
+                                                    &TIFF_1BIT_LUT[byte as usize]
+                                                        [..pixels_to_process * 4],
+                                                );
+                                            }
+
+                                            cols_remaining -= pixels_to_process;
+                                            if cols_remaining == 0 {
+                                                break;
                                             }
                                         }
                                     }
@@ -229,48 +277,61 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
                                 }
                             }
                         }
-                        _ => return Err(format!("Unsupported TIFF color profile depth: {:?}", colortype)),
+                        _ => {
+                            return Err(format!(
+                                "Unsupported TIFF color profile depth: {:?}",
+                                colortype
+                            ))
+                        }
                     }
                 }
-                DecodingResult::U16(data) => {
-                    match colortype {
-                        tiff::ColorType::RGB(_) => {
-                            for chunk in data.chunks_exact(3) {
-                                rgba_buffer.extend_from_slice(&[
-                                    (chunk[0] >> 8) as u8,
-                                    (chunk[1] >> 8) as u8,
-                                    (chunk[2] >> 8) as u8,
-                                    255,
-                                ]);
-                            }
+                DecodingResult::U16(data) => match colortype {
+                    tiff::ColorType::RGB(_) => {
+                        for chunk in data.chunks_exact(3) {
+                            rgba_buffer.extend_from_slice(&[
+                                (chunk[0] >> 8) as u8,
+                                (chunk[1] >> 8) as u8,
+                                (chunk[2] >> 8) as u8,
+                                255,
+                            ]);
                         }
-                        tiff::ColorType::RGBA(_) => {
-                            for chunk in data.chunks_exact(4) {
-                                rgba_buffer.extend_from_slice(&[
-                                    (chunk[0] >> 8) as u8,
-                                    (chunk[1] >> 8) as u8,
-                                    (chunk[2] >> 8) as u8,
-                                    (chunk[3] >> 8) as u8,
-                                ]);
-                            }
-                        }
-                        tiff::ColorType::Gray(_) => {
-                            for gray in data {
-                                let val = (gray >> 8) as u8;
-                                rgba_buffer.extend_from_slice(&[val, val, val, 255]);
-                            }
-                        }
-                        _ => return Err(format!("Unsupported 16-bit TIFF color layout: {:?}", colortype)),
                     }
+                    tiff::ColorType::RGBA(_) => {
+                        for chunk in data.chunks_exact(4) {
+                            rgba_buffer.extend_from_slice(&[
+                                (chunk[0] >> 8) as u8,
+                                (chunk[1] >> 8) as u8,
+                                (chunk[2] >> 8) as u8,
+                                (chunk[3] >> 8) as u8,
+                            ]);
+                        }
+                    }
+                    tiff::ColorType::Gray(_) => {
+                        for gray in data {
+                            let val = (gray >> 8) as u8;
+                            rgba_buffer.extend_from_slice(&[val, val, val, 255]);
+                        }
+                    }
+                    _ => {
+                        return Err(format!(
+                            "Unsupported 16-bit TIFF color layout: {:?}",
+                            colortype
+                        ))
+                    }
+                },
+                _ => {
+                    return Err(
+                        "Unsupported binary block bitstream format layout encountered".to_string(),
+                    )
                 }
-                _ => return Err("Unsupported binary block bitstream format layout encountered".to_string()),
             }
 
             // Safety verification: Ensure the byte buffer length perfectly matches the expected canvas dimensions
             if rgba_buffer.len() != (width * height * 4) as usize {
                 return Err(format!(
                     "Extracted pixel buffer dimension constraint violation: expected {}, got {}",
-                    width * height * 4, rgba_buffer.len()
+                    width * height * 4,
+                    rgba_buffer.len()
                 ));
             }
 
@@ -283,7 +344,8 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
                 width,
                 height,
                 image::ExtendedColorType::Rgba8,
-            ).map_err(|e| format!("PNG generation fallback encoder error: {}", e))?;
+            )
+            .map_err(|e| format!("PNG generation fallback encoder error: {}", e))?;
 
             pages.push(png_bytes);
 
@@ -310,17 +372,25 @@ pub fn run() {
             std::thread::spawn(|| {
                 let temp_dir = std::env::temp_dir();
                 println!("Background Sweep: Scanning temp directory: {:?}", temp_dir);
-                
+
                 if let Ok(entries) = std::fs::read_dir(temp_dir) {
                     for entry in entries.flatten() {
                         if let Ok(file_name) = entry.file_name().into_string() {
                             // Match our specific print signature files
-                            if file_name.starts_with("speedDF_print_") && file_name.ends_with(".pdf") {
+                            if file_name.starts_with("speedDF_print_")
+                                && file_name.ends_with(".pdf")
+                            {
                                 let path = entry.path();
                                 if let Err(e) = std::fs::remove_file(&path) {
-                                    eprintln!("Background Sweep Error: Failed to purge {:?}: {}", path, e);
+                                    eprintln!(
+                                        "Background Sweep Error: Failed to purge {:?}: {}",
+                                        path, e
+                                    );
                                 } else {
-                                    println!("Background Sweep: Cleaned up cached print file: {:?}", path);
+                                    println!(
+                                        "Background Sweep: Cleaned up cached print file: {:?}",
+                                        path
+                                    );
                                 }
                             }
                         }
