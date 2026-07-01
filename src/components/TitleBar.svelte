@@ -12,6 +12,7 @@
     onPrint,
     onOpenFile,
     onCloseDocument,
+    onSaveSuccess,
   }: {
     onMinimize: () => void;
     onMaximize: () => void;
@@ -20,6 +21,7 @@
     onPrint?: () => void;
     onOpenFile?: () => void;
     onCloseDocument?: () => void;
+    onSaveSuccess?: (msg: string) => void;
   } = $props();
 
   interface FilePayload {
@@ -146,8 +148,10 @@
         }
         const imgW = embeddedImageDest.width;
         const imgH = embeddedImageDest.height;
-        const targetW = h * (imgW / imgH);
-        page.drawImage(embeddedImageDest, { x, y, width: targetW, height: h });
+        const dampedH = h * 0.80;
+        const targetW = dampedH * (imgW / imgH);
+        const dampedY = y + (h - dampedH) / 2;
+        page.drawImage(embeddedImageDest, { x, y: dampedY, width: targetW, height: dampedH });
       } else if (
         s.type === "highlight" &&
         s.points &&
@@ -339,6 +343,8 @@
       if (savedPath) {
         const parts = savedPath.split(/[\\/]/);
         activeDoc.fileName = parts[parts.length - 1];
+        activeDoc.isDirty = false;
+        if (typeof onSaveSuccess === 'function') onSaveSuccess("File Saved Successfully");
       }
       console.log("Document footprint committed cleanly to disk via Save As.");
     } catch (err) {
@@ -367,7 +373,9 @@
         path: activeDoc.filePath,
         fileBytes: Array.from(compiledBytes),
       });
+      activeDoc.isDirty = false;
       console.log("Document footprint committed silently to disk.");
+      if (typeof onSaveSuccess === 'function') onSaveSuccess("File Saved Successfully");
     } catch (err) {
       console.error("Silent file overwrite fault:", err);
     }

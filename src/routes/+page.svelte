@@ -26,6 +26,22 @@
   let isSystemPrinting = $state(false);
   let isPreparingPrint = $state(false);
 
+  // 🍞 Lightweight Svelte 5 Reactive Toast State Machine
+  let toastMessage = $state("");
+  let showToast = $state(false);
+  let toastTimeoutId: any = null;
+
+  function showNotification(message: string) {
+    if (toastTimeoutId) clearTimeout(toastTimeoutId);
+    toastMessage = message;
+    showToast = true;
+
+    // Automatically dim and clear the toast banner after 3 seconds of screen time
+    toastTimeoutId = setTimeout(() => {
+      showToast = false;
+    }, 3000);
+  }
+
   interface RecentFile {
     name: string;
     path: string;
@@ -89,7 +105,13 @@
         recentFiles = currentList;
         return;
       }
-      const loadingTask = pdfjsLib.getDocument({ data: bytes.slice(0) });
+      const loadingTask = pdfjsLib.getDocument({
+        data: bytes.slice(0),
+        cMapUrl: window.location.origin + "/cmaps/",
+        cMapPacked: true,
+        standardFontDataUrl: window.location.origin + "/standard_fonts/",
+        wasmUrl: window.location.origin + "/",
+      });
       const pdfDocument = await loadingTask.promise;
       const page = await pdfDocument.getPage(1);
 
@@ -513,6 +535,7 @@
     onPrint={executeNativePrint}
     onOpenFile={openFile}
     onCloseDocument={closeDocument}
+    onSaveSuccess={(msg: string) => showNotification(msg || "Document saved successfully")}
   />
 
   {#if activeDoc.rawBytes}
@@ -790,7 +813,7 @@
           >
           <span
             class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v0.9.1</span
+            >v0.9.2</span
           >
         </div>
         <button
@@ -1005,3 +1028,17 @@
   onSave={() => titleBarRef?.triggerSave?.()}
   onSaveAs={() => titleBarRef?.triggerSaveAs?.()}
 />
+
+{#if showToast}
+  <div class="fixed bottom-6 right-6 z-[2000] pointer-events-none animate-fade-in animate-duration-200">
+    <div class="bg-[#0b1326] border border-cyan-500/30 shadow-[0_0_24px_rgba(6,182,212,0.15)] rounded-xl px-4 py-3 flex items-center gap-3 backdrop-blur-md">
+      <div class="flex h-5 w-5 bg-cyan-500/10 rounded-lg items-center justify-center text-cyan-400 font-bold text-xs">
+        ✓
+      </div>
+      <div class="flex flex-col">
+        <p class="text-[11px] font-bold text-slate-100 tracking-wide">{toastMessage}</p>
+        <p class="text-[9px] text-slate-500 font-medium">Changes committed successfully</p>
+      </div>
+    </div>
+  </div>
+{/if}

@@ -618,8 +618,8 @@
     if (existing[index]) {
       existing[index].text = element.value.trim();
       if (!existing[index].text) {
-        existing.splice(index, 1);
         activeDoc.selectedShape = null;
+        existing.splice(index, 1);
       }
       activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: [...existing] };
     }
@@ -640,12 +640,12 @@
           activeDoc.selectedShape;
         const existingList = [...(activeDoc.shapes[targetPage] || [])];
         if (existingList[targetIdx]) {
+          activeDoc.selectedShape = null;
           existingList.splice(targetIdx, 1);
           activeDoc.shapes = {
             ...activeDoc.shapes,
             [targetPage]: existingList,
           };
-          activeDoc.selectedShape = null;
         }
       }
     }
@@ -770,7 +770,7 @@
       class="absolute inset-0 w-full h-full pointer-events-none z-10"
     >
       {#each activeDoc.shapes[pageNumber] || [] as shape, idx}
-        {#if shape.type === "highlight" && shape.points}
+        {#if shape && shape.type === "highlight" && shape.points}
           <polyline
             onclick={(e) => {
               e.stopPropagation();
@@ -787,7 +787,7 @@
             class="cursor-pointer pointer-events-auto hover:stroke-yellow-300 transition-colors {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke-yellow-300 stroke-opacity-60' : ''}"
           />
         {:else}
-          {#if shape.type === "pen" && shape.points}
+          {#if shape && shape.type === "pen" && shape.points}
             <polyline
               onclick={(e) => {
                 e.stopPropagation();
@@ -832,7 +832,7 @@
     </svg>
 
     {#each activeDoc.shapes[pageNumber] || [] as shape, idx}
-      {#if shapeTypesList.includes(shape.type)}
+      {#if shape && shapeTypesList.includes(shape.type)}
         {#if shape.type === "oval" || shape.type === "oval-fill"}
           <div
             onmousedown={(e) => initShapeMove(e, idx)}
@@ -918,7 +918,7 @@
             {/if}
           </div>
         {/if}
-      {:else if shape.type === "text"}
+      {:else if shape && shape.type === "text"}
         <div
           class="absolute text-slate-900 pointer-events-auto transform -translate-y-1/2 z-40"
           style="left: {shape.x}%; top: {shape.y}%;"
@@ -952,7 +952,7 @@
             >
           {/if}
         </div>
-      {:else if shape.type === "tick"}
+      {:else if shape && shape.type === "tick"}
         <div
           onmousedown={(e) => initShapeMove(e, idx)}
           class="absolute pointer-events-auto z-40 flex items-center justify-center p-0.5 border rounded-sm transition-all cursor-move"
@@ -994,7 +994,7 @@
             ></div>
           {/if}
         </div>
-      {:else if shape.type === "dash"}
+      {:else if shape && shape.type === "dash"}
         <div
           onmousedown={(e) => initShapeMove(e, idx)}
           class="absolute pointer-events-auto z-40 flex items-center justify-center p-0.5 border rounded-sm transition-all cursor-move"
@@ -1038,7 +1038,7 @@
             ></div>
           {/if}
         </div>
-      {:else if shape.type === "signature" || shape.type === "initial"}
+      {:else if shape && (shape.type === "signature" || shape.type === "initial")}
         <div
           onmousedown={(e) => initShapeMove(e, idx)}
           class="absolute pointer-events-auto z-40 flex items-center justify-center border rounded-sm transition-all cursor-move p-0.5 overflow-hidden mix-blend-multiply bg-transparent {activeDoc

@@ -603,7 +603,7 @@
               class="text-[9px] font-bold text-slate-500 uppercase tracking-widest"
               >Master Signature</span
             ><button
-              onclick={() => clearCanvas("sig")}
+              onclick={(e) => { e.stopPropagation(); clearCanvas("sig"); }}
               class="text-[9px] text-[#00d2ff]/70 font-bold uppercase"
               >Clear</button
             >
@@ -626,7 +626,7 @@
               class="text-[9px] font-bold text-slate-500 uppercase tracking-widest"
               >Initials</span
             ><button
-              onclick={() => clearCanvas("init")}
+              onclick={(e) => { e.stopPropagation(); clearCanvas("init"); }}
               class="text-[9px] text-[#00d2ff]/70 font-bold uppercase"
               >Clear</button
             >

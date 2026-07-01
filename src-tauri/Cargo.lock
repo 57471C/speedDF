@@ -4065,7 +4065,7 @@ dependencies = [
 
 [[package]]
 name = "speeddf"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "image",
  "lopdf",
