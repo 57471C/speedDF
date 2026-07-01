@@ -310,6 +310,74 @@
     }
   }
 
+  function addShapeToPage(shape: AnnotationShape) {
+    const existing = activeDoc.shapes[pageNumber] || [];
+    const newIndex = existing.length;
+    activeDoc.shapes = {
+      ...activeDoc.shapes,
+      [pageNumber]: [...existing, shape],
+    };
+    return newIndex;
+  }
+
+  function handleSignatureOrInitial(mousePctX: number, mousePctY: number) {
+    const toolType = activeDoc.activeTool as "signature" | "initial";
+    const dims = ghostDimensions;
+    const newSignatureStamp: AnnotationShape = {
+      type: toolType,
+      x: mousePctX - dims.w / 2,
+      y: mousePctY - dims.h / 2,
+      width: dims.w,
+      height: dims.h,
+      dataUrl: activeDoc.activeStampDataUrl ?? undefined,
+    };
+    const newIndex = addShapeToPage(newSignatureStamp);
+    activeDoc.selectedShape = { pageNumber, index: newIndex };
+  }
+
+  function handleTickOrDash(mousePctX: number, mousePctY: number) {
+    const toolType = activeDoc.activeTool as "tick" | "dash";
+    const isTick = toolType === "tick";
+    const cachedWidth = localStorage.getItem(`speeddf_stamp_${toolType}_w`);
+    const cachedHeight = localStorage.getItem(`speeddf_stamp_${toolType}_h`);
+    const targetWidth = cachedWidth
+      ? parseFloat(cachedWidth)
+      : isTick
+        ? 4
+        : 6;
+    const targetHeight = cachedHeight
+      ? parseFloat(cachedHeight)
+      : isTick
+        ? 4
+        : 2;
+
+    const newStampShape: AnnotationShape = {
+      type: toolType,
+      x: mousePctX - targetWidth / 2,
+      y: mousePctY - targetHeight / 2,
+      width: targetWidth,
+      height: targetHeight,
+      color: activeDoc.activeColor,
+    };
+    const newIndex = addShapeToPage(newStampShape);
+    activeDoc.selectedShape = { pageNumber, index: newIndex };
+  }
+
+  function handleTextTool(mousePctX: number, mousePctY: number) {
+    const newTextShape: AnnotationShape = {
+      type: "text",
+      x: mousePctX,
+      y: mousePctY,
+      text: "",
+      font: activeDoc.defaultFont,
+      size: activeDoc.defaultSize,
+      style: activeDoc.defaultStyle || "Normal",
+    };
+    const newIndex = addShapeToPage(newTextShape);
+    activelyEditingIndex = newIndex;
+    activeDoc.selectedShape = { pageNumber, index: newIndex };
+  }
+
   function handleMouseDown(e: MouseEvent) {
     if (!pageContainer) return;
     const targetElement = e.target as HTMLElement;
@@ -342,78 +410,19 @@
       activeDoc.activeStampDataUrl
     ) {
       e.preventDefault();
-      const toolType = activeDoc.activeTool as "signature" | "initial";
-      const dims = ghostDimensions;
-      const newSignatureStamp: AnnotationShape = {
-        type: toolType,
-        x: mousePctX - dims.w / 2,
-        y: mousePctY - dims.h / 2,
-        width: dims.w,
-        height: dims.h,
-        dataUrl: activeDoc.activeStampDataUrl,
-      };
-      const existing = activeDoc.shapes[pageNumber] || [];
-      activeDoc.shapes = {
-        ...activeDoc.shapes,
-        [pageNumber]: [...existing, newSignatureStamp],
-      };
-      activeDoc.selectedShape = { pageNumber, index: existing.length };
+      handleSignatureOrInitial(mousePctX, mousePctY);
       return;
     }
 
     if (activeDoc.activeTool === "tick" || activeDoc.activeTool === "dash") {
       e.preventDefault();
-      const toolType = activeDoc.activeTool as "tick" | "dash";
-      const isTick = toolType === "tick";
-      const cachedWidth = localStorage.getItem(`speeddf_stamp_${toolType}_w`);
-      const cachedHeight = localStorage.getItem(`speeddf_stamp_${toolType}_h`);
-      const targetWidth = cachedWidth
-        ? parseFloat(cachedWidth)
-        : isTick
-          ? 4
-          : 6;
-      const targetHeight = cachedHeight
-        ? parseFloat(cachedHeight)
-        : isTick
-          ? 4
-          : 2;
-
-      const newStampShape: AnnotationShape = {
-        type: toolType,
-        x: mousePctX - targetWidth / 2,
-        y: mousePctY - targetHeight / 2,
-        width: targetWidth,
-        height: targetHeight,
-        color: activeDoc.activeColor,
-      };
-      const existing = activeDoc.shapes[pageNumber] || [];
-      activeDoc.shapes = {
-        ...activeDoc.shapes,
-        [pageNumber]: [...existing, newStampShape],
-      };
-      activeDoc.selectedShape = { pageNumber, index: existing.length };
+      handleTickOrDash(mousePctX, mousePctY);
       return;
     }
 
     if (activeDoc.activeTool === "text") {
       e.preventDefault();
-      const newTextShape: AnnotationShape = {
-        type: "text",
-        x: mousePctX,
-        y: mousePctY,
-        text: "",
-        font: activeDoc.defaultFont,
-        size: activeDoc.defaultSize,
-        style: activeDoc.defaultStyle || "Normal",
-      };
-      const existing = activeDoc.shapes[pageNumber] || [];
-      const newIndex = existing.length;
-      activeDoc.shapes = {
-        ...activeDoc.shapes,
-        [pageNumber]: [...existing, newTextShape],
-      };
-      activelyEditingIndex = newIndex;
-      activeDoc.selectedShape = { pageNumber, index: newIndex };
+      handleTextTool(mousePctX, mousePctY);
       return;
     }
 
