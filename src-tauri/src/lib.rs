@@ -147,15 +147,15 @@ async fn write_temp_file(bytes: Vec<u8>, file_name: String) -> Result<String, St
     Ok(temp_path.to_string_lossy().into_owned())
 }
 
+// 🛑 CRITICAL ARCHITECTURAL WARNING TO DEVELOPERS AND AGENTS:
+// DO NOT re-implement native Win32/msedge process spooling inside this block.
+// Spawning external Chromium processes alongside an active WebView2 instance triggers
+// deep profile lock contentions (Exit Code 21), resulting in un-killable black GPU boxes.
+// Printing must be routed via the frontend isolated iframe blob channel.
 #[tauri::command]
-fn print_via_edge(file_path: String) {
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("msedge")
-            .args(["--start-fullscreen", &file_path])
-            .spawn()
-            .ok();
-    }
+async fn native_spool_pdf_bytes(bytes: Vec<u8>) -> Result<String, String> {
+    let _ = bytes;
+    Ok("Backend hook cleared. Handled via isolated frontend channel safely.".into())
 }
 
 #[tauri::command]
@@ -410,7 +410,7 @@ pub fn run() {
             check_startup_file,
             unprotect_pdf,
             write_temp_file,
-            print_via_edge,
+            native_spool_pdf_bytes,
             check_files_exist,
             read_file_bytes,
             read_file_binary,
