@@ -913,7 +913,7 @@
           >
           <span
             class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v0.9.3</span
+            >v0.9.4</span
           >
         </div>
         <button
