@@ -3,6 +3,14 @@
 	"productName": "speeddf",
 	"version": "0.9.3",
 	"identifier": "com.speeddf.doc",
+	"plugins": {
+		"updater": {
+			"endpoints": [
+				"https://speeddf.com/update.json"
+			],
+			"pubkey": "PASTE_YOUR_TAURI_SIGNER_PUBLIC_KEY_HERE"
+		}
+	},
 	"build": {
 		"beforeDevCommand": "npm run dev",
 		"devUrl": "http://localhost:1420",

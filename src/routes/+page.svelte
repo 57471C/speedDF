@@ -4,6 +4,8 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open } from "@tauri-apps/plugin-dialog";
+  import { check } from '@tauri-apps/plugin-updater';
+  import { relaunch } from '@tauri-apps/plugin-process';
   import * as pdfjsLib from "pdfjs-dist";
   import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
   import TitleBar from "../components/TitleBar.svelte";
@@ -438,6 +440,28 @@
 
   onMount(() => {
     (activeDoc as any).compileAndFlattenDocumentBytes = () => titleBarRef.getAnnotatedPdfBytes();
+
+    // Silent background check for production optimization patches
+    async function checkForApplicationUpdates() {
+      try {
+        const update = await check();
+        if (update && update.available) {
+          showNotification(`Optimization patch v${update.version} available`);
+          
+          // Download and stream the signed update zip silently to temp memory
+          await update.downloadAndInstall();
+          showNotification("Restarting to apply updates...");
+          
+          // Clean hot-swap reboot: Terminates active window and spawns new binary instantly
+          await relaunch();
+        }
+      } catch (updateErr) {
+        // Silently swallow network tracking errors when running in offline workstation settings
+        console.error("Background update loop status: ", updateErr);
+      }
+    }
+    
+    checkForApplicationUpdates();
 
     // 🛡️ Capturing Phase Firewall: Drops native browser print commands instantly
     const trapBrowserPrintShortcut = (e: KeyboardEvent) => {
