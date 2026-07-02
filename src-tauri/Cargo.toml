@@ -1,6 +1,6 @@
 [package]
 name = "speeddf"
-version = "0.9.3"
+version = "0.9.4"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -28,4 +28,7 @@ tauri-plugin-window-state = "2.4.1"
 image = { version = "0.25", features = ["tiff", "png"] }
 tiff = { version = "0.11", features = ["fax"] }
 tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+
 
