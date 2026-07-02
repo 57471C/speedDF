@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open } from "@tauri-apps/plugin-dialog";
   import * as pdfjsLib from "pdfjs-dist";
@@ -11,11 +12,13 @@
   import PageSidebar from "../components/PageSidebar.svelte";
   import ContextMenu from "../components/ContextMenu.svelte";
   import {
-    activeDoc,
+    activeDoc as activeDocStore,
     executeUndoAction,
     executeRedoAction,
     rotatePageAction,
   } from "../pdfStore.svelte";
+
+  const activeDoc = activeDocStore as any;
 
   let zoomScale = $state(120);
   let showHelpModal = $state(false);
@@ -25,11 +28,16 @@
   let titleBarRef = $state<any>(null);
   let isSystemPrinting = $state(false);
   let isPreparingPrint = $state(false);
+  let isPrintingProcess = $state(false);
 
   // 🍞 Lightweight Svelte 5 Reactive Toast State Machine
   let toastMessage = $state("");
   let showToast = $state(false);
   let toastTimeoutId: any = null;
+
+  let loadStartTime = 0;
+  let renderDurationMs = $state<number | null>(null);
+  let isZippingLoader = $state(false);
 
   function showNotification(message: string) {
     if (toastTimeoutId) clearTimeout(toastTimeoutId);
@@ -162,13 +170,25 @@
     fileName: string,
     filePath: string,
   ) {
-    // Detect technical drawing file signatures by matching path extensions
-    const isTiff =
-      fileName.toLowerCase().endsWith(".tiff") ||
-      fileName.toLowerCase().endsWith(".tif");
+    // 1. Instantly trigger state layers and fire the toast notification
+    isZippingLoader = true;
+    showNotification("FILE OPEN:");
 
-    if (isTiff) {
-      try {
+    // 2. Force Svelte to immediately flush style/DOM updates and paint the UI 
+    // before the thread can be occupied by heavy canvas stream rendering
+    await tick();
+
+    // 3. Begin the high-resolution hardware benchmarking clock
+    loadStartTime = performance.now();
+    renderDurationMs = null;
+
+    try {
+      // Detect technical drawing file signatures by matching path extensions
+      const isTiff =
+        fileName.toLowerCase().endsWith(".tiff") ||
+        fileName.toLowerCase().endsWith(".tif");
+
+      if (isTiff) {
         // Direct binary handoff over the IPC bridge to your high-performance Rust extraction crate
         const decodedPages = await invoke<number[][] | Uint8Array[]>(
           "parse_tiff_document",
@@ -187,40 +207,43 @@
           { length: decodedPages.length },
           (_, i) => i + 1,
         );
+      } else {
+        // Keep your existing standard PDF.js document load configuration completely untouched here
+        activeDoc.fileType = "pdf";
+        activeDoc.tiffPages = [];
 
-        return; // Handoff completed successfully; bypass PDF.js initialization loops
-      } catch (err) {
-        console.error("Native Rust TIFF parsing fault details:", err);
-        alert("Failed to decode the multi-page TIFF blueprint.");
-        return;
+        const loadingTask = pdfjsLib.getDocument({
+          data: rawBytes.slice(0),
+          cMapUrl: window.location.origin + "/cmaps/",
+          cMapPacked: true,
+          standardFontDataUrl: window.location.origin + "/standard_fonts/",
+          wasmUrl: window.location.origin + "/",
+        });
+        const pdfDocument = await loadingTask.promise;
+
+        activeDoc.rawBytes = rawBytes;
+        activeDoc.pageCount = pdfDocument.numPages;
+        activeDoc.pageOrder = Array.from(
+          { length: pdfDocument.numPages },
+          (_, idx) => idx + 1,
+        );
+        activeDoc.currentPage = 1;
+        activeDoc.shapes = {};
+        activeDoc.fileName = fileName;
+        activeDoc.filePath = filePath;
+
+        await registerRecentFile(fileName, filePath, rawBytes);
       }
-    } else {
-      // Keep your existing standard PDF.js document load configuration completely untouched here
-      activeDoc.fileType = "pdf";
-      activeDoc.tiffPages = [];
+
+      // Calculate layout compilation completion speeds down to the millisecond
+      const loadEndTime = performance.now();
+      renderDurationMs = Math.round(loadEndTime - loadStartTime);
+    } catch (err) {
+      console.error("Document Ingestion Core Fault: ", err);
+      showNotification("Unable to process document stream");
+    } finally {
+      isZippingLoader = false;
     }
-
-    const loadingTask = pdfjsLib.getDocument({
-      data: rawBytes.slice(0),
-      cMapUrl: window.location.origin + "/cmaps/",
-      cMapPacked: true,
-      standardFontDataUrl: window.location.origin + "/standard_fonts/",
-      wasmUrl: window.location.origin + "/",
-    });
-    const pdfDocument = await loadingTask.promise;
-
-    activeDoc.rawBytes = rawBytes;
-    activeDoc.pageCount = pdfDocument.numPages;
-    activeDoc.pageOrder = Array.from(
-      { length: pdfDocument.numPages },
-      (_, idx) => idx + 1,
-    );
-    activeDoc.currentPage = 1;
-    activeDoc.shapes = {};
-    activeDoc.fileName = fileName;
-    activeDoc.filePath = filePath;
-
-    await registerRecentFile(fileName, filePath, rawBytes);
   }
 
   async function promptAndLoadFile(
@@ -359,27 +382,73 @@
       window.location.origin + "/";
   }
 
-  async function executeNativePrint() {
+  // 🛑 WARPING CODE SHIELD: DO NOT REFACTOR THIS TO NATIVE RUST OR REMOVE THE IFRAME LAYER.
+  // WebView2/Tauri holds an exclusive file lock on the user profile directory. Spawning 
+  // background browser processes causes Chromium Exit Code 21 rendering window crashes (black boxes).
+  // The hidden iframe pipeline isolates the canvas print tree safely inside webview memory.
+  async function triggerHeadlessPrintSpool() {
+    if (!activeDoc || isPrintingProcess) return;
+    
+    isPrintingProcess = true;
+    showNotification("Preparing Document for Printing");
+    
     try {
-      // 1. Grab the raw PDF byte array
-      const pdfBytes = await titleBarRef.getAnnotatedPdfBytes();
+      const compiledPdfBytes = await (activeDoc as any).compileAndFlattenDocumentBytes();
+      if (!compiledPdfBytes) throw new Error("Compilation returned empty byte payload.");
 
-      // 2. Define a temp file path
-      const tempFileName = `speedDF_print_${Date.now()}.pdf`;
+      const blob = new Blob([compiledPdfBytes], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+      
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.top = '-10000px';
+      iframe.style.left = '-10000px';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = 'none';
+      iframe.src = blobUrl;
+      
+      document.body.appendChild(iframe);
+      
+      iframe.onload = () => {
+        setTimeout(() => {
+          try {
+            iframe.contentWindow?.focus();
+            iframe.contentWindow?.print();
+            showNotification("Document Sent to Printer Queue");
+          } catch (frameErr) {
+            console.error("Frame print execution error: ", frameErr);
+            showNotification("Unable to Initialize Print Request");
+          }
+          
+          setTimeout(() => {
+            if (iframe.parentNode) document.body.removeChild(iframe);
+            URL.revokeObjectURL(blobUrl);
+          }, 30000);
+        }, 500);
+      };
 
-      // 3. Write directly to the OS Temp folder
-      const fullPath = await invoke<string>("write_temp_file", {
-        bytes: pdfBytes,
-        fileName: tempFileName,
-      });
-
-      await invoke("print_via_edge", { filePath: fullPath });
     } catch (err) {
-      console.error("MAIN PAGE: Shell Handoff Failed:", err);
+      console.error("Print Engine Failure: ", err);
+      showNotification("Unable to Initialize Print Request");
+    } finally {
+      isPrintingProcess = false;
     }
   }
 
   onMount(() => {
+    (activeDoc as any).compileAndFlattenDocumentBytes = () => titleBarRef.getAnnotatedPdfBytes();
+
+    // 🛡️ Capturing Phase Firewall: Drops native browser print commands instantly
+    const trapBrowserPrintShortcut = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerHeadlessPrintSpool();
+      }
+    };
+    window.addEventListener('keydown', trapBrowserPrintShortcut, { capture: true });
+
     // Load recents list on app mount and audit file locations using our Rust command
     const stored = localStorage.getItem("speeddf_recents");
     if (stored) {
@@ -515,6 +584,7 @@
     });
 
     return () => {
+      window.removeEventListener('keydown', trapBrowserPrintShortcut, { capture: true });
       unlistenCloseRequest.then(f => f());
     };
   });
@@ -532,10 +602,10 @@
     onMaximize={maximizeApp}
     onClose={closeApp}
     onToggleHelp={() => (showHelpModal = !showHelpModal)}
-    onPrint={executeNativePrint}
+    onPrint={triggerHeadlessPrintSpool}
     onOpenFile={openFile}
     onCloseDocument={closeDocument}
-    onSaveSuccess={(msg: string) => showNotification(msg || "Document saved successfully")}
+    onSaveSuccess={(msg: string) => showNotification(msg || "Changes Written Safely to Disk")}
   />
 
   {#if activeDoc.rawBytes}
@@ -543,6 +613,12 @@
       <ToolSidebar bind:zoomScale />
       <Workspace {zoomScale} {isSystemPrinting} />
       <PageSidebar />
+
+      {#if renderDurationMs !== null}
+        <div class="fixed top-11 left-14 z-10 select-none pointer-events-none font-mono text-[9px] tracking-widest text-slate-500/40 font-semibold uppercase mix-blend-screen">
+          Document Loaded in: <span class="text-cyan-400/30 font-bold">{renderDurationMs}ms</span>
+        </div>
+      {/if}
     </div>
   {:else}
     <div
@@ -706,7 +782,7 @@
         </h1>
         <p class="text-[11px] text-slate-500 font-medium max-w-xs">
           Drop any PDF document anywhere into this window, or use the menu
-          toolbar above to begin editing your annotations.
+          toolbar above to begin editing your documents.
         </p>
       </div>
 
@@ -813,7 +889,7 @@
           >
           <span
             class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v0.9.2</span
+            >v0.9.3</span
           >
         </div>
         <button
@@ -1030,15 +1106,50 @@
 />
 
 {#if showToast}
-  <div class="fixed bottom-6 right-6 z-[2000] pointer-events-none animate-fade-in animate-duration-200">
-    <div class="bg-[#0b1326] border border-cyan-500/30 shadow-[0_0_24px_rgba(6,182,212,0.15)] rounded-xl px-4 py-3 flex items-center gap-3 backdrop-blur-md">
-      <div class="flex h-5 w-5 bg-cyan-500/10 rounded-lg items-center justify-center text-cyan-400 font-bold text-xs">
-        ✓
+  <div class="fixed top-16 left-16 z-[5000] pointer-events-none speeddf-toast-animate">
+    <div class="bg-[#0e1629]/95 border border-cyan-500/30 shadow-[0_4px_20px_rgba(6,182,212,0.15)] rounded-xl px-4 py-3 flex flex-col gap-1.5 backdrop-blur-md max-w-sm relative overflow-hidden">
+      <div class="flex items-center gap-3">
+        <div class="flex h-6 w-6 shrink-0 bg-cyan-500/10 rounded-lg items-center justify-center text-cyan-400 font-bold text-sm">
+          ✓
+        </div>
+        <div class="flex flex-col">
+          <p class="text-[12px] font-semibold text-slate-100 tracking-wide">{toastMessage}</p>
+          <p class="text-[10px] text-slate-400 font-medium mt-0.5">Local document processed</p>
+        </div>
       </div>
-      <div class="flex flex-col">
-        <p class="text-[11px] font-bold text-slate-100 tracking-wide">{toastMessage}</p>
-        <p class="text-[9px] text-slate-500 font-medium">Changes committed successfully</p>
-      </div>
+
+      {#if isZippingLoader}
+        <div class="absolute bottom-0 left-0 h-[2px] bg-gradient-to-r from-cyan-500 to-emerald-400 speeddf-zip-bar"></div>
+      {/if}
     </div>
   </div>
 {/if}
+
+<style>
+  /* Drop-down physics for premium window system feedback */
+  .speeddf-toast-animate {
+    animation: speeddfToastDrop 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  
+  @keyframes speeddfToastDrop {
+    0% {
+      transform: translateY(-1.5rem);
+      opacity: 0;
+    }
+    100% {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  /* Zipping physics engine simulation for high-speed file buffers */
+  .speeddf-zip-bar {
+    width: 0%;
+    animation: speeddfZipAction 0.45s cubic-bezier(0.075, 0.82, 0.165, 1) forwards;
+  }
+  
+  @keyframes speeddfZipAction {
+    0% { width: 0%; }
+    100% { width: 100%; }
+  }
+</style>
