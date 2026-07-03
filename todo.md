@@ -1,11 +1,15 @@
-# Todo List
+# Todo List #
 
-## Features
+## Features to add ##
 1. select text/copy text
 2. snapshot tool
 3. File tabs
-4. "Speed loading" maybe a progessbar and a background "Loaded in: ##ms" burned into the background.
+4. Imporved title 
+
 5. Buy me a coffee in help modal and welcome message
+
+## Completed v0.9.4: ##
+4. "Speed loading" maybe a progessbar and a background "Loaded in: ##ms" burned into the background.
 
 ```html
 <a href="https://buymeacoffee.com/speeddf" target="_blank" class="bg-yellow-500/10 text-yellow-500 border border-yellow-500/30 hover:bg-yellow-500/20 hover:border-yellow-500/60 transition-all duration-150 px-4 py-2 text-xs font-mono uppercase tracking-wider rounded-full flex items-center gap-2">

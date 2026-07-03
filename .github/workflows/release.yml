@@ -37,10 +37,18 @@ jobs:
       - name: Install Dependencies
         run: npm install --no-package-lock
 
+      - name: Synchronize SvelteKit generated metadata
+        run: npx svelte-kit sync
+
+      - name: Run frontend type checks
+        run: npm run check
+
       - name: Compile & Create GitHub Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'speedDF v__VERSION__'
