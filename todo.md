@@ -1,16 +1,16 @@
 # Todo List #
 
 ## Features to add ##
-1. select text/copy text
-2. snapshot tool
-3. File tabs
-4. Imporved title 
+1. Add select text/copy text functionality.
+2. Add snapshot tool.
+3. Add File tabs for multiple documents.
+4. Improved titlebar icons and placement (add Undo/Redo buttons. Share via email)
+5. Recent document options (clear, delete, compress)
+6. pagesToolbar - add bookmarks, comments view.
+7. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
 
-5. Buy me a coffee in help modal and welcome message
 
-## Completed v0.9.4: ##
-4. "Speed loading" maybe a progessbar and a background "Loaded in: ##ms" burned into the background.
-
+99. Buy me a coffee in help modal and welcome message
 ```html
 <a href="https://buymeacoffee.com/speeddf" target="_blank" class="bg-yellow-500/10 text-yellow-500 border border-yellow-500/30 hover:bg-yellow-500/20 hover:border-yellow-500/60 transition-all duration-150 px-4 py-2 text-xs font-mono uppercase tracking-wider rounded-full flex items-center gap-2">
 
@@ -20,6 +20,14 @@
 
             </a>
 ```
+
+## Completed v0.9.4: ##
+1. Add "Speed loading" maybe a progessbar and a background "Loaded in: ##ms" burned into the background.
+2. Add Update checker.
+3. Fix "Printing is broken in macOS" issue
+
+
+
 
 ## Fixes
 1. Scaling is a bit off for annotations (stamps and singnatures - possibly others) are slightly lager after saving.
