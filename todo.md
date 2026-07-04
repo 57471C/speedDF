@@ -6,8 +6,9 @@
 3. Add File tabs for multiple documents.
 4. Improved titlebar icons and placement (add Undo/Redo buttons. Share via email)
 5. Recent document options (clear, delete, compress)
-6. pagesToolbar - add bookmarks, comments view.
-7. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
+6. pagesToolbar - add bookmarks, 
+7. pagesToolbar - comments view.
+8. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
 
 
 99. Buy me a coffee in help modal and welcome message

@@ -17,6 +17,7 @@
   let insertAfterPageNum = $state<number | null>(null);
   let isGridViewOpen = $state(false);
   let selectedPages = $state<number[]>([]);
+  let activeSidebarTab = $state<'thumbnails' | 'bookmarks' | 'comments'>('thumbnails');
 
   let cachedRawBytes: Uint8Array | null = null;
   let sharedPdfjsDocPromise: Promise<any> | null = null;
@@ -383,35 +384,71 @@
 <div
   class="w-36 h-full bg-[#090d16] border-l border-slate-900 flex flex-col relative select-none z-40"
 >
-  <div class="p-3 border-b border-slate-900/50 grid grid-cols-3 items-center bg-[#0b101c]/40 w-full">
-    <div class="flex justify-start pl-1">
+  <div class="flex flex-col border-b border-slate-900/50 bg-[#0b101c]/40 w-full">
+    <div class="grid grid-cols-4 items-center border-b border-slate-900/20 px-2 py-1.5 text-slate-400">
+      
+      <button 
+        onclick={() => activeSidebarTab = 'thumbnails'}
+        class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'thumbnails' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
+        title="Thumbnails View">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 3h6v18H3z" />
+          <path d="M14 3h7" />
+          <path d="M14 8h7" />
+          <path d="M14 13h7" />
+        </svg>
+      </button>
+
       <button 
         onclick={toggleGridView}
-        class="p-1 rounded text-cyan-400 hover:text-white transition-all hover:scale-105"
-        title="Expand Workspace Grid View"
-        aria-label="Toggle Grid View"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        class="flex justify-center p-1.5 rounded transition-all hover:text-white {isGridViewOpen ? 'text-amber-400 bg-slate-800/50' : 'text-slate-500'}"
+        title="Expand Workspace Grid View">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="4" height="4" rx="0.5" />
-          <rect x="10" y="3" width="4" height="4" rx="0.5" />
-          <rect x="17" y="3" width="4" height="4" rx="0.5" />
-          <rect x="3" y="10" width="4" height="4" rx="0.5" />
-          <rect x="10" y="10" width="4" height="4" rx="0.5" />
-          <rect x="17" y="10" width="4" height="4" rx="0.5" />
-          <rect x="3" y="17" width="4" height="4" rx="0.5" />
-          <rect x="10" y="17" width="4" height="4" rx="0.5" />
-          <rect x="17" y="17" width="4" height="4" rx="0.5" />
+          <rect x="11" y="3" width="4" height="4" rx="0.5" />
+          <rect x="19" y="3" width="4" height="4" rx="0.5" />
+          <rect x="3" y="11" width="4" height="4" rx="0.5" />
+          <rect x="11" y="11" width="4" height="4" rx="0.5" />
+          <rect x="19" y="11" width="4" height="4" rx="0.5" />
+          <rect x="3" y="19" width="4" height="4" rx="0.5" />
+          <rect x="11" y="19" width="4" height="4" rx="0.5" />
+          <rect x="19" y="19" width="4" height="4" rx="0.5" />
+        </svg>
+      </button>
+
+      <button 
+        onclick={() => activeSidebarTab = 'bookmarks'}
+        class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'bookmarks' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
+        title="Document Bookmarks">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+        </svg>
+      </button>
+
+      <button 
+        onclick={() => activeSidebarTab = 'comments'}
+        class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'comments' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
+        title="Annotation Comments">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
         </svg>
       </button>
     </div>
-    <div class="flex justify-center">
-      <span class="text-[9px] font-bold uppercase tracking-widest text-slate-500 font-sans whitespace-nowrap">
-        Pages ({activeDoc.pageOrder.length})
+
+    <div class="flex items-center justify-center py-1 bg-[#070a12]/30">
+      <span class="text-[9px] font-bold uppercase tracking-widest text-slate-500 font-sans">
+        {#if activeSidebarTab === 'thumbnails'}
+          Pages ({activeDoc.pageOrder.length})
+        {:else if activeSidebarTab === 'bookmarks'}
+          Bookmarks (0)
+        {:else}
+          Comments (0)
+        {/if}
       </span>
     </div>
-    <div></div>
   </div>
 
+{#if activeSidebarTab === 'thumbnails'}
   <div
     bind:this={sidebarContainer}
     class="flex-1 overflow-y-auto overflow-x-hidden p-3 relative"
@@ -568,6 +605,12 @@
       />
     </div>
   </div>
+{:else}
+  <div class="flex flex-col items-center justify-center p-6 text-center text-slate-500 h-40">
+    <span class="text-[10px] font-medium tracking-wide uppercase">Panel View Pending</span>
+    <p class="text-[9px] text-slate-600 mt-1 max-w-[100px] leading-normal">Feature integration staged on subbranch.</p>
+  </div>
+{/if}
 </div>
 
 {#if isGridViewOpen}
