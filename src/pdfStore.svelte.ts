@@ -27,6 +27,11 @@ export interface AnnotationShape {
 	style?: "Normal" | "Bold" | "Italic"; // Font style variant
 }
 
+export interface Bookmark {
+	pageNum: number;
+	name: string;
+}
+
 export interface SignatureSet {
 	id: string;
 	signatureDataUrl: string;
@@ -76,6 +81,7 @@ export interface SharedDocumentState {
 	tiffPages: Uint8Array[];
 	flushDocumentState(): void;
 	isDirty: boolean;
+	bookmarks: Bookmark[];
 }
 
 export const FONT_MAP: Record<
@@ -150,6 +156,7 @@ export const activeDoc = $state<SharedDocumentState>({
 	fileType: "pdf",
 	tiffPages: [],
 	isDirty: false,
+	bookmarks: [],
 	flushDocumentState() {
 		this.rawBytes = null;
 		this.fileType = null;
@@ -162,6 +169,7 @@ export const activeDoc = $state<SharedDocumentState>({
 		this.shapes = {};
 		this.selectedShape = null;
 		this.isDirty = false;
+		this.bookmarks = [];
 		console.log(
 			"Global Store: Flushed old document structures. Ready for clean initialization.",
 		);
@@ -258,4 +266,23 @@ export function rotatePageAction(
 		...activeDoc.rotations,
 		[pageNumber]: targetDegree,
 	};
+}
+
+export function addOrToggleBookmarkAction(pageNum: number) {
+	const index = activeDoc.bookmarks.findIndex(b => b.pageNum === pageNum);
+	if (index !== -1) {
+		activeDoc.bookmarks = activeDoc.bookmarks.filter(b => b.pageNum !== pageNum);
+	} else {
+		activeDoc.bookmarks = [...activeDoc.bookmarks, { pageNum, name: "" }];
+	}
+}
+
+export function deleteBookmarkAction(pageNum: number) {
+	activeDoc.bookmarks = activeDoc.bookmarks.filter(b => b.pageNum !== pageNum);
+}
+
+export function updateBookmarkNameAction(pageNum: number, newName: string) {
+	activeDoc.bookmarks = activeDoc.bookmarks.map(b => 
+		b.pageNum === pageNum ? { ...b, name: newName } : b
+	);
 }

@@ -9,6 +9,8 @@
     activeDoc,
     rotatePageAction,
     pushHistorySnapshot,
+    updateBookmarkNameAction,
+    deleteBookmarkAction,
   } from "../pdfStore.svelte";
 
   let sidebarContainer = $state<HTMLDivElement | null>(null);
@@ -382,7 +384,7 @@
 </script>
 
 <div
-  class="w-36 h-full bg-[#090d16] border-l border-slate-900 flex flex-col relative select-none z-40"
+  class="{activeSidebarTab === 'thumbnails' ? 'w-36' : 'w-56'} h-full bg-[#090d16] border-l border-slate-900 flex flex-col relative select-none z-40 transition-all duration-200 ease-in-out"
 >
   <div class="flex flex-col border-b border-slate-900/50 bg-[#0b101c]/40 w-full">
     <div class="grid grid-cols-4 items-center border-b border-slate-900/20 px-2 py-1.5 text-slate-400">
@@ -440,7 +442,7 @@
         {#if activeSidebarTab === 'thumbnails'}
           Pages ({activeDoc.pageOrder.length})
         {:else if activeSidebarTab === 'bookmarks'}
-          Bookmarks (0)
+          Bookmarks ({activeDoc.bookmarks.length})
         {:else}
           Comments (0)
         {/if}
@@ -606,10 +608,95 @@
     </div>
   </div>
 {:else}
-  <div class="flex flex-col items-center justify-center p-6 text-center text-slate-500 h-40">
-    <span class="text-[10px] font-medium tracking-wide uppercase">Panel View Pending</span>
-    <p class="text-[9px] text-slate-600 mt-1 max-w-[100px] leading-normal">Feature integration staged on subbranch.</p>
-  </div>
+  {#if activeSidebarTab === 'bookmarks'}
+    <div class="flex flex-col gap-2 p-2 overflow-y-auto w-full h-[calc(100vh-80px)]">
+      {#if activeDoc.bookmarks.length === 0}
+        <div class="text-center text-[10px] text-slate-600 mt-12 px-4 leading-relaxed">
+          No bookmarked elements staged. Hover near the top right of document pages to register quick reference flags.
+        </div>
+      {:else}
+        {#each activeDoc.bookmarks as b (b.pageNum)}
+          {#snippet sidebarCardUI()}
+            {@const row = (() => {
+              let isEditing = $state(false);
+              let editVal = $state(b.name);
+              return {
+                get isEditing() { return isEditing },
+                set isEditing(v) { isEditing = v },
+                get editVal() { return editVal },
+                set editVal(v) { editVal = v }
+              };
+            })()}
+
+            <div class="flex items-center justify-between p-2.5 rounded-lg border border-slate-900/50 bg-[#0e1321]/40 hover:bg-slate-800/30 hover:border-slate-700/30 transition-all group w-full">
+              {#if row.isEditing}
+                <div class="flex items-center gap-1.5 w-full">
+                  <input 
+                    type="text"
+                    bind:value={row.editVal}
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter') {
+                        updateBookmarkNameAction(b.pageNum, row.editVal);
+                        row.isEditing = false;
+                      } else if (e.key === 'Escape') {
+                        row.editVal = b.name;
+                        row.isEditing = false;
+                      }
+                    }}
+                    class="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-cyan-500 flex-1 min-w-0 font-sans"
+                    autofocus
+                  />
+                  <button 
+                    onclick={() => {
+                      updateBookmarkNameAction(b.pageNum, row.editVal);
+                      row.isEditing = false;
+                    }}
+                    class="text-emerald-400 p-0.5 rounded hover:bg-slate-900">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </button>
+                </div>
+              {:else}
+                <button 
+                  onclick={() => activeDoc.currentPage = b.pageNum}
+                  class="flex-1 text-left min-w-0 font-sans group-hover:text-cyan-400 transition-colors">
+                  <span class="text-[10px] font-semibold block truncate pr-1 {b.name ? 'text-slate-200' : 'text-slate-500 italic'}">
+                    {b.name || 'Untitled bookmark...'}
+                  </span>
+                </button>
+
+                <div class="flex items-center justify-end pl-1 shrink-0">
+                  <span class="text-[8px] font-bold px-1.5 py-0.5 rounded bg-slate-900/80 text-slate-500 uppercase tracking-widest group-hover:hidden">
+                    p. {b.pageNum}
+                  </span>
+
+                  <div class="hidden group-hover:flex items-center gap-1">
+                    <button 
+                      onclick={(e) => { e.stopPropagation(); row.isEditing = true; }}
+                      class="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-900 transition-colors"
+                      title="Rename Bookmark">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    </button>
+                    <button 
+                      onclick={(e) => { e.stopPropagation(); deleteBookmarkAction(b.pageNum); }}
+                      class="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-slate-900 transition-colors"
+                      title="Remove Bookmark">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    </button>
+                  </div>
+                </div>
+              {/if}
+            </div>
+          {/snippet}
+          {@render sidebarCardUI()}
+        {/each}
+      {/if}
+    </div>
+  {:else}
+    <div class="flex flex-col items-center justify-center p-6 text-center text-slate-500 h-40">
+      <span class="text-[10px] font-medium tracking-wide uppercase">Panel View Pending</span>
+      <p class="text-[9px] text-slate-600 mt-1 max-w-[100px] leading-normal">Feature integration staged on subbranch.</p>
+    </div>
+  {/if}
 {/if}
 </div>
 

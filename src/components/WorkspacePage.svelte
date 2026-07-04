@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as pdfjsLib from "pdfjs-dist";
   import { onMount } from "svelte";
-  import { activeDoc, type AnnotationShape, pushHistorySnapshot, FONT_MAP } from "../pdfStore.svelte";
+  import { activeDoc, type AnnotationShape, pushHistorySnapshot, FONT_MAP, updateBookmarkNameAction, deleteBookmarkAction, addOrToggleBookmarkAction } from "../pdfStore.svelte";
 
   let { bytes, pageNumber, zoomScale, isSystemPrinting = false } = $props<{
     bytes: Uint8Array;
@@ -1177,6 +1177,100 @@
             : activeDoc.activeColor + '12'};"
         ></div>
       {/if}
+    {/if}
+  </div>
+
+  <div class="absolute top-2 left-[calc(100%+8px)] z-30 group">
+    {#if activeDoc.bookmarks.some(b => b.pageNum === pageNumber)}
+      {@const match = activeDoc.bookmarks.find(b => b.pageNum === pageNumber)!}
+      {#snippet flagUI()}
+        {@const s = (() => {
+          let isHovered = $state(false);
+          let isEditing = $state(false);
+          let tempName = $state(match.name);
+          return {
+            get isHovered() { return isHovered },
+            set isHovered(v) { isHovered = v },
+            get isEditing() { return isEditing },
+            set isEditing(v) { isEditing = v },
+            get tempName() { return tempName },
+            set tempName(v) { tempName = v }
+          };
+        })()}
+
+        <div 
+          onmouseenter={() => s.isHovered = true}
+          onmouseleave={() => s.isHovered = false}
+          class="flex items-start bg-transparent select-none">
+          
+          <button 
+            onclick={() => activeDoc.currentPage = pageNumber}
+            class="text-cyan-400 hover:text-cyan-300 drop-shadow-lg transition-transform active:scale-95 shrink-0 block">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="26" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+            </svg>
+          </button>
+
+          {#if s.isHovered || s.isEditing}
+            <div class="flex items-center gap-2 bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1 shadow-2xl ml-1.5 backdrop-blur-sm z-50 whitespace-nowrap">
+              {#if s.isEditing}
+                <input 
+                  type="text"
+                  bind:value={s.tempName}
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter') {
+                      updateBookmarkNameAction(pageNumber, s.tempName);
+                      s.isEditing = false;
+                    } else if (e.key === 'Escape') {
+                      s.tempName = match.name;
+                      s.isEditing = false;
+                    }
+                  }}
+                  class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-cyan-500 max-w-[110px] font-sans"
+                  autofocus
+                />
+                <button 
+                  onclick={() => {
+                    updateBookmarkNameAction(pageNumber, s.tempName);
+                    s.isEditing = false;
+                  }}
+                  class="p-0.5 rounded text-emerald-400 hover:bg-slate-800"
+                  title="Save Changes">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </button>
+              {:else}
+                <span class="text-[10px] font-medium text-slate-300 max-w-[130px] truncate font-sans">
+                  {match.name || 'Untitled reference'}
+                </span>
+                <button 
+                  onclick={() => s.isEditing = true}
+                  class="p-0.5 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"
+                  title="Rename Note">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                </button>
+              {/if}
+
+              <button 
+                onclick={() => deleteBookmarkAction(pageNumber)}
+                class="p-0.5 rounded text-slate-500 hover:text-red-400 hover:bg-slate-800">
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </div>
+          {/if}
+        </div>
+      {/snippet}
+      {@render flagUI()}
+    {:else}
+      <div class="flex items-center relative pr-4">
+        <button 
+          onclick={() => addOrToggleBookmarkAction(pageNumber)}
+          class="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-slate-400 drop-shadow-md transition-all active:scale-95"
+          title="Add Bookmark">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+          </svg>
+        </button>
+      </div>
     {/if}
   </div>
 </div>
