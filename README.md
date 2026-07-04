@@ -83,6 +83,11 @@ Page restructuring utilises strict immutable list reconciliation tracking loops 
 * **Unified Scroll Bar Aesthetics:** Standard browser scroll bars are globally overridden with a dark slate matching color path to match the high-contrast editor interface style.
 * **Zoom HUD Controls:** Smooth viewport canvas adjustments ranging from 50% to 200% alongside target-view focus snapping.
 
+### 8. Dynamic Document Outlines & Bookmark Navigation
+* **Zero-Gap Gutter Ribbons:** Flags are pinned out in the right-hand gutter space via precise `left-[calc(100%+8px)]` bounds to eliminate white sheet bleeding. Features a continuous flex-hitbox context hover menu for seamless inline renaming (saved on explicit checkmark tick or `Enter`) and instant deletions.
+* **Adaptive Sidebar Geometry:** Toggling the text-heavy Bookmarks tab triggers a smooth width transition resizing the sidebar container from `w-36` to `w-56`, preventing layout truncation while preserving vertical grid space for traditional thumbnail cards.
+* **Low-Level Catalog Serialization:** High-fidelity persistence layer that reads native outline chains on ingestion and programmatically maps new instances straight into the document's binary `/Outlines` directory structure, rendering your custom bookmarks cross-compatible with external engines like Adobe Acrobat.
+
 ---
 
 ## Architecture Blueprint
@@ -93,10 +98,10 @@ The editor splits system duties cleanly between low-level system memory commands
 
 * **rfd:** Asynchronous OS File Picker Dialog Windows
 * **serde:** Serialisation Data Payload Mapping Bridges
-* **pdf.js:** Renders high-res localised canvases for display layout
-* **pdf-lib:** Calculates geometric point transformations & bakes bytes
+* **pdf.js:** Renders high-res localised canvases for display layout and resolves background web worker threads locally to match primary API versions precisely.
+* **pdf-lib:** Calculates geometric point transformations, builds raw catalog reference linked lists, and writes outline elements directly to binary dictionaries.
 * **lopdf (v0.41):** Automated Object Stream Decryption and background container stream evaluation
-* **$state:** Svelte 5 Runes managing reactive tools and pageOrder routes
+* **$state:** Svelte 5 Runes managing reactive tools, pageOrder routes, and global bookmark state tracking records.
 
 ---
 
@@ -159,6 +164,7 @@ npx tauri build --debug
 - [x] Standard operational system shortcut layouts mapped directly to the F1 dashboard block.
 - [x] Native Protected Stream Decryption core layer mapping using upgraded lopdf.
 - [x] Implement multi-file backend stitching loops via + indicator commands (PDF Merge).
+- [x] Asynchronous PDF Catalog /Outlines binary serialization bridge for persistent bookmarks.
 - [ ] Implement text annotation font-family variance sizing options.
 
 ---

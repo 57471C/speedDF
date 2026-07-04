@@ -9,6 +9,8 @@
     activeDoc,
     rotatePageAction,
     pushHistorySnapshot,
+    updateBookmarkNameAction,
+    deleteBookmarkAction,
   } from "../pdfStore.svelte";
 
   let sidebarContainer = $state<HTMLDivElement | null>(null);
@@ -17,6 +19,7 @@
   let insertAfterPageNum = $state<number | null>(null);
   let isGridViewOpen = $state(false);
   let selectedPages = $state<number[]>([]);
+  let activeSidebarTab = $state<'thumbnails' | 'bookmarks' | 'comments'>('thumbnails');
 
   let cachedRawBytes: Uint8Array | null = null;
   let sharedPdfjsDocPromise: Promise<any> | null = null;
@@ -381,37 +384,73 @@
 </script>
 
 <div
-  class="w-36 h-full bg-[#090d16] border-l border-slate-900 flex flex-col relative select-none z-40"
+  class="{activeSidebarTab === 'thumbnails' ? 'w-36' : 'w-56'} h-full bg-[#090d16] border-l border-slate-900 flex flex-col relative select-none z-40 transition-all duration-200 ease-in-out"
 >
-  <div class="p-3 border-b border-slate-900/50 grid grid-cols-3 items-center bg-[#0b101c]/40 w-full">
-    <div class="flex justify-start pl-1">
+  <div class="flex flex-col border-b border-slate-900/50 bg-[#0b101c]/40 w-full">
+    <div class="grid grid-cols-4 items-center border-b border-slate-900/20 px-2 py-1.5 text-slate-400">
+      
+      <button 
+        onclick={() => activeSidebarTab = 'thumbnails'}
+        class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'thumbnails' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
+        title="Thumbnails View">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 3h6v18H3z" />
+          <path d="M14 3h7" />
+          <path d="M14 8h7" />
+          <path d="M14 13h7" />
+        </svg>
+      </button>
+
       <button 
         onclick={toggleGridView}
-        class="p-1 rounded text-cyan-400 hover:text-white transition-all hover:scale-105"
-        title="Expand Workspace Grid View"
-        aria-label="Toggle Grid View"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        class="flex justify-center p-1.5 rounded transition-all hover:text-white {isGridViewOpen ? 'text-amber-400 bg-slate-800/50' : 'text-slate-500'}"
+        title="Expand Workspace Grid View">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="4" height="4" rx="0.5" />
-          <rect x="10" y="3" width="4" height="4" rx="0.5" />
-          <rect x="17" y="3" width="4" height="4" rx="0.5" />
-          <rect x="3" y="10" width="4" height="4" rx="0.5" />
-          <rect x="10" y="10" width="4" height="4" rx="0.5" />
-          <rect x="17" y="10" width="4" height="4" rx="0.5" />
-          <rect x="3" y="17" width="4" height="4" rx="0.5" />
-          <rect x="10" y="17" width="4" height="4" rx="0.5" />
-          <rect x="17" y="17" width="4" height="4" rx="0.5" />
+          <rect x="11" y="3" width="4" height="4" rx="0.5" />
+          <rect x="19" y="3" width="4" height="4" rx="0.5" />
+          <rect x="3" y="11" width="4" height="4" rx="0.5" />
+          <rect x="11" y="11" width="4" height="4" rx="0.5" />
+          <rect x="19" y="11" width="4" height="4" rx="0.5" />
+          <rect x="3" y="19" width="4" height="4" rx="0.5" />
+          <rect x="11" y="19" width="4" height="4" rx="0.5" />
+          <rect x="19" y="19" width="4" height="4" rx="0.5" />
+        </svg>
+      </button>
+
+      <button 
+        onclick={() => activeSidebarTab = 'bookmarks'}
+        class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'bookmarks' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
+        title="Document Bookmarks">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+        </svg>
+      </button>
+
+      <button 
+        onclick={() => activeSidebarTab = 'comments'}
+        class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'comments' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
+        title="Annotation Comments">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
         </svg>
       </button>
     </div>
-    <div class="flex justify-center">
-      <span class="text-[9px] font-bold uppercase tracking-widest text-slate-500 font-sans whitespace-nowrap">
-        Pages ({activeDoc.pageOrder.length})
+
+    <div class="flex items-center justify-center py-1 bg-[#070a12]/30">
+      <span class="text-[9px] font-bold uppercase tracking-widest text-slate-500 font-sans">
+        {#if activeSidebarTab === 'thumbnails'}
+          Pages ({activeDoc.pageOrder.length})
+        {:else if activeSidebarTab === 'bookmarks'}
+          Bookmarks ({activeDoc.bookmarks.length})
+        {:else}
+          Comments (0)
+        {/if}
       </span>
     </div>
-    <div></div>
   </div>
 
+{#if activeSidebarTab === 'thumbnails'}
   <div
     bind:this={sidebarContainer}
     class="flex-1 overflow-y-auto overflow-x-hidden p-3 relative"
@@ -568,6 +607,97 @@
       />
     </div>
   </div>
+{:else}
+  {#if activeSidebarTab === 'bookmarks'}
+    <div class="flex flex-col gap-2 p-2 overflow-y-auto w-full h-[calc(100vh-80px)]">
+      {#if activeDoc.bookmarks.length === 0}
+        <div class="text-center text-[10px] text-slate-600 mt-12 px-4 leading-relaxed">
+          No bookmarked elements staged. Hover near the top right of document pages to register quick reference flags.
+        </div>
+      {:else}
+        {#each activeDoc.bookmarks as b (b.pageNum)}
+          {#snippet sidebarCardUI()}
+            {@const row = (() => {
+              let isEditing = $state(false);
+              let editVal = $state(b.name);
+              return {
+                get isEditing() { return isEditing },
+                set isEditing(v) { isEditing = v },
+                get editVal() { return editVal },
+                set editVal(v) { editVal = v }
+              };
+            })()}
+
+            <div class="flex items-center justify-between p-2.5 rounded-lg border border-slate-900/50 bg-[#0e1321]/40 hover:bg-slate-800/30 hover:border-slate-700/30 transition-all group w-full">
+              {#if row.isEditing}
+                <div class="flex items-center gap-1.5 w-full">
+                  <input 
+                    type="text"
+                    bind:value={row.editVal}
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter') {
+                        updateBookmarkNameAction(b.pageNum, row.editVal);
+                        row.isEditing = false;
+                      } else if (e.key === 'Escape') {
+                        row.editVal = b.name;
+                        row.isEditing = false;
+                      }
+                    }}
+                    class="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-cyan-500 flex-1 min-w-0 font-sans"
+                    autofocus
+                  />
+                  <button 
+                    onclick={() => {
+                      updateBookmarkNameAction(b.pageNum, row.editVal);
+                      row.isEditing = false;
+                    }}
+                    class="text-emerald-400 p-0.5 rounded hover:bg-slate-900">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </button>
+                </div>
+              {:else}
+                <button 
+                  onclick={() => activeDoc.currentPage = b.pageNum}
+                  class="flex-1 text-left min-w-0 font-sans group-hover:text-cyan-400 transition-colors">
+                  <span class="text-[10px] font-semibold block truncate pr-1 {b.name ? 'text-slate-200' : 'text-slate-500 italic'}">
+                    {b.name || 'Untitled bookmark...'}
+                  </span>
+                </button>
+
+                <div class="flex items-center justify-end pl-1 shrink-0">
+                  <span class="text-[8px] font-bold px-1.5 py-0.5 rounded bg-slate-900/80 text-slate-500 uppercase tracking-widest group-hover:hidden">
+                    p. {b.pageNum}
+                  </span>
+
+                  <div class="hidden group-hover:flex items-center gap-1">
+                    <button 
+                      onclick={(e) => { e.stopPropagation(); row.isEditing = true; }}
+                      class="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-900 transition-colors"
+                      title="Rename Bookmark">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    </button>
+                    <button 
+                      onclick={(e) => { e.stopPropagation(); deleteBookmarkAction(b.pageNum); }}
+                      class="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-slate-900 transition-colors"
+                      title="Remove Bookmark">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    </button>
+                  </div>
+                </div>
+              {/if}
+            </div>
+          {/snippet}
+          {@render sidebarCardUI()}
+        {/each}
+      {/if}
+    </div>
+  {:else}
+    <div class="flex flex-col items-center justify-center p-6 text-center text-slate-500 h-40">
+      <span class="text-[10px] font-medium tracking-wide uppercase">Panel View Pending</span>
+      <p class="text-[9px] text-slate-600 mt-1 max-w-[100px] leading-normal">Feature integration staged on subbranch.</p>
+    </div>
+  {/if}
+{/if}
 </div>
 
 {#if isGridViewOpen}

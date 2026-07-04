@@ -2,7 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import * as pdfjsLib from "pdfjs-dist";
   import { activeDoc, FONT_MAP } from "../pdfStore.svelte";
-  import { PDFDocument, rgb, degrees, BlendMode, LineCapStyle } from "pdf-lib";
+  import { PDFDocument, rgb, degrees, BlendMode, LineCapStyle, PDFString, PDFName } from "pdf-lib";
 
   let {
     onMinimize,
@@ -281,6 +281,53 @@
         }
       }
 
+      // Outline / Bookmark Serialization Layer
+      if (activeDoc.bookmarks && activeDoc.bookmarks.length > 0) {
+        const { context } = destDoc;
+        const pageRefs = destDoc.getPages().map(p => p.ref); // Get native Object IDs for pages
+        const validBookmarks = activeDoc.bookmarks.filter(b => activeDoc.pageOrder.includes(b.pageNum));
+
+        if (validBookmarks.length > 0) {
+          // Create individual outline item dictionaries
+          const outlineItems = validBookmarks.map((b) => {
+            const targetIndex = activeDoc.pageOrder.indexOf(b.pageNum);
+            const itemRef = context.nextRef();
+            return {
+              ref: itemRef,
+              dict: context.obj({
+                Title: PDFString.of(b.name || `Page ${b.pageNum}`),
+                Dest: [pageRefs[targetIndex], 'XYZ', null, null, null], // Maps accurately to target page object reference
+              })
+            };
+          });
+
+          // Wire up the linked-list properties (/Parent, /Next, /Prev) for each item ref
+          const outlinesDictRef = context.nextRef();
+          outlineItems.forEach((item, idx) => {
+            item.dict.set(PDFName.of('Parent'), outlinesDictRef);
+            if (idx > 0) item.dict.set(PDFName.of('Prev'), outlineItems[idx - 1].ref);
+            if (idx < outlineItems.length - 1) item.dict.set(PDFName.of('Next'), outlineItems[idx + 1].ref);
+            context.assign(item.ref, item.dict);
+          });
+
+          // Compile the parent /Outlines root control block
+          const outlinesDict = context.obj({
+            Type: PDFName.of('Outlines'),
+            First: outlineItems[0].ref,
+            Last: outlineItems[outlineItems.length - 1].ref,
+            Count: outlineItems.length,
+          });
+          context.assign(outlinesDictRef, outlinesDict);
+
+          // Securely attach the completed hierarchy directly to the main file catalog registry
+          destDoc.catalog.set(PDFName.of('Outlines'), outlinesDictRef);
+        } else {
+          destDoc.catalog.delete(PDFName.of('Outlines'));
+        }
+      } else {
+        destDoc.catalog.delete(PDFName.of('Outlines'));
+      }
+
       return await destDoc.save();
     } catch (err) {
       console.error("PDF Flattening/Compilation Failure:", err);
@@ -317,6 +364,34 @@
         activeDoc.shapes = {};
         activeDoc.fileName = payload.name;
         activeDoc.filePath = payload.path;
+
+        // Ingestion of outlines / bookmarks
+        try {
+          const outline = await pdfDocument.getOutline();
+          if (outline && outline.length > 0) {
+            const loadedBookmarks = [];
+            for (const item of outline) {
+              let pageNum = 1;
+              if (item.dest) {
+                let destObj: any = item.dest;
+                if (typeof destObj === 'string') {
+                  destObj = await pdfDocument.getDestination(destObj);
+                }
+                if (Array.isArray(destObj) && destObj[0]) {
+                  const pageIndex = await pdfDocument.getPageIndex(destObj[0]);
+                  pageNum = pageIndex + 1;
+                }
+              }
+              loadedBookmarks.push({ pageNum, name: item.title || "" });
+            }
+            activeDoc.bookmarks = loadedBookmarks;
+          } else {
+            activeDoc.bookmarks = [];
+          }
+        } catch (outlineErr) {
+          console.error("Failed to parse document outline tree:", outlineErr);
+          activeDoc.bookmarks = [];
+        }
       }
     } catch (err) {
       console.error("Native file load intercept breakdown:", err);
