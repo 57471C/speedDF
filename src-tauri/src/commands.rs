@@ -1,7 +1,6 @@
 use tauri::{AppHandle, command, Manager};
 use tauri::ipc::Channel;
-use serde::{Serialize, Deserialize};
-use std::fs::{File, create_dir_all};
+use std::fs::File;
 use std::io::Write;
 use futures_util::StreamExt;
 use tract_onnx::prelude::*;
@@ -43,46 +42,50 @@ fn sanitize_onnx_parameter_tokens(bytes: &mut [u8]) {
     }
 }
 
-async fn ensure_model_exists(
-    cache_dir: &std::path::Path,
-    model_filename: &str,
+async fn download_model_if_missing(
+    file_path: &std::path::Path,
+    url: &str,
     on_progress: &Channel<u32>,
-    progress_offset: f64,
-    progress_scale: f64,
+    progress_offset: u32,
+    progress_weight: f32,
 ) -> Result<(), String> {
-    let model_path = cache_dir.join(model_filename);
-    if model_path.exists() {
+    if file_path.exists() {
         return Ok(());
     }
-    create_dir_all(cache_dir).map_err(|e| format!("Directory provisioning failed: {}", e))?;
-    
-    let client = reqwest::Client::new();
-    let url = format!("https://cdn.speeddf.com/models/{}", model_filename);
-    
-    let res = client.get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("CDN Connection Refused: {}", e))?;
-        
-    let total_size = res.content_length().unwrap_or(1);
-    let mut downloaded_bytes: u64 = 0;
-    let mut byte_stream = res.bytes_stream();
-    let mut model_file = File::create(&model_path).map_err(|e| format!("File locks rejected: {}", e))?;
-    
-    let mut last_reported_percent = 0;
 
-    while let Some(chunk_result) = byte_stream.next().await {
-        let byte_chunk = chunk_result.map_err(|e| format!("Stream broke during download: {}", e))?;
-        model_file.write_all(&byte_chunk).map_err(|e| format!("Disk IO write failure: {}", e))?;
-        downloaded_bytes += byte_chunk.len() as u64;
-        
-        let file_percent = downloaded_bytes as f64 / total_size as f64;
-        let overall_percent = ((progress_offset + file_percent * progress_scale) * 100.0) as u8;
-        if overall_percent > last_reported_percent {
-            last_reported_percent = overall_percent;
-            let _ = on_progress.send(overall_percent.min(100) as u32);
-        }
+    // Ensure the parent directory structure exists
+    if let Some(parent) = file_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
+
+    let response = reqwest::get(url)
+        .await
+        .map_err(|e| format!("Failed to connect to CDN: {}", e))?;
+        
+    let total_size = response
+        .content_length()
+        .ok_or_else(|| "Failed to read file size header from CDN response".to_string())?;
+
+    let mut file = File::create(file_path)
+        .map_err(|e| format!("Failed to create local model cache file: {}", e))?;
+        
+    let mut downloaded: u64 = 0;
+    let mut stream = response.bytes_stream();
+
+    while let Some(item) = stream.next().await {
+        let chunk = item.map_err(|e| format!("Error during chunk download: {}", e))?;
+        file.write_all(&chunk)
+            .map_err(|e| format!("Failed to write chunk to disk: {}", e))?;
+            
+        downloaded += chunk.len() as u64;
+        
+        // Calculate progress percentage relative to this download's share
+        let download_percent = (downloaded as f32 / total_size as f32) * 100.0;
+        let total_percent = progress_offset + (download_percent * progress_weight) as u32;
+        
+        let _ = on_progress.send(total_percent.min(100));
+    }
+
     Ok(())
 }
 
@@ -98,14 +101,25 @@ pub async fn run_local_ocr(
         .app_cache_dir()
         .map_err(|e| format!("FileSystem Failure: {}", e))?;
     
-    let det_model_filename = "ch_PP-OCRv4_det_infer.onnx";
-    let rec_model_filename = "ppocr_v4_rec.onnx";
-    let det_model_path = cache_dir.join(det_model_filename);
-    let rec_model_path = cache_dir.join(rec_model_filename);
+    let det_model_path = cache_dir.join("ch_PP-OCRv4_det_infer.onnx");
+    let rec_model_path = cache_dir.join("ppocr_v4_rec.onnx");
 
     // 2. Download weights dynamically if missing
-    ensure_model_exists(&cache_dir, det_model_filename, &on_progress, 0.0, 0.5).await?;
-    ensure_model_exists(&cache_dir, rec_model_filename, &on_progress, 0.5, 0.5).await?;
+    download_model_if_missing(
+        &det_model_path,
+        "https://speeddf.com/models/ch_PP-OCRv4_det_infer.onnx",
+        &on_progress,
+        0,
+        0.5
+    ).await?;
+
+    download_model_if_missing(
+        &rec_model_path,
+        "https://speeddf.com/models/ppocr_v4_rec.onnx",
+        &on_progress,
+        50,
+        0.5
+    ).await?;
 
     // 3. Notify processing start
     let _ = on_progress.send(0);
