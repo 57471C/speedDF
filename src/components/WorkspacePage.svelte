@@ -364,6 +364,22 @@
   }
 
   function handleTextTool(mousePctX: number, mousePctY: number) {
+    const currentShapes = activeDoc.shapes[pageNumber] || [];
+    const hasEmptyText = currentShapes.some(
+      (s) => s && s.type === "text" && (!s.text || s.text.trim().length === 0)
+    );
+    if (hasEmptyText) {
+      // STEP A: Explicitly isolate and clear active tracking variables first so nothing points to the target index
+      activeDoc.selectedShape = null;
+      activelyEditingIndex = null;
+
+      // STEP B: Perform the state array cleanup pass only after trackers are safe
+      const updated = currentShapes.filter(
+        (s) => !(s && s.type === "text" && (!s.text || s.text.trim().length === 0))
+      );
+      activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: updated };
+    }
+
     const newTextShape: AnnotationShape = {
       type: "text",
       x: mousePctX,
@@ -387,7 +403,9 @@
     )
       return;
 
- pushHistorySnapshot();
+    if (activeDoc.activeTool !== "text") {
+      pushHistorySnapshot();
+    }
 
     const rect = pageContainer.getBoundingClientRect();
     const mousePctX = ((e.clientX - rect.left) / rect.width) * 100;
@@ -442,7 +460,7 @@
     activeDoc.selectedShape = { pageNumber, index };
     pushHistorySnapshot();
     if (!pageContainer) return;
-    const shape = activeDoc.shapes[pageNumber][index];
+    const shape = activeDoc.shapes[pageNumber]?.[index];
     if (shape) {
       isMovingShape = true;
       dragStartMouseX = e.clientX;
@@ -613,7 +631,7 @@
     e.stopPropagation();
     e.preventDefault();
     draggingHandle = handleType;
-    const shape = activeDoc.shapes[pageNumber][index];
+    const shape = activeDoc.shapes[pageNumber]?.[index];
     if (shape)
       initialShapeState = {
         x: shape.x,
@@ -623,16 +641,27 @@
       };
   }
   function finalizeTextEdit(index: number, element: HTMLInputElement) {
+    if (!element.isConnected || (activelyEditingIndex !== null && activelyEditingIndex !== index)) return;
     const existing = activeDoc.shapes[pageNumber] || [];
     if (existing[index]) {
-      existing[index].text = element.value.trim();
-      if (!existing[index].text) {
+      const textInputString = element.value;
+      if (textInputString.trim().length === 0) {
+        // STEP A: Explicitly isolate and clear active tracking variables first so nothing points to the target index
         activeDoc.selectedShape = null;
-        existing.splice(index, 1);
+        activelyEditingIndex = null;
+
+        // STEP B: Perform the state array cleanup pass only after trackers are safe
+        const updated = existing.filter((_, idx) => idx !== index);
+        activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: updated };
+      } else {
+        existing[index].text = textInputString.trim();
+        activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: [...existing] };
+        activelyEditingIndex = null;
+        pushHistorySnapshot();
       }
-      activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: [...existing] };
+    } else {
+      activelyEditingIndex = null;
     }
-    activelyEditingIndex = null;
   }
 
   onMount(() => {
@@ -932,7 +961,7 @@
           class="absolute text-slate-900 pointer-events-auto transform -translate-y-1/2 z-40"
           style="left: {shape.x}%; top: {shape.y}%;"
         >
-          {#if activelyEditingIndex === idx}
+          {#if activelyEditingIndex === idx && activeDoc.shapes[pageNumber]?.[idx]}
             <input
               type="text"
               bind:value={activeDoc.shapes[pageNumber][idx].text}
@@ -957,7 +986,7 @@
                 ? 'border-[#00d2ff] bg-cyan-500/5'
                 : 'border-transparent hover:border-slate-400/30'}"
               style="font-size: calc({shape.size || 12}px * {zoomScale / 100}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
-              >{shape.text || " "}</span
+              >{shape?.text || " "}</span
             >
           {/if}
         </div>

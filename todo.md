@@ -1,7 +1,7 @@
 # Todo List #
 
 ## Features to add ##
-1. Add select text/copy text functionality.
+1. Add select text/copy text and OCR functionality (onyx)
 2. Add snapshot tool.
 3. Add File tabs for multiple documents.
 4. Improved titlebar icons and placement (add Undo/Redo buttons. Share via email)
@@ -84,3 +84,8 @@ GitHub Actions: Acts as the automated multi-matrix cloud compilation pipeline, g
 Minisign Cryptography: Handles data safety with asymmetric key pairings. Releases are signed in the cloud via a private vault key, which the client verification engine validates locally using a hardened public public-key mechanism.
 
 Cloudflare Pages & Gateway CDN: Functions as the application distribution channel and homepage environment, delivering static deployment landing pages and routing automated software configuration update loops (latest.json) across a global, low-latency edge server network.
+
+```bash
+npx kill-port 1420
+npm run tauri dev
+```

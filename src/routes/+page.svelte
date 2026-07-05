@@ -4,8 +4,8 @@
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { check } from '@tauri-apps/plugin-updater';
-  import { relaunch } from '@tauri-apps/plugin-process';
+  import { check } from "@tauri-apps/plugin-updater";
+  import { relaunch } from "@tauri-apps/plugin-process";
   import * as pdfjsLib from "pdfjs-dist";
   import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
   import TitleBar from "../components/TitleBar.svelte";
@@ -13,6 +13,7 @@
   import Workspace from "../components/Workspace.svelte";
   import PageSidebar from "../components/PageSidebar.svelte";
   import ContextMenu from "../components/ContextMenu.svelte";
+  import OcrPanel from "./OcrPanel.svelte";
   import {
     activeDoc as activeDocStore,
     executeUndoAction,
@@ -25,6 +26,7 @@
   let zoomScale = $state(120);
   let showHelpModal = $state(false);
   let showUnsavedModal = $state(false);
+  let showOcrDrawer = $state(false);
   let unsavedModalMessage = $state("");
   let pendingNavigationAction = $state<(() => void) | null>(null);
   let titleBarRef = $state<any>(null);
@@ -50,6 +52,10 @@
     toastTimeoutId = setTimeout(() => {
       showToast = false;
     }, 3000);
+  }
+
+  function toggleOcrDrawer() {
+    showOcrDrawer = !showOcrDrawer;
   }
 
   interface RecentFile {
@@ -176,7 +182,7 @@
     isZippingLoader = true;
     showNotification("FILE OPEN:");
 
-    // 2. Force Svelte to immediately flush style/DOM updates and paint the UI 
+    // 2. Force Svelte to immediately flush style/DOM updates and paint the UI
     // before the thread can be occupied by heavy canvas stream rendering
     await tick();
 
@@ -244,7 +250,7 @@
               let pageNum = 1;
               if (item.dest) {
                 let destObj: any = item.dest;
-                if (typeof destObj === 'string') {
+                if (typeof destObj === "string") {
                   destObj = await pdfDocument.getDestination(destObj);
                 }
                 if (Array.isArray(destObj) && destObj[0]) {
@@ -346,7 +352,8 @@
   function closeDocument() {
     // Intercept if the document has active modifications on screen
     if (activeDoc.isDirty) {
-      unsavedModalMessage = "You have unsaved markup changes on this layout drawing. Are you sure you want to close this document and discard your progress?";
+      unsavedModalMessage =
+        "You have unsaved markup changes on this layout drawing. Are you sure you want to close this document and discard your progress?";
       pendingNavigationAction = () => {
         activeDoc.isDirty = false;
         activeDoc.flushDocumentState();
@@ -414,33 +421,36 @@
   }
 
   // 🛑 WARPING CODE SHIELD: DO NOT REFACTOR THIS TO NATIVE RUST OR REMOVE THE IFRAME LAYER.
-  // WebView2/Tauri holds an exclusive file lock on the user profile directory. Spawning 
+  // WebView2/Tauri holds an exclusive file lock on the user profile directory. Spawning
   // background browser processes causes Chromium Exit Code 21 rendering window crashes (black boxes).
   // The hidden iframe pipeline isolates the canvas print tree safely inside webview memory.
   async function triggerHeadlessPrintSpool() {
     if (!activeDoc || isPrintingProcess) return;
-    
+
     isPrintingProcess = true;
     showNotification("Preparing Document for Printing");
-    
-    try {
-      const compiledPdfBytes = await (activeDoc as any).compileAndFlattenDocumentBytes();
-      if (!compiledPdfBytes) throw new Error("Compilation returned empty byte payload.");
 
-      const blob = new Blob([compiledPdfBytes], { type: 'application/pdf' });
+    try {
+      const compiledPdfBytes = await (
+        activeDoc as any
+      ).compileAndFlattenDocumentBytes();
+      if (!compiledPdfBytes)
+        throw new Error("Compilation returned empty byte payload.");
+
+      const blob = new Blob([compiledPdfBytes], { type: "application/pdf" });
       const blobUrl = URL.createObjectURL(blob);
-      
-      const iframe = document.createElement('iframe');
-      iframe.style.position = 'fixed';
-      iframe.style.top = '-10000px';
-      iframe.style.left = '-10000px';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = 'none';
+
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "fixed";
+      iframe.style.top = "-10000px";
+      iframe.style.left = "-10000px";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "none";
       iframe.src = blobUrl;
-      
+
       document.body.appendChild(iframe);
-      
+
       iframe.onload = () => {
         setTimeout(() => {
           try {
@@ -451,14 +461,13 @@
             console.error("Frame print execution error: ", frameErr);
             showNotification("Unable to Initialize Print Request");
           }
-          
+
           setTimeout(() => {
             if (iframe.parentNode) document.body.removeChild(iframe);
             URL.revokeObjectURL(blobUrl);
           }, 30000);
         }, 500);
       };
-
     } catch (err) {
       console.error("Print Engine Failure: ", err);
       showNotification("Unable to Initialize Print Request");
@@ -468,7 +477,8 @@
   }
 
   onMount(() => {
-    (activeDoc as any).compileAndFlattenDocumentBytes = () => titleBarRef.getAnnotatedPdfBytes();
+    (activeDoc as any).compileAndFlattenDocumentBytes = () =>
+      titleBarRef.getAnnotatedPdfBytes();
 
     // Silent background check for production optimization patches
     async function checkForApplicationUpdates() {
@@ -476,11 +486,11 @@
         const update = await check();
         if (update && update.available) {
           showNotification(`Optimization patch v${update.version} available`);
-          
+
           // Download and stream the signed update zip silently to temp memory
           await update.downloadAndInstall();
           showNotification("Restarting to apply updates...");
-          
+
           // Clean hot-swap reboot: Terminates active window and spawns new binary instantly
           await relaunch();
         }
@@ -489,18 +499,20 @@
         console.error("Background update loop status: ", updateErr);
       }
     }
-    
+
     checkForApplicationUpdates();
 
     // 🛡️ Capturing Phase Firewall: Drops native browser print commands instantly
     const trapBrowserPrintShortcut = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key.toLowerCase() === 'p') {
+      if (e.ctrlKey && e.key.toLowerCase() === "p") {
         e.preventDefault();
         e.stopPropagation();
         triggerHeadlessPrintSpool();
       }
     };
-    window.addEventListener('keydown', trapBrowserPrintShortcut, { capture: true });
+    window.addEventListener("keydown", trapBrowserPrintShortcut, {
+      capture: true,
+    });
 
     // Load recents list on app mount and audit file locations using our Rust command
     const stored = localStorage.getItem("speeddf_recents");
@@ -525,7 +537,9 @@
         console.log(
           "Checking for startup single-file execution arguments handshake...",
         );
-        const payload = await invoke<StartupPayload | null>("check_startup_file");
+        const payload = await invoke<StartupPayload | null>(
+          "check_startup_file",
+        );
 
         if (payload && payload.bytes && payload.bytes.length > 0) {
           console.log(`Loading single-file payload launch: ${payload.name}`);
@@ -539,20 +553,23 @@
     initStartupFile();
 
     // Listen for drag-drop events natively from Tauri
-    appWindow.listen<{ paths: string[] }>("tauri://drag-drop", async (event) => {
-      const paths = event.payload.paths;
-      if (paths && paths.length > 0) {
-        const path = paths[0];
-        const parts = path.split(/[\\/]/);
-        const name = parts[parts.length - 1];
-        
-        await promptAndLoadFile(
-          path,
-          name,
-          "You have unsaved markup layers. Do you want to discard your progress and drop this new drawing sheet in?",
-        );
-      }
-    });
+    appWindow.listen<{ paths: string[] }>(
+      "tauri://drag-drop",
+      async (event) => {
+        const paths = event.payload.paths;
+        if (paths && paths.length > 0) {
+          const path = paths[0];
+          const parts = path.split(/[\\/]/);
+          const name = parts[parts.length - 1];
+
+          await promptAndLoadFile(
+            path,
+            name,
+            "You have unsaved markup layers. Do you want to discard your progress and drop this new drawing sheet in?",
+          );
+        }
+      },
+    );
 
     window.addEventListener("keydown", (e: KeyboardEvent) => {
       if (
@@ -626,7 +643,8 @@
     const unlistenCloseRequest = appWindow.onCloseRequested((event) => {
       if (activeDoc.isDirty) {
         event.preventDefault(); // 🛡️ STOP EXITING SYNCHRONOUSLY IMMEDIATELY
-        unsavedModalMessage = "Warning: You have unsaved markups on this engineering layout drawing. Are you sure you want to exit speedDF and discard your modifications?";
+        unsavedModalMessage =
+          "Warning: You have unsaved markups on this engineering layout drawing. Are you sure you want to exit speedDF and discard your modifications?";
         pendingNavigationAction = () => {
           activeDoc.isDirty = false;
           // Directly invoke native close thread bypassing the dirty trap rule
@@ -637,8 +655,10 @@
     });
 
     return () => {
-      window.removeEventListener('keydown', trapBrowserPrintShortcut, { capture: true });
-      unlistenCloseRequest.then(f => f());
+      window.removeEventListener("keydown", trapBrowserPrintShortcut, {
+        capture: true,
+      });
+      unlistenCloseRequest.then((f) => f());
     };
   });
 </script>
@@ -658,18 +678,25 @@
     onPrint={triggerHeadlessPrintSpool}
     onOpenFile={openFile}
     onCloseDocument={closeDocument}
-    onSaveSuccess={(msg: string) => showNotification(msg || "Changes Written Safely to Disk")}
+    onSaveSuccess={(msg: string) =>
+      showNotification(msg || "Changes Written Safely to Disk")}
+    onToggleOcr={toggleOcrDrawer}
   />
 
   {#if activeDoc.rawBytes}
     <div class="flex flex-1 w-full overflow-hidden relative">
       <ToolSidebar bind:zoomScale />
       <Workspace {zoomScale} {isSystemPrinting} />
+
       <PageSidebar />
 
       {#if renderDurationMs !== null}
-        <div class="fixed top-11 left-14 z-10 select-none pointer-events-none font-mono text-[9px] tracking-widest text-slate-500/40 font-semibold uppercase mix-blend-screen">
-          Document Loaded in: <span class="text-cyan-400/30 font-bold">{renderDurationMs}ms</span>
+        <div
+          class="fixed top-11 left-14 z-10 select-none pointer-events-none font-mono text-[9px] tracking-widest text-slate-500/40 font-semibold uppercase mix-blend-screen"
+        >
+          Document Loaded in: <span class="text-cyan-400/30 font-bold"
+            >{renderDurationMs}ms</span
+          >
         </div>
       {/if}
     </div>
@@ -942,7 +969,7 @@
           >
           <span
             class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v0.9.7</span
+            >v0.9.8</span
           >
         </div>
         <button
@@ -1123,29 +1150,67 @@
 {/if}
 
 {#if showUnsavedModal}
-  <div class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[1000] flex items-center justify-center p-6 font-sans select-none">
-    <div class="bg-[#0b101c] border border-red-500/30 w-full max-w-md rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-300 animate-fade-in animate-duration-150">
-      <div class="p-4 border-b border-slate-900/60 flex items-center gap-2 bg-[#120b0e]">
-        <span class="text-xs font-bold uppercase tracking-widest text-red-400">⚠️ Unsaved Layout Modifications</span>
+  <div
+    class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[1000] flex items-center justify-center p-6 font-sans select-none"
+  >
+    <div
+      class="bg-[#0b101c] border border-red-500/30 w-full max-w-md rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-300 animate-fade-in animate-duration-150"
+    >
+      <div
+        class="p-4 border-b border-slate-900/60 flex items-center gap-2 bg-[#120b0e]"
+      >
+        <span class="text-xs font-bold uppercase tracking-widest text-red-400"
+          >⚠️ Unsaved Layout Modifications</span
+        >
       </div>
-      <div class="p-5 text-xs text-slate-300 leading-relaxed font-sans font-medium">
+      <div
+        class="p-5 text-xs text-slate-300 leading-relaxed font-sans font-medium"
+      >
         {unsavedModalMessage}
       </div>
-      <div class="p-3 border-t border-slate-900/60 bg-[#0e1524]/40 flex justify-end gap-2.5">
-        <button 
-          onclick={() => { showUnsavedModal = false; pendingNavigationAction = null; }}
+      <div
+        class="p-3 border-t border-slate-900/60 bg-[#0e1524]/40 flex justify-end gap-2.5"
+      >
+        <button
+          onclick={() => {
+            showUnsavedModal = false;
+            pendingNavigationAction = null;
+          }}
           class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[11px] font-bold transition-colors"
         >
           Cancel
         </button>
-        <button 
-          onclick={() => { showUnsavedModal = false; if (pendingNavigationAction) pendingNavigationAction(); }}
+        <button
+          onclick={() => {
+            showUnsavedModal = false;
+            if (pendingNavigationAction) pendingNavigationAction();
+          }}
           class="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-[11px] font-bold transition-colors shadow-lg shadow-red-950/40"
         >
           Discard & Continue
         </button>
       </div>
     </div>
+  </div>
+{/if}
+
+{#if showOcrDrawer}
+  <div
+    class="w-80 border-l border-zinc-800 bg-zinc-950/90 h-full absolute right-0 top-0 z-[1000] shadow-2xl p-4 overflow-y-auto flex flex-col transition-all duration-200"
+  >
+    <div
+      class="flex items-center justify-between mb-3 border-b border-zinc-900 pb-2"
+    >
+      <span
+        class="text-[10px] font-bold uppercase tracking-wider text-slate-400"
+        >OCR Scan Drawer</span
+      >
+      <button
+        onclick={() => (showOcrDrawer = false)}
+        class="text-zinc-500 hover:text-white text-xs">✕</button
+      >
+    </div>
+    <OcrPanel />
   </div>
 {/if}
 
@@ -1159,20 +1224,32 @@
 />
 
 {#if showToast}
-  <div class="fixed top-16 left-16 z-[5000] pointer-events-none speeddf-toast-animate">
-    <div class="bg-[#0e1629]/95 border border-cyan-500/30 shadow-[0_4px_20px_rgba(6,182,212,0.15)] rounded-xl px-4 py-3 flex flex-col gap-1.5 backdrop-blur-md max-w-sm relative overflow-hidden">
+  <div
+    class="fixed top-16 left-16 z-[5000] pointer-events-none speeddf-toast-animate"
+  >
+    <div
+      class="bg-[#0e1629]/95 border border-cyan-500/30 shadow-[0_4px_20px_rgba(6,182,212,0.15)] rounded-xl px-4 py-3 flex flex-col gap-1.5 backdrop-blur-md max-w-sm relative overflow-hidden"
+    >
       <div class="flex items-center gap-3">
-        <div class="flex h-6 w-6 shrink-0 bg-cyan-500/10 rounded-lg items-center justify-center text-cyan-400 font-bold text-sm">
+        <div
+          class="flex h-6 w-6 shrink-0 bg-cyan-500/10 rounded-lg items-center justify-center text-cyan-400 font-bold text-sm"
+        >
           ✓
         </div>
         <div class="flex flex-col">
-          <p class="text-[12px] font-semibold text-slate-100 tracking-wide">{toastMessage}</p>
-          <p class="text-[10px] text-slate-400 font-medium mt-0.5">Local document processed</p>
+          <p class="text-[12px] font-semibold text-slate-100 tracking-wide">
+            {toastMessage}
+          </p>
+          <p class="text-[10px] text-slate-400 font-medium mt-0.5">
+            Local document processed
+          </p>
         </div>
       </div>
 
       {#if isZippingLoader}
-        <div class="absolute bottom-0 left-0 h-[2px] bg-gradient-to-r from-cyan-500 to-emerald-400 speeddf-zip-bar"></div>
+        <div
+          class="absolute bottom-0 left-0 h-[2px] bg-gradient-to-r from-cyan-500 to-emerald-400 speeddf-zip-bar"
+        ></div>
       {/if}
     </div>
   </div>
@@ -1183,7 +1260,7 @@
   .speeddf-toast-animate {
     animation: speeddfToastDrop 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
-  
+
   @keyframes speeddfToastDrop {
     0% {
       transform: translateY(-1.5rem);
@@ -1198,11 +1275,16 @@
   /* Zipping physics engine simulation for high-speed file buffers */
   .speeddf-zip-bar {
     width: 0%;
-    animation: speeddfZipAction 0.45s cubic-bezier(0.075, 0.82, 0.165, 1) forwards;
+    animation: speeddfZipAction 0.45s cubic-bezier(0.075, 0.82, 0.165, 1)
+      forwards;
   }
-  
+
   @keyframes speeddfZipAction {
-    0% { width: 0%; }
-    100% { width: 100%; }
+    0% {
+      width: 0%;
+    }
+    100% {
+      width: 100%;
+    }
   }
 </style>

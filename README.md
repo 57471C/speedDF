@@ -165,6 +165,8 @@ npx tauri build --debug
 - [x] Native Protected Stream Decryption core layer mapping using upgraded lopdf.
 - [x] Implement multi-file backend stitching loops via + indicator commands (PDF Merge).
 - [x] Asynchronous PDF Catalog /Outlines binary serialization bridge for persistent bookmarks.
+- [x] High-performance offline full-page OCR pipeline (Pure-Rust DBNet + CRNN) with Tauri v2 progress streaming channels and Cloudflare Pages CDN asset streaming.
+- [ ] Invisible selectable bounding text overlay layer for scanned layouts.
 - [ ] Implement text annotation font-family variance sizing options.
 
 ---
