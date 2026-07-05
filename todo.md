@@ -1,7 +1,7 @@
 # Todo List #
 
 ## Features to add ##
-1. Add select text/copy text and OCR functionality (rusto-rs).
+1. Add select text/copy text and OCR functionality (onyx)
 2. Add snapshot tool.
 3. Add File tabs for multiple documents.
 4. Improved titlebar icons and placement (add Undo/Redo buttons. Share via email)

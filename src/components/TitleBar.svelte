@@ -50,6 +50,7 @@
   ) {
     const pageShapes = activeDoc.shapes[originalPageNumber] || [];
     for (const shape of pageShapes) {
+      if (!shape) continue;
       const s = shape as any;
 
       const x = (s.x / 100) * pageWidth;
@@ -106,7 +107,7 @@
         const zoomMultiplier = (activeDoc.zoomScale || 120) / 100;
         const yOffset = 10 / zoomMultiplier;
         
-        page.drawText(s.text || "", {
+        page.drawText(s?.text || "", {
           x,
           y: textBaselineY - yOffset,
           size: fontSize,
