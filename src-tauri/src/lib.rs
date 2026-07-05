@@ -2,6 +2,8 @@ use std::fs::File;
 
 use std::io::{Read, Write};
 use tiff::decoder::{Decoder, DecodingResult};
+mod commands;
+use commands::run_local_ocr;
 
 // ⚡ NEW: Shared payload structure to wrap both the byte array and filename together
 #[derive(serde::Serialize)]
@@ -416,7 +418,8 @@ pub fn run() {
             check_files_exist,
             read_file_bytes,
             read_file_binary,
-            parse_tiff_document
+            parse_tiff_document,
+            run_local_ocr
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

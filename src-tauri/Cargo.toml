@@ -1,6 +1,6 @@
 [package]
 name = "speeddf"
-version = "0.9.7"
+version = "0.9.8"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -18,17 +18,30 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["devtools"] }
+tauri = { version = "2", features = ["devtools", "image-ico", "image-png"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rfd = "0.17.2"
 lopdf = "0.41"
 tauri-plugin-window-state = "2.4.1"
-image = { version = "0.25", features = ["tiff", "png"] }
+image = { version = "0.25", default-features = false, features = ["tiff", "png", "jpeg"] }
 tiff = { version = "0.11", features = ["fax"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+reqwest = { version = "0.12", features = ["stream"] }
+
+# The Pure-Rust Matrix & Vision Infrastructure
+tract-onnx = "0.21.3"  # 100% Rust NN execution; zero C++ dynamic links
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
 
 

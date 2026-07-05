@@ -13,6 +13,7 @@
     onOpenFile,
     onCloseDocument,
     onSaveSuccess,
+    onToggleOcr,
   }: {
     onMinimize: () => void;
     onMaximize: () => void;
@@ -22,6 +23,7 @@
     onOpenFile?: () => void;
     onCloseDocument?: () => void;
     onSaveSuccess?: (msg: string) => void;
+    onToggleOcr?: () => void;
   } = $props();
 
   interface FilePayload {
@@ -536,6 +538,13 @@
           class="titlebar-btn px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:!text-white transition-colors"
           >Save As..</button
         >
+        <span class="text-zinc-600 px-1 select-none">|</span>
+        <button 
+          onclick={onToggleOcr} 
+          class="titlebar-btn pointer-events-auto text-xs text-zinc-400 hover:text-zinc-100 transition-colors font-medium focus:outline-none"
+        >
+          Extract Text
+        </button>
       </div>
     </div>
 
