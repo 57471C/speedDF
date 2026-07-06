@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "speeddf_previewer"]
+resolver = "2"
+
 [package]
 name = "speeddf"
 version = "0.9.8"
@@ -5,12 +9,7 @@ description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "speeddf_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
@@ -33,9 +32,7 @@ tauri-plugin-process = "2"
 tokio = { version = "1", features = ["full"] }
 futures-util = "0.3"
 reqwest = { version = "0.12", features = ["stream"] }
-
-# The Pure-Rust Matrix & Vision Infrastructure
-tract-onnx = "0.21.3"  # 100% Rust NN execution; zero C++ dynamic links
+tract-onnx = "0.21.3"
 
 [profile.release]
 opt-level = 3
@@ -43,5 +40,3 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
-
-

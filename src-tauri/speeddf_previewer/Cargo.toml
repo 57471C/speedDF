@@ -1,0 +1,36 @@
+[package]
+name = "speeddf_previewer"
+version = "0.1.0"
+edition = "2021"
+description = "speedDF Windows COM Shell Extension Preview Handler DLL"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+windows = { version = "0.62", features = [
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Ole",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_LibraryLoader",
+    "Win32_Foundation",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+]}
+# windows-core must be a direct dep at the EXACT same version as windows v0.62
+# so that the #[implement] proc-macro resolves the windows_core::IUnknownImpl
+# sealed trait from the SAME crate instance that webview2-com uses.
+# Without this, Cargo resolves two separate copies of windows-core and the
+# trait bound comparison fails even though the types are nominally identical.
+windows-core = "0.62"
+webview2-com = "0.39.1"
+once_cell = "1"
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1

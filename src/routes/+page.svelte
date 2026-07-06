@@ -34,6 +34,18 @@
   let isPreparingPrint = $state(false);
   let isPrintingProcess = $state(false);
 
+  let isPreviewMode = $state(
+    typeof window !== "undefined" &&
+      (window.location.search.includes("mode=preview") ||
+        window.location.hash === "#/preview"),
+  );
+
+  $effect(() => {
+    if (isPreviewMode) {
+      activeDoc.activeTool = "select";
+    }
+  });
+
   // 🍞 Lightweight Svelte 5 Reactive Toast State Machine
   let toastMessage = $state("");
   let showToast = $state(false);
@@ -634,7 +646,9 @@
       } else {
         if (e.key === "F1") {
           e.preventDefault();
-          showHelpModal = !showHelpModal;
+          if (!isPreviewMode) {
+            showHelpModal = !showHelpModal;
+          }
         }
       }
     });
@@ -669,28 +683,34 @@
   oncontextmenu={handleRightClick}
   class="flex flex-col h-screen w-screen overflow-hidden select-none bg-[#070a12] text-slate-100 font-sans antialiased"
 >
-  <TitleBar
-    bind:this={titleBarRef}
-    onMinimize={minimizeApp}
-    onMaximize={maximizeApp}
-    onClose={closeApp}
-    onToggleHelp={() => (showHelpModal = !showHelpModal)}
-    onPrint={triggerHeadlessPrintSpool}
-    onOpenFile={openFile}
-    onCloseDocument={closeDocument}
-    onSaveSuccess={(msg: string) =>
-      showNotification(msg || "Changes Written Safely to Disk")}
-    onToggleOcr={toggleOcrDrawer}
-  />
+  {#if !isPreviewMode}
+    <TitleBar
+      bind:this={titleBarRef}
+      onMinimize={minimizeApp}
+      onMaximize={maximizeApp}
+      onClose={closeApp}
+      onToggleHelp={() => (showHelpModal = !showHelpModal)}
+      onPrint={triggerHeadlessPrintSpool}
+      onOpenFile={openFile}
+      onCloseDocument={closeDocument}
+      onSaveSuccess={(msg: string) =>
+        showNotification(msg || "Changes Written Safely to Disk")}
+      onToggleOcr={toggleOcrDrawer}
+    />
+  {/if}
 
   {#if activeDoc.rawBytes}
     <div class="flex flex-1 w-full overflow-hidden relative">
-      <ToolSidebar bind:zoomScale />
-      <Workspace {zoomScale} {isSystemPrinting} />
+      {#if !isPreviewMode}
+        <ToolSidebar bind:zoomScale />
+      {/if}
+      <Workspace {zoomScale} {isSystemPrinting} isPreview={isPreviewMode} />
 
-      <PageSidebar />
+      {#if !isPreviewMode}
+        <PageSidebar />
+      {/if}
 
-      {#if renderDurationMs !== null}
+      {#if renderDurationMs !== null && !isPreviewMode}
         <div
           class="fixed top-11 left-14 z-10 select-none pointer-events-none font-mono text-[9px] tracking-widest text-slate-500/40 font-semibold uppercase mix-blend-screen"
         >
@@ -950,7 +970,7 @@
   {/if}
 </div>
 
-{#if showHelpModal}
+{#if showHelpModal && !isPreviewMode}
   <div
     onclick={() => (showHelpModal = false)}
     class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[999] flex items-center justify-center p-6 font-sans select-none"
@@ -1194,7 +1214,7 @@
   </div>
 {/if}
 
-{#if showOcrDrawer}
+{#if showOcrDrawer && !isPreviewMode}
   <div
     class="w-80 border-l border-zinc-800 bg-zinc-950/90 h-full absolute right-0 top-0 z-[1000] shadow-2xl p-4 overflow-y-auto flex flex-col transition-all duration-200"
   >
@@ -1214,14 +1234,65 @@
   </div>
 {/if}
 
-<ContextMenu
-  bind:show={showMenu}
-  x={menuX}
-  y={menuY}
-  onOpen={openFile}
-  onSave={() => titleBarRef?.triggerSave?.()}
-  onSaveAs={() => titleBarRef?.triggerSaveAs?.()}
-/>
+{#if !isPreviewMode}
+  <ContextMenu
+    bind:show={showMenu}
+    x={menuX}
+    y={menuY}
+    onOpen={openFile}
+    onSave={() => titleBarRef?.triggerSave?.()}
+    onSaveAs={() => titleBarRef?.triggerSaveAs?.()}
+  />
+{/if}
+
+{#if isPreviewMode && activeDoc.rawBytes}
+  <div
+    class="fixed bottom-4 left-1/2 -translate-x-1/2 flex gap-2 bg-zinc-900/80 p-2 rounded-full backdrop-blur z-[1000] border border-zinc-800 shadow-2xl"
+  >
+    <button
+      onclick={() => (zoomScale = Math.min(400, zoomScale + 10))}
+      class="w-8 h-8 rounded-full flex items-center justify-center text-white hover:bg-zinc-800 transition-colors"
+      title="Zoom In"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="12" y1="5" x2="12" y2="19"></line>
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+    </button>
+    <button
+      onclick={() => (zoomScale = Math.max(5, zoomScale - 10))}
+      class="w-8 h-8 rounded-full flex items-center justify-center text-white hover:bg-zinc-800 transition-colors"
+      title="Zoom Out"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+      </svg>
+    </button>
+    <button
+      onclick={() => {
+        if (activeDoc.currentPage) {
+          rotatePageAction(activeDoc.currentPage, "clockwise");
+        }
+      }}
+      class="w-8 h-8 rounded-full flex items-center justify-center text-white hover:bg-zinc-800 transition-colors"
+      title="Rotate Clockwise"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
+        <polyline points="21 3 21 8 16 8"/>
+      </svg>
+    </button>
+    <button
+      onclick={() => (zoomScale = 120)}
+      class="w-8 h-8 rounded-full flex items-center justify-center text-white hover:bg-zinc-800 transition-colors"
+      title="Reset View"
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+      </svg>
+    </button>
+  </div>
+{/if}
 
 {#if showToast}
   <div

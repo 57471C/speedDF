@@ -44,6 +44,15 @@
 			"icons/icon.icns",
 			"icons/icon.ico"
 		],
+		"resources": {
+			"target/x86_64-pc-windows-msvc/release/speeddf_previewer.dll": "speeddf_previewer.dll"
+		},
+		"windows": {
+			"nsis": {
+				"installMode": "perMachine",
+				"installerHooks": "nsis/hooks.nsh"
+			}
+		},
 		"fileAssociations": [
 			{
 				"ext": [

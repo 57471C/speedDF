@@ -178,7 +178,7 @@
     }
   }
 
-  let { zoomScale = $bindable(120), isSystemPrinting = false } = $props<{ zoomScale: number; isSystemPrinting: boolean }>();
+  let { zoomScale = $bindable(120), isSystemPrinting = false, isPreview = false } = $props<{ zoomScale: number; isSystemPrinting: boolean; isPreview?: boolean }>();
   let scrollContainer = $state<HTMLDivElement | null>(null);
 
   // ⚡ FIXED: Automatically measures the total height of the document when zoom scales or pages change
@@ -430,7 +430,7 @@
     hover:[&::-webkit-scrollbar-thumb]:bg-slate-700"
   style={isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : ''}
 >
-  {#if showFloatingMenu}
+  {#if showFloatingMenu && !isPreview}
     <div
       class="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-[#090d16]/95 border border-slate-800/80 px-4 py-2 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.5)] flex items-center gap-3 backdrop-blur-md select-none pointer-events-auto transition-all duration-200"
     >
@@ -516,7 +516,7 @@
     </div>
   {/if}
 
-  {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
+  {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0 && !isPreview}
     <div
       class="fixed bottom-5 left-1/2 transform -translate-x-1/2 bg-[#090d16]/90 border border-slate-900 px-3 py-1.5 rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-md z-40 select-none pointer-events-auto"
     >
