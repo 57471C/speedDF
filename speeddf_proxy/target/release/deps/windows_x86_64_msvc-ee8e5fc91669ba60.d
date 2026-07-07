@@ -1,7 +1,0 @@
-C:\Scripts\speedDF\speeddf_proxy\target\release\deps\windows_x86_64_msvc-ee8e5fc91669ba60.d: C:\Users\Terry.minett\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows_x86_64_msvc-0.52.6\src\lib.rs
-
-C:\Scripts\speedDF\speeddf_proxy\target\release\deps\libwindows_x86_64_msvc-ee8e5fc91669ba60.rlib: C:\Users\Terry.minett\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows_x86_64_msvc-0.52.6\src\lib.rs
-
-C:\Scripts\speedDF\speeddf_proxy\target\release\deps\libwindows_x86_64_msvc-ee8e5fc91669ba60.rmeta: C:\Users\Terry.minett\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows_x86_64_msvc-0.52.6\src\lib.rs
-
-C:\Users\Terry.minett\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\windows_x86_64_msvc-0.52.6\src\lib.rs:
