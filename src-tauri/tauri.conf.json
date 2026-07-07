@@ -27,6 +27,18 @@
 				"resizable": true,
 				"decorations": false,
 				"visible": false
+			},
+			{
+				"label": "preview-window",
+				"url": "/",
+				"title": "speedDF Preview",
+				"width": 600,
+				"height": 800,
+				"decorations": false,
+				"transparent": true,
+				"visible": false,
+				"resizable": true,
+				"skipTaskbar": true
 			}
 		],
 		"security": {
@@ -44,6 +56,11 @@
 			"icons/icon.icns",
 			"icons/icon.ico"
 		],
+		"windows": {
+			"nsis": {
+				"installMode": "currentUser"
+			}
+		},
 		"fileAssociations": [
 			{
 				"ext": [

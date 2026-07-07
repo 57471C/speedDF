@@ -1,6 +1,7 @@
 use std::fs::File;
-
 use std::io::{Read, Write};
+use std::sync::Mutex;
+use tauri::Manager;
 use tiff::decoder::{Decoder, DecodingResult};
 mod commands;
 use commands::run_local_ocr;
@@ -22,7 +23,7 @@ async fn check_startup_file() -> Option<FilePayload> {
             if path.exists() && path.is_file() {
                 if let Some(file_name) = path.file_name() {
                     let name = file_name.to_string_lossy().into_owned();
-                    let path_str = path.to_string_lossy().into_owned();
+                    let path_str = path.to_string_lossy().into_owned().replace("\\", "/");
                     if let Ok(mut file) = File::open(path) {
                         let mut buffer = Vec::new();
                         if file.read_to_end(&mut buffer).is_ok() {
@@ -38,6 +39,109 @@ async fn check_startup_file() -> Option<FilePayload> {
         }
     }
     None
+}
+
+// ⚡ Win32 Helper to retrieve the class name of a window handle
+unsafe fn get_window_class_name(hwnd: windows_sys::Win32::Foundation::HWND) -> String {
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetClassNameW;
+    let mut class_buffer = [0u16; 256];
+    let len = GetClassNameW(hwnd, class_buffer.as_mut_ptr(), class_buffer.len() as i32);
+    if len == 0 {
+        return String::new();
+    }
+    String::from_utf16_lossy(&class_buffer[..len as usize])
+}
+
+// ⚡ Win32 Helper to recursively locate a child window by a matching condition
+#[allow(dead_code)]
+unsafe fn find_child_by_condition<F>(
+    parent: windows_sys::Win32::Foundation::HWND,
+    pred: &F,
+) -> windows_sys::Win32::Foundation::HWND
+where
+    F: Fn(&str) -> bool,
+{
+    use windows_sys::Win32::UI::WindowsAndMessaging::FindWindowExW;
+
+    // Debug output: print the class name of every handle scanned to audit the layout tree
+    let current_class = get_window_class_name(parent);
+    println!(
+        "[speedDF Core Debug] Scanning window handle {:?} of class '{}'",
+        parent, current_class
+    );
+
+    if pred(&current_class) {
+        println!("[speedDF Core Debug] Golden target handle found: {:?}", parent);
+        return parent;
+    }
+
+    let mut current_child = FindWindowExW(parent, 0, std::ptr::null(), std::ptr::null());
+    while current_child != 0 {
+        let found = find_child_by_condition(current_child, pred);
+        if found != 0 {
+            return found;
+        }
+        current_child = FindWindowExW(parent, current_child, std::ptr::null(), std::ptr::null());
+    }
+    0
+}
+
+// ⚡ Win32 Helper to locate the preview pane for File Explorer or Outlook
+#[allow(dead_code)]
+unsafe fn find_preview_pane(
+    parent: windows_sys::Win32::Foundation::HWND,
+    parent_class: &str,
+) -> windows_sys::Win32::Foundation::HWND {
+    if parent_class.contains("CabinetWClass") {
+        // Flexible containment lookup: matches "Shell Preview Extension Host" or similar
+        let shell_host = find_child_by_condition(parent, &|class| {
+            let class_lower = class.to_lowercase();
+            class_lower.contains("shell preview") && class_lower.contains("host")
+        });
+        if shell_host != 0 {
+            return shell_host;
+        }
+    } else if parent_class.contains("rctrl_renwnd32") {
+        let olk_reader = find_child_by_condition(parent, &|class| {
+            let class_lower = class.to_lowercase();
+            class_lower.contains("olkreader") || class_lower.contains("afxwndw")
+        });
+        if olk_reader != 0 {
+            return olk_reader;
+        }
+    }
+    parent
+}
+
+// ⚡ NEW: Managed state struct to hold target file path for preview mode
+pub struct PreviewFilePath(pub Mutex<Option<String>>);
+
+#[tauri::command]
+fn get_startup_file() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(pos) = args.iter().position(|x| x == "--preview") {
+        if pos + 1 < args.len() {
+            return Some(args[pos + 1].clone());
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn get_preview_file_path(state: tauri::State<'_, PreviewFilePath>) -> Option<String> {
+    state.0.lock().unwrap().clone()
+}
+
+#[tauri::command]
+async fn get_preview_file_payload(
+    state: tauri::State<'_, PreviewFilePath>,
+) -> Result<FilePayload, String> {
+    let path_opt = state.0.lock().unwrap().clone();
+    if let Some(path) = path_opt {
+        read_file_bytes(path).await
+    } else {
+        Err("No preview file path bound".to_string())
+    }
 }
 
 // 1. NATIVE WINDOWS FILE OPEN DIALOG
@@ -72,7 +176,7 @@ async fn native_open_file() -> Result<FilePayload, String> {
     match file_path {
         Some(handle) => {
             let path = handle.path();
-            let path_str = path.to_string_lossy().into_owned();
+            let path_str = path.to_string_lossy().into_owned().replace("\\", "/");
             // ⚡ EXTRACT THE TRUE FILENAME directly from the async dialog handle
             let file_name = handle.file_name();
 
@@ -107,7 +211,7 @@ async fn native_save_as_file(
     match file_path {
         Some(handle) => {
             let path = handle.path();
-            let path_str = path.to_string_lossy().into_owned();
+            let path_str = path.to_string_lossy().into_owned().replace("\\", "/");
             let mut file = File::create(path).map_err(|e| e.to_string())?;
             file.write_all(&file_bytes).map_err(|e| e.to_string())?;
             Ok(path_str)
@@ -197,7 +301,7 @@ async fn read_file_bytes(path: String) -> Result<FilePayload, String> {
     Ok(FilePayload {
         bytes: buffer,
         name: file_name,
-        path: path.clone(),
+        path: path.replace("\\", "/"),
     })
 }
 
@@ -375,7 +479,141 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .setup(|_app| {
+        .setup(|app| {
+            let args = std::env::args().collect::<Vec<String>>();
+            println!("[speedDF Core Debug] Received raw CLI args: {:?}", args);
+
+            // Enumerate every window registered in the tauri.conf.json schema
+            for (label, window) in app.webview_windows() {
+                match window.url() {
+                    Ok(url) => println!("[speedDF Core Debug] Found Window '{}' mapped to URL: {}", label, url),
+                    Err(e) => println!("[speedDF Core Debug] Found Window '{}' but failed to read URL: {:?}", label, e),
+                }
+            }
+
+            let mut preview_file_path: Option<String> = None;
+
+            // Run your conditional activation logic based on the flag lookup
+            if args.contains(&"--preview".to_string()) {
+                if let Some(preview_win) = app.get_webview_window("preview-window") {
+                    // 1. PATH NORMALIZATION: Strip backslashes to avoid '\t' (Tab) character escape string corruption
+                    let raw_path = args.iter().position(|r| r == "--preview")
+                        .and_then(|pos| args.get(pos + 1))
+                        .cloned()
+                        .unwrap_or_else(|| args.get(2).cloned().unwrap_or_default());
+                    let safe_path = raw_path.replace("\\", "/");
+                    preview_file_path = Some(safe_path.clone());
+                    
+                    let _ = preview_win.show();
+                }
+
+                 if let Some(main_win) = app.get_webview_window("main") {
+                     let _ = main_win.hide(); // Keep main dashboard canvas completely concealed
+                 }
+
+                let preview_window = app.get_webview_window("preview-window").unwrap();
+                let preview_win_clone = preview_window.clone();
+                let tauri_preview_hwnd = preview_win_clone.hwnd().unwrap().0 as windows_sys::Win32::Foundation::HWND;
+
+                std::thread::spawn(move || unsafe {
+                    use windows_sys::Win32::UI::WindowsAndMessaging::{
+                        EnumWindows, GetClassNameW, GetWindowRect, 
+                        SetWindowLongPtrW, // <--- 64-bit safe owner link
+                        IsWindow, IsIconic, IsWindowVisible, GWL_HWNDPARENT
+                    };
+                    use windows_sys::Win32::Foundation::{HWND, RECT, LPARAM, BOOL};
+
+                    // Callback to lock onto the top-level File Explorer frame ONLY
+                    unsafe extern "system" fn find_explorer_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
+                        let mut class_name = [0u16; 256];
+                        let len = GetClassNameW(hwnd, class_name.as_mut_ptr(), class_name.len() as i32);
+                        if len > 0 && IsWindowVisible(hwnd) != 0 {
+                            let name_str = String::from_utf16_lossy(&class_name[..len as usize]);
+                            if name_str.contains("CabinetWClass") {
+                                *(lparam as *mut HWND) = hwnd;
+                                return 0; // Master frame captured
+                            }
+                        }
+                        1
+                    }
+
+                    let mut target_explorer_hwnd: HWND = 0;
+                    let mut owner_linked = false;
+
+                    // SAFE A4 RATIO WIDTH (1080p compatible)
+                    let fixed_width: u32 = 600; 
+
+                    // CHANGES-ONLY SEALS to prevent canvas race conditions
+                    let mut last_x = 0;
+                    let mut last_y = 0;
+                    let mut last_w = 0;
+                    let mut last_h = 0;
+
+                    loop {
+                        if target_explorer_hwnd == 0 || IsWindow(target_explorer_hwnd) == 0 {
+                            target_explorer_hwnd = 0;
+                            owner_linked = false;
+                            EnumWindows(Some(find_explorer_callback), &mut target_explorer_hwnd as *mut HWND as LPARAM);
+                        }
+
+                        if target_explorer_hwnd != 0 && IsWindow(target_explorer_hwnd) != 0 {
+                            if IsIconic(target_explorer_hwnd) != 0 {
+                                let _ = preview_win_clone.hide();
+                            } else {
+                                // NATIVE Z-ORDER BINDING: 64-bit safe linkage!
+                                // This guarantees the window stays firmly anchored ON TOP of File Explorer.
+                                if !owner_linked {
+                                    SetWindowLongPtrW(tauri_preview_hwnd, GWL_HWNDPARENT, target_explorer_hwnd as isize);
+                                    owner_linked = true;
+                                }
+
+                                let mut explorer_rect: RECT = std::mem::zeroed();
+                                if GetWindowRect(target_explorer_hwnd, &mut explorer_rect) != 0 {
+                                    let explorer_width = explorer_rect.right - explorer_rect.left;
+                                    let explorer_height = explorer_rect.bottom - explorer_rect.top;
+
+                                    if explorer_width > 100 && explorer_height > 100 {
+                                        // THE PERFECTED 1080p A4 ALIGNMENT
+                                        let target_width = fixed_width;
+                                        let target_height = 848; // Maintains 1:1.414 A4 aspect ratio safely on 1080p
+                                        
+                                        // Shift left by 50px total to comfortably clear Windows scrollbars and border shadows
+                                        let target_x = explorer_rect.right - (target_width as i32) - 50; 
+                                        let target_y = explorer_rect.top + 148; // Sit flush below the top toolbars
+
+                                        // CHANGES-ONLY GATEWAY
+                                        if target_x != last_x || target_y != last_y || target_width != last_w || target_height != last_h {
+                                            let _ = preview_win_clone.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(target_width, target_height)));
+                                            let _ = preview_win_clone.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(target_x, target_y)));
+                                            let _ = preview_win_clone.show();
+
+                                            last_x = target_x;
+                                            last_y = target_y;
+                                            last_w = target_width;
+                                            last_h = target_height;
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            let _ = preview_win_clone.hide();
+                        }
+
+                        std::thread::sleep(std::time::Duration::from_millis(16));
+                    }
+                });
+            } else {
+                println!("[speedDF Core Debug] Standard boot sequence triggered.");
+                if let Some(main_win) = app.get_webview_window("main") {
+                    let _ = main_win.show();
+                }
+                if let Some(preview_window) = app.get_webview_window("preview-window") {
+                    let _ = preview_window.close(); // Kill the preview window completely if it's a normal launch
+                }
+            }
+
+            app.manage(PreviewFilePath(Mutex::new(preview_file_path)));
+
             // Spawn a separate thread immediately to keep the UI initialization instantaneous
             std::thread::spawn(|| {
                 let temp_dir = std::env::temp_dir();
@@ -419,7 +657,10 @@ pub fn run() {
             read_file_bytes,
             read_file_binary,
             parse_tiff_document,
-            run_local_ocr
+            run_local_ocr,
+            get_preview_file_path,
+            get_preview_file_payload,
+            get_startup_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -3,11 +3,12 @@
   import { onMount } from "svelte";
   import { activeDoc, type AnnotationShape, pushHistorySnapshot, FONT_MAP, updateBookmarkNameAction, deleteBookmarkAction, addOrToggleBookmarkAction } from "../pdfStore.svelte";
 
-  let { bytes, pageNumber, zoomScale, isSystemPrinting = false } = $props<{
+  let { bytes, pageNumber, zoomScale, isSystemPrinting = false, isPreviewMode = false } = $props<{
     bytes: Uint8Array;
     pageNumber: number;
     zoomScale: number;
     isSystemPrinting?: boolean;
+    isPreviewMode?: boolean;
   }>();
   let canvasElement = $state<HTMLCanvasElement | null>(null);
   let pageContainer = $state<HTMLDivElement | null>(null);
@@ -771,8 +772,8 @@
     isMouseOverPage = false;
     isDrawing = false;
   }}
-  class="bg-white relative rounded-sm mb-12 select-none"
-  style="box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.65); width: {expectedDimensions.width}px; min-height: {expectedDimensions.height}px; aspect-ratio: {expectedDimensions.aspectRatio};"
+  class="bg-white relative rounded-sm select-none {isPreviewMode ? 'm-0 p-0' : 'mb-12'}"
+  style="box-shadow: {isPreviewMode ? 'none' : '0 30px 60px -15px rgba(0, 0, 0, 0.65)'}; width: {expectedDimensions.width}px; min-height: {expectedDimensions.height}px; aspect-ratio: {expectedDimensions.aspectRatio};"
 >
   {#if isRendered}
     <canvas use:canvasLifecycle class="block max-w-full h-auto rounded-sm"

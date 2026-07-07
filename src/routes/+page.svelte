@@ -24,6 +24,7 @@
   const activeDoc = activeDocStore as any;
 
   let zoomScale = $state(120);
+  let isPreviewMode = $state(false);
   let showHelpModal = $state(false);
   let showUnsavedModal = $state(false);
   let showOcrDrawer = $state(false);
@@ -42,6 +43,7 @@
   let loadStartTime = 0;
   let renderDurationMs = $state<number | null>(null);
   let isZippingLoader = $state(false);
+  let lastRenderedPath = "";
 
   function showNotification(message: string) {
     if (toastTimeoutId) clearTimeout(toastTimeoutId);
@@ -476,7 +478,61 @@
     }
   }
 
-  onMount(() => {
+  let isInitialFileLoaded = false;
+
+  onMount(async () => {
+    async function loadPreviewFile(rawPath: string) {
+      // Global window instrument logging
+      console.log("[speedDF Global Debug] Preview payload event received from Rust:", rawPath);
+      
+      let safePath = rawPath.replace(/\\/g, '/');
+      if (lastRenderedPath === safePath) {
+          console.log("[speedDF Svelte] File path is already loading or rendering. Skipping duplicate canvas trigger.");
+          return;
+      }
+      lastRenderedPath = safePath;
+      console.log("[speedDF Global Debug] Post-sanitization target path string:", safePath);
+
+      const parts = safePath.split(/[\\/]/);
+      const name = parts[parts.length - 1];
+      try {
+        const payload = await invoke<{ bytes: number[]; name: string }>("read_file_bytes", {
+          path: safePath,
+        });
+        if (payload && payload.bytes) {
+          isPreviewMode = true;
+          const typedBytes = new Uint8Array(payload.bytes);
+          await loadDocument(typedBytes, name || payload.name, safePath);
+        }
+      } catch (e) {
+        console.error("Failed to load preview file:", e);
+      }
+    }
+
+    try {
+        // Ask Rust directly for the command line arguments
+        const startupFile = await invoke<string | null>('get_startup_file');
+
+        if (startupFile) {
+            console.log("[speedDF] Native startup file detected:", startupFile);
+
+            // Prevent canvas race conditions
+            if (lastRenderedPath === startupFile) return;
+            lastRenderedPath = startupFile;
+
+            isPreviewMode = true;
+
+            // Sanitize backslashes to forward slashes for PDF.js compatibility
+            const safePath = startupFile.replace(/\\/g, '/');
+
+            // Trigger your PDF load function
+            loadPreviewFile(safePath); 
+            return; // Exit out of normal boot logic
+        }
+    } catch (error) {
+        console.error("Failed to check startup args:", error);
+    }
+
     (activeDoc as any).compileAndFlattenDocumentBytes = () =>
       titleBarRef.getAnnotatedPdfBytes();
 
@@ -533,6 +589,11 @@
     }
 
     async function initStartupFile() {
+      // Short-circuit loop check to guarantee pdf.js is never hit twice simultaneously
+      if (isPreviewMode || isInitialFileLoaded) {
+          console.log("[speedDF Svelte] Preview layout active. Deactivating duplicate handshake thread.");
+          return;
+      }
       try {
         console.log(
           "Checking for startup single-file execution arguments handshake...",
@@ -665,10 +726,21 @@
 
 <svelte:window onclick={closeMenu} onkeydown={closeMenu} />
 
-<div
-  oncontextmenu={handleRightClick}
-  class="flex flex-col h-screen w-screen overflow-hidden select-none bg-[#070a12] text-slate-100 font-sans antialiased"
->
+{#if isPreviewMode}
+  <div class="w-screen h-screen overflow-hidden bg-[#070a12] flex flex-col">
+    {#if activeDoc.rawBytes}
+      <Workspace {zoomScale} isSystemPrinting={false} isPreviewMode={true} />
+    {:else}
+      <div class="flex-1 flex items-center justify-center text-slate-400 font-sans text-xs">
+        Loading document preview...
+      </div>
+    {/if}
+  </div>
+{:else}
+  <div
+    oncontextmenu={handleRightClick}
+    class="flex flex-col h-screen w-screen overflow-hidden select-none bg-[#070a12] text-slate-100 font-sans antialiased"
+  >
   <TitleBar
     bind:this={titleBarRef}
     onMinimize={minimizeApp}
@@ -1253,6 +1325,7 @@
       {/if}
     </div>
   </div>
+{/if}
 {/if}
 
 <style>

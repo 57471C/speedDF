@@ -37,6 +37,8 @@ reqwest = { version = "0.12", features = ["stream"] }
 # The Pure-Rust Matrix & Vision Infrastructure
 tract-onnx = "0.21.3"  # 100% Rust NN execution; zero C++ dynamic links
 
+windows-sys = { version = "0.52", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
+
 [profile.release]
 opt-level = 3
 lto = true

@@ -1,0 +1,24 @@
+[package]
+name = "speeddf_proxy"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+uuid = { version = "1", features = ["v4"] }
+windows-core = "0.58"
+windows = { version = "0.58", features = [
+    "implement", # <--- CRITICAL: Generates the _Impl traits
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging", # <--- CRITICAL: Required for MSG type
+] }
+
+[profile.release]
+opt-level = "z"
+lto = true

@@ -37,8 +37,10 @@
     }
   });
 
+  let lastLoadedPath = $state<string | null>(null);
   $effect(() => {
-    if (activeDoc.rawBytes && activeDoc.fileType === "tiff") {
+    if (activeDoc.rawBytes && activeDoc.filePath && activeDoc.filePath !== lastLoadedPath) {
+      lastLoadedPath = activeDoc.filePath;
       // Auto-execute your window fitting routine once layout parameters are set
       setTimeout(() => {
         if (typeof shrinkToWindow === "function") {
@@ -178,7 +180,7 @@
     }
   }
 
-  let { zoomScale = $bindable(120), isSystemPrinting = false } = $props<{ zoomScale: number; isSystemPrinting: boolean }>();
+  let { zoomScale = $bindable(120), isSystemPrinting = false, isPreviewMode = false } = $props<{ zoomScale: number; isSystemPrinting: boolean; isPreviewMode?: boolean }>();
   let scrollContainer = $state<HTMLDivElement | null>(null);
 
   // ⚡ FIXED: Automatically measures the total height of the document when zoom scales or pages change
@@ -397,7 +399,8 @@
 
   function shrinkToWindow() {
     if (scrollContainer) {
-      const availableWidth = scrollContainer.clientWidth - 48;
+      const padding = isPreviewMode ? 0 : 48;
+      const availableWidth = scrollContainer.clientWidth - padding;
       const pageEl = scrollContainer.querySelector(".bg-white.relative.rounded-sm");
       if (pageEl) {
         const currentWidth = pageEl.getBoundingClientRect().width;
@@ -421,7 +424,8 @@
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
   onpointerleave={handlePointerLeave}
-  class="flex-1 h-full overflow-auto bg-[#070a12] flex flex-col items-center pt-8 px-4 relative workspace-scroll-container transition-colors duration-200
+  class="flex-1 h-full bg-[#070a12] flex flex-col items-center relative workspace-scroll-container transition-colors duration-200
+    {isPreviewMode ? 'w-full h-full overflow-hidden p-0 m-0' : 'overflow-auto pt-8 px-4'}
     {isDragging ? '' : 'scroll-smooth'}
     [&::-webkit-scrollbar]:w-2 
     [&::-webkit-scrollbar-track]:bg-transparent 
@@ -511,7 +515,7 @@
   {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
     <div class="flex flex-col items-center gap-6 pb-24 origin-top transition-transform duration-150">
       {#each activeDoc.pageOrder as pageNumber (pageNumber)}
-        <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} {isSystemPrinting} />
+        <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} {isSystemPrinting} {isPreviewMode} />
       {/each}
     </div>
   {/if}
