@@ -493,9 +493,28 @@ pub fn run() {
 
             let mut preview_file_path: Option<String> = None;
 
-            // Run your conditional activation logic based on the flag lookup
-            if args.contains(&"--preview".to_string()) {
-                if let Some(preview_win) = app.get_webview_window("preview-window") {
+            let is_preview = args.contains(&"--preview".to_string());
+
+            // Handle Main Window
+            if let Some(main_window) = app.get_webview_window("main") {
+                if !is_preview {
+                    // ONLY show the main window if it is a normal launch
+                    let _ = main_window.show(); 
+                }
+            }
+
+            // Handle Preview Window
+            if let Some(preview_window) = app.get_webview_window("preview-window") {
+                if !is_preview {
+                    // Kill the preview window entirely for normal launches
+                    let _ = preview_window.close(); 
+                }
+                // If is_preview IS true, we do nothing here. It stays hidden (visible: false) 
+                // until the background layout thread calculates coordinates and calls preview_window.show()
+            }
+
+            if is_preview {
+                if let Some(preview_window) = app.get_webview_window("preview-window") {
                     // 1. PATH NORMALIZATION: Strip backslashes to avoid '\t' (Tab) character escape string corruption
                     let raw_path = args.iter().position(|r| r == "--preview")
                         .and_then(|pos| args.get(pos + 1))
@@ -503,112 +522,97 @@ pub fn run() {
                         .unwrap_or_else(|| args.get(2).cloned().unwrap_or_default());
                     let safe_path = raw_path.replace("\\", "/");
                     preview_file_path = Some(safe_path.clone());
-                    
-                    let _ = preview_win.show();
-                }
 
-                 if let Some(main_win) = app.get_webview_window("main") {
-                     let _ = main_win.hide(); // Keep main dashboard canvas completely concealed
-                 }
+                    let preview_win_clone = preview_window.clone();
+                    let tauri_preview_hwnd = preview_win_clone.hwnd().unwrap().0 as windows_sys::Win32::Foundation::HWND;
 
-                let preview_window = app.get_webview_window("preview-window").unwrap();
-                let preview_win_clone = preview_window.clone();
-                let tauri_preview_hwnd = preview_win_clone.hwnd().unwrap().0 as windows_sys::Win32::Foundation::HWND;
+                    std::thread::spawn(move || unsafe {
+                        use windows_sys::Win32::UI::WindowsAndMessaging::{
+                            EnumWindows, GetClassNameW, GetWindowRect, 
+                            SetWindowLongPtrW, // <--- 64-bit safe owner link
+                            IsWindow, IsIconic, IsWindowVisible, GWL_HWNDPARENT
+                        };
+                        use windows_sys::Win32::Foundation::{HWND, RECT, LPARAM, BOOL};
 
-                std::thread::spawn(move || unsafe {
-                    use windows_sys::Win32::UI::WindowsAndMessaging::{
-                        EnumWindows, GetClassNameW, GetWindowRect, 
-                        SetWindowLongPtrW, // <--- 64-bit safe owner link
-                        IsWindow, IsIconic, IsWindowVisible, GWL_HWNDPARENT
-                    };
-                    use windows_sys::Win32::Foundation::{HWND, RECT, LPARAM, BOOL};
-
-                    // Callback to lock onto the top-level File Explorer frame ONLY
-                    unsafe extern "system" fn find_explorer_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
-                        let mut class_name = [0u16; 256];
-                        let len = GetClassNameW(hwnd, class_name.as_mut_ptr(), class_name.len() as i32);
-                        if len > 0 && IsWindowVisible(hwnd) != 0 {
-                            let name_str = String::from_utf16_lossy(&class_name[..len as usize]);
-                            if name_str.contains("CabinetWClass") {
-                                *(lparam as *mut HWND) = hwnd;
-                                return 0; // Master frame captured
-                            }
-                        }
-                        1
-                    }
-
-                    let mut target_explorer_hwnd: HWND = 0;
-                    let mut owner_linked = false;
-
-                    // SAFE A4 RATIO WIDTH (1080p compatible)
-                    let fixed_width: u32 = 600; 
-
-                    // CHANGES-ONLY SEALS to prevent canvas race conditions
-                    let mut last_x = 0;
-                    let mut last_y = 0;
-                    let mut last_w = 0;
-                    let mut last_h = 0;
-
-                    loop {
-                        if target_explorer_hwnd == 0 || IsWindow(target_explorer_hwnd) == 0 {
-                            target_explorer_hwnd = 0;
-                            owner_linked = false;
-                            EnumWindows(Some(find_explorer_callback), &mut target_explorer_hwnd as *mut HWND as LPARAM);
-                        }
-
-                        if target_explorer_hwnd != 0 && IsWindow(target_explorer_hwnd) != 0 {
-                            if IsIconic(target_explorer_hwnd) != 0 {
-                                let _ = preview_win_clone.hide();
-                            } else {
-                                // NATIVE Z-ORDER BINDING: 64-bit safe linkage!
-                                // This guarantees the window stays firmly anchored ON TOP of File Explorer.
-                                if !owner_linked {
-                                    SetWindowLongPtrW(tauri_preview_hwnd, GWL_HWNDPARENT, target_explorer_hwnd as isize);
-                                    owner_linked = true;
+                        // Callback to lock onto the top-level File Explorer frame ONLY
+                        unsafe extern "system" fn find_explorer_callback(hwnd: HWND, lparam: LPARAM) -> BOOL {
+                            let mut class_name = [0u16; 256];
+                            let len = GetClassNameW(hwnd, class_name.as_mut_ptr(), class_name.len() as i32);
+                            if len > 0 && IsWindowVisible(hwnd) != 0 {
+                                let name_str = String::from_utf16_lossy(&class_name[..len as usize]);
+                                if name_str.contains("CabinetWClass") {
+                                    *(lparam as *mut HWND) = hwnd;
+                                    return 0; // Master frame captured
                                 }
+                            }
+                            1
+                        }
 
-                                let mut explorer_rect: RECT = std::mem::zeroed();
-                                if GetWindowRect(target_explorer_hwnd, &mut explorer_rect) != 0 {
-                                    let explorer_width = explorer_rect.right - explorer_rect.left;
-                                    let explorer_height = explorer_rect.bottom - explorer_rect.top;
+                        let mut target_explorer_hwnd: HWND = 0;
+                        let mut owner_linked = false;
 
-                                    if explorer_width > 100 && explorer_height > 100 {
-                                        // THE PERFECTED 1080p A4 ALIGNMENT
-                                        let target_width = fixed_width;
-                                        let target_height = 848; // Maintains 1:1.414 A4 aspect ratio safely on 1080p
-                                        
-                                        // Shift left by 50px total to comfortably clear Windows scrollbars and border shadows
-                                        let target_x = explorer_rect.right - (target_width as i32) - 50; 
-                                        let target_y = explorer_rect.top + 148; // Sit flush below the top toolbars
+                        // SAFE A4 RATIO WIDTH (1080p compatible)
+                        let fixed_width: u32 = 600; 
 
-                                        // CHANGES-ONLY GATEWAY
-                                        if target_x != last_x || target_y != last_y || target_width != last_w || target_height != last_h {
-                                            let _ = preview_win_clone.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(target_width, target_height)));
-                                            let _ = preview_win_clone.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(target_x, target_y)));
-                                            let _ = preview_win_clone.show();
+                        // CHANGES-ONLY SEALS to prevent canvas race conditions
+                        let mut last_x = 0;
+                        let mut last_y = 0;
+                        let mut last_w = 0;
+                        let mut last_h = 0;
 
-                                            last_x = target_x;
-                                            last_y = target_y;
-                                            last_w = target_width;
-                                            last_h = target_height;
+                        loop {
+                            if target_explorer_hwnd == 0 || IsWindow(target_explorer_hwnd) == 0 {
+                                target_explorer_hwnd = 0;
+                                owner_linked = false;
+                                EnumWindows(Some(find_explorer_callback), &mut target_explorer_hwnd as *mut HWND as LPARAM);
+                            }
+
+                            if target_explorer_hwnd != 0 && IsWindow(target_explorer_hwnd) != 0 {
+                                if IsIconic(target_explorer_hwnd) != 0 {
+                                    let _ = preview_win_clone.hide();
+                                } else {
+                                    // NATIVE Z-ORDER BINDING: 64-bit safe linkage!
+                                    // This guarantees the window stays firmly anchored ON TOP of File Explorer.
+                                    if !owner_linked {
+                                        SetWindowLongPtrW(tauri_preview_hwnd, GWL_HWNDPARENT, target_explorer_hwnd as isize);
+                                        owner_linked = true;
+                                    }
+
+                                    let mut explorer_rect: RECT = std::mem::zeroed();
+                                    if GetWindowRect(target_explorer_hwnd, &mut explorer_rect) != 0 {
+                                        let explorer_width = explorer_rect.right - explorer_rect.left;
+                                        let explorer_height = explorer_rect.bottom - explorer_rect.top;
+
+                                        if explorer_width > 100 && explorer_height > 100 {
+                                            // THE PERFECTED 1080p A4 ALIGNMENT
+                                            let target_width = fixed_width;
+                                            let target_height = 848; // Maintains 1:1.414 A4 aspect ratio safely on 1080p
+                                            
+                                            // Shift left by 50px total to comfortably clear Windows scrollbars and border shadows
+                                            let target_x = explorer_rect.right - (target_width as i32) - 50; 
+                                            let target_y = explorer_rect.top + 148; // Sit flush below the top toolbars
+
+                                            // CHANGES-ONLY GATEWAY
+                                            if target_x != last_x || target_y != last_y || target_width != last_w || target_height != last_h {
+                                                let _ = preview_win_clone.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(target_width, target_height)));
+                                                let _ = preview_win_clone.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(target_x, target_y)));
+                                                let _ = preview_win_clone.show();
+
+                                                last_x = target_x;
+                                                last_y = target_y;
+                                                last_w = target_width;
+                                                last_h = target_height;
+                                            }
                                         }
                                     }
                                 }
+                            } else {
+                                let _ = preview_win_clone.hide();
                             }
-                        } else {
-                            let _ = preview_win_clone.hide();
-                        }
 
-                        std::thread::sleep(std::time::Duration::from_millis(16));
-                    }
-                });
-            } else {
-                println!("[speedDF Core Debug] Standard boot sequence triggered.");
-                if let Some(main_win) = app.get_webview_window("main") {
-                    let _ = main_win.show();
-                }
-                if let Some(preview_window) = app.get_webview_window("preview-window") {
-                    let _ = preview_window.close(); // Kill the preview window completely if it's a normal launch
+                            std::thread::sleep(std::time::Duration::from_millis(16));
+                        }
+                    });
                 }
             }
 

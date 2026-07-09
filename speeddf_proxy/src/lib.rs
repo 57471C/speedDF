@@ -1,17 +1,20 @@
 #![allow(non_snake_case)]
 
-use std::os::windows::process::CommandExt;
-use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use uuid::Uuid;
 use windows::{
-    core::*, Win32::Foundation::*, Win32::System::Com::*,
-    Win32::System::LibraryLoader::GetModuleFileNameW, Win32::UI::Shell::PropertiesSystem::*,
-    Win32::UI::Shell::*, Win32::UI::WindowsAndMessaging::MSG,
+    Win32::Foundation::*, Win32::System::Com::*, Win32::System::LibraryLoader::GetModuleFileNameW,
+    Win32::UI::Shell::PropertiesSystem::*, Win32::UI::Shell::*,
+    Win32::UI::WindowsAndMessaging::MSG, core::*,
 };
 
 // The unique ID Windows will use to find our doorbell
-const CLSID_PROXY: GUID = GUID::from_u128(0xA3C1D4F2_7B3E_4F9A_B2D7_8E1A6C9F0B4D);
+const CLSID_PROXY: GUID = GUID::from_values(
+    0xA3C1D4F2,
+    0x7B3E,
+    0x4F9A,
+    [0xB2, 0xD7, 0x8E, 0x1A, 0x6C, 0x9F, 0x0B, 0x4D],
+);
 
 static DLL_MODULE: AtomicUsize = AtomicUsize::new(0);
 
@@ -21,6 +24,7 @@ pub extern "system" fn DllMain(hinst: HINSTANCE, reason: u32, _: *mut std::ffi::
     /* DLL_PROCESS_ATTACH */
     {
         DLL_MODULE.store(hinst.0 as usize, Ordering::SeqCst);
+        write_log("DllMain Attached");
     }
     TRUE
 }
@@ -31,6 +35,7 @@ struct SpeedDfProxy;
 // 1. CATCH THE FILE FROM WINDOWS
 impl IInitializeWithStream_Impl for SpeedDfProxy_Impl {
     fn Initialize(&self, pstream: Option<&IStream>, _grfmode: u32) -> Result<()> {
+        write_log("Initialize called!");
         let stream = pstream.ok_or(E_INVALIDARG)?;
 
         // Read file bytes
@@ -40,13 +45,18 @@ impl IInitializeWithStream_Impl for SpeedDfProxy_Impl {
 
         let mut buf = vec![0u8; size as usize];
         let mut bytes_read = 0u32;
-        unsafe { stream.Read(buf.as_mut_ptr() as _, size as u32, Some(&mut bytes_read)).ok()? };
+        unsafe {
+            stream
+                .Read(buf.as_mut_ptr() as _, size as u32, Some(&mut bytes_read))
+                .ok()?
+        };
 
         // Save to temp file so we drop the OS lock on the original
         let temp_path = std::env::temp_dir().join(format!("speedDF_{}.pdf", Uuid::new_v4()));
         std::fs::write(&temp_path, &buf).map_err(|_| Error::from(E_FAIL))?;
+        write_log(&format!("PDF copied to temp: {:?}", temp_path));
 
-        // Find where our speeddf.exe lives (assumes it's in the same folder as this DLL)
+        // Find where our speeddf.exe lives
         let mut path_buf = [0u16; 1024];
         let len = unsafe {
             GetModuleFileNameW(
@@ -54,18 +64,32 @@ impl IInitializeWithStream_Impl for SpeedDfProxy_Impl {
                 &mut path_buf,
             )
         } as usize;
+
         let dll_path = String::from_utf16_lossy(&path_buf[..len]);
         let exe_path = std::path::PathBuf::from(dll_path).with_file_name("speeddf.exe");
 
-        // Convert Windows backslashes to forward slashes to prevent SvelteKit 500 URL routing errors
         let safe_path = temp_path.to_string_lossy().replace("\\", "/");
+        let exe_str = exe_path.to_str().unwrap_or_default();
+        let args_str = format!("--preview \"{}\"", safe_path);
 
-        // RING THE DOORBELL: Spawn Tauri silently!
-        let _ = Command::new(exe_path)
-            .arg("--preview")
-            .arg(safe_path)
-            .creation_flags(0x08000000) // CREATE_NO_WINDOW
-            .spawn();
+        write_log(&format!("Target EXE: {}", exe_str));
+        write_log(&format!("Arguments: {}", args_str));
+
+        let exe_h = windows::core::HSTRING::from(exe_str);
+        let args_h = windows::core::HSTRING::from(args_str);
+
+        // NATIVE WIN32 SANDBOX ESCAPE
+        unsafe {
+            ShellExecuteW(
+                HWND::default(),
+                w!("open"),
+                &exe_h,
+                &args_h,
+                w!(""),
+                windows::Win32::UI::WindowsAndMessaging::SHOW_WINDOW_CMD(5), // SW_SHOW
+            );
+        }
+        write_log("SUCCESS: ShellExecuteW fired to launch Tauri!");
 
         Ok(())
     }
@@ -96,7 +120,7 @@ impl IPreviewHandler_Impl for SpeedDfProxy_Impl {
     }
 }
 
-// 3. COM BOILERPLATE (Standard requirement for Windows DLLs)
+// 3. COM BOILERPLATE
 #[implement(IClassFactory)]
 struct ProxyFactory;
 
@@ -124,16 +148,52 @@ pub extern "system" fn DllGetClassObject(
     riid: *const GUID,
     ppv: *mut *mut std::ffi::c_void,
 ) -> HRESULT {
+    write_log("DllGetClassObject requested");
     unsafe {
+        if rclsid.is_null() || riid.is_null() || ppv.is_null() {
+            return E_POINTER;
+        }
         if *rclsid != CLSID_PROXY {
             return CLASS_E_CLASSNOTAVAILABLE;
         }
         let factory: IClassFactory = ProxyFactory.into();
-        factory.cast::<IUnknown>().unwrap().query(riid, ppv)
+        match factory.cast::<IUnknown>() {
+            Ok(unknown) => {
+                if unknown.query(riid, ppv).is_ok() {
+                    S_OK
+                } else {
+                    E_NOINTERFACE
+                }
+            }
+            Err(_) => E_NOINTERFACE,
+        }
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "system" fn DllCanUnloadNow() -> HRESULT {
     S_OK
+}
+#[unsafe(no_mangle)]
+pub extern "system" fn DllRegisterServer() -> HRESULT {
+    S_OK
+}
+#[unsafe(no_mangle)]
+pub extern "system" fn DllUnregisterServer() -> HRESULT {
+    S_OK
+}
+
+fn write_log(msg: &str) {
+    // Write directly to the LocalLow folder (The only folder the Sandbox is guaranteed to allow)
+    if let Ok(local_low) = std::env::var("USERPROFILE") {
+        let log_path = format!("{}\\AppData\\LocalLow\\speeddf_proxy.log", local_low);
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            use std::io::Write;
+            let _ = writeln!(f, "SPEEDDF_PROXY: {}", msg);
+        }
+    }
 }
