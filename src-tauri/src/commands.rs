@@ -95,47 +95,76 @@ pub async fn run_local_ocr(
     image_bytes: Vec<u8>,
     on_progress: Channel<u32>,
 ) -> Result<String, String> {
-    // 1. Resolve App Cache boundary targets
+    // 1. Resolve App Cache boundary targets and check for quantized models
     let cache_dir = app_handle
         .path()
         .app_cache_dir()
         .map_err(|e| format!("FileSystem Failure: {}", e))?;
-    
-    let det_model_path = cache_dir.join("ch_PP-OCRv4_det_infer.onnx");
-    let rec_model_path = cache_dir.join("ppocr_v4_rec.onnx");
 
-    // 2. Download weights dynamically if missing
-    download_model_if_missing(
-        &det_model_path,
-        "https://speeddf.com/models/ch_PP-OCRv4_det_infer.onnx",
-        &on_progress,
-        0,
-        0.5
-    ).await?;
+    let det_quant_path = cache_dir.join("ch_PP-OCRv4_det_infer_quant.onnx");
+    let rec_quant_path = cache_dir.join("ppocr_v4_rec_quant.onnx");
 
-    download_model_if_missing(
-        &rec_model_path,
-        "https://speeddf.com/models/ppocr_v4_rec.onnx",
-        &on_progress,
-        50,
-        0.5
-    ).await?;
+    let det_model_path = if det_quant_path.exists() {
+        det_quant_path
+    } else {
+        let path = cache_dir.join("ch_PP-OCRv4_det_infer.onnx");
+        download_model_if_missing(
+            &path,
+            "https://speeddf.com/models/ch_PP-OCRv4_det_infer.onnx",
+            &on_progress,
+            0,
+            0.5
+        ).await?;
+        path
+    };
+
+    let rec_model_path = if rec_quant_path.exists() {
+        rec_quant_path
+    } else {
+        let path = cache_dir.join("ppocr_v4_rec.onnx");
+        download_model_if_missing(
+            &path,
+            "https://speeddf.com/models/ppocr_v4_rec.onnx",
+            &on_progress,
+            50,
+            0.5
+        ).await?;
+        path
+    };
 
     // 3. Notify processing start
     let _ = on_progress.send(0);
     
     // 4. Thread Pool Offload for inference
     tokio::task::spawn_blocking(move || {
+        // ========== BENCHMARK TIMING ==========
+        let overall_start = std::time::Instant::now();
+        let detection_start;
+        let detection_time;
+        let recognition_time;
+        // =====================================
         // Load original raw image
         let original_img = image::load_from_memory(&image_bytes)
             .map_err(|e| format!("Buffer processing aborted. Image invalid: {}", e))?
             .to_rgb8();
             
         let (orig_w, orig_h) = original_img.dimensions();
+        println!("[BENCH] Original image size: {}x{}", orig_w, orig_h);
 
-        // 1. Calculate detector shape (nearest multiple of 32)
-        let det_h = (((orig_h as f32) / 32.0).round() as u32 * 32).max(32);
-        let det_w = (((orig_w as f32) / 32.0).round() as u32 * 32).max(32);
+        // ========== START DETECTION TIMING ==========
+        detection_start = std::time::Instant::now();
+
+        // 1. Calculate detector shape (nearest multiple of 32, max side 960)
+        let max_side = 960.0;
+        let scale = if orig_w.max(orig_h) as f32 > max_side {
+            max_side / orig_w.max(orig_h) as f32
+        } else {
+            1.0
+        };
+        let det_h = ((((orig_h as f32 * scale) / 32.0).round() as u32) * 32).max(32);
+        let det_w = ((((orig_w as f32 * scale) / 32.0).round() as u32) * 32).max(32);
+        
+        println!("[BENCH] Detection input size: {}x{} (scaled from {}x{})", det_w, det_h, orig_w, orig_h);
         
         if cfg!(debug_assertions) {
             println!("DEBUG INFO: Original dimensions: {}x{}, Detector dimensions: {}x{}", orig_w, orig_h, det_w, det_h);
@@ -263,7 +292,7 @@ pub async fn run_local_ocr(
                     
                     let w_box = max_cx - min_cx + 1;
                     let h_box = max_cy - min_cy + 1;
-                    if w_box >= 3 && h_box >= 3 {
+                    if w_box >= 6 && h_box >= 6 && (w_box * h_box) >= 36 {
                         detected_boxes.push((min_cx, min_cy, w_box, h_box));
                     }
                 }
@@ -326,6 +355,12 @@ pub async fn run_local_ocr(
         }
         
         let sorted_boxes: Vec<(u32, u32, u32, u32)> = rows.into_iter().flatten().collect();
+        detection_time = detection_start.elapsed();
+
+        println!("[BENCH] Detection time: {:.2?}", detection_time);
+        println!("[BENCH] Detected text boxes: {}", sorted_boxes.len());
+
+        let recognition_start = std::time::Instant::now();
 
         if cfg!(debug_assertions) {
             for (i, &(x, y, w, h)) in sorted_boxes.iter().enumerate().take(3) {
@@ -333,12 +368,30 @@ pub async fn run_local_ocr(
             }
         }
 
-        // 9. Recognition Loop
+        // 9. Prepare and compile the dynamic recognition model once
         let mut rec_model_bytes = std::fs::read(&rec_model_path)
             .map_err(|e| format!("Failed to read recognition ONNX model from disk cache: {}", e))?;
         sanitize_onnx_parameter_tokens(&mut rec_model_bytes);
 
-        let mut runnable_cache = std::collections::HashMap::new();
+        let mut neural_model = tract_onnx::onnx()
+            .model_for_read(&mut &rec_model_bytes[..])
+            .map_err(|e| format!("ONNX model streaming initialization failed: {}", e))?;
+
+        let w_symbol = neural_model.symbols.sym("W");
+        neural_model.set_input_fact(
+            0,
+            tract_onnx::prelude::InferenceFact::dt_shape(
+                f32::datum_type(),
+                vec![TDim::from(1), TDim::from(3), TDim::from(48), TDim::from(w_symbol)]
+            )
+        ).map_err(|e| format!("Failed to inject runtime shape facts: {}", e))?;
+
+        let rec_runnable = neural_model
+            .into_optimized()
+            .map_err(|e| format!("Graph compilation optimizer failed: {}", e))?
+            .into_runnable()
+            .map_err(|e| format!("Runnable configuration failed: {}", e))?;
+
         let mut recognized_lines = Vec::new();
         let total_boxes = sorted_boxes.len();
         
@@ -354,31 +407,6 @@ pub async fn run_local_ocr(
                 image::imageops::FilterType::Triangle,
             );
             
-            let run_model = if let Some(cached) = runnable_cache.get(&target_w) {
-                cached
-            } else {
-                let mut neural_model = tract_onnx::onnx()
-                    .model_for_read(&mut &rec_model_bytes[..])
-                    .map_err(|e| format!("ONNX model streaming initialization failed: {}", e))?;
-                    
-                neural_model.set_input_fact(
-                    0,
-                    tract_onnx::prelude::InferenceFact::dt_shape(
-                        f32::datum_type(),
-                        vec![1, 3, target_h as usize, target_w as usize]
-                    )
-                ).map_err(|e| format!("Failed to inject runtime shape facts: {}", e))?;
-                
-                let compiled = neural_model
-                    .into_optimized()
-                    .map_err(|e| format!("Graph compilation optimizer failed: {}", e))?
-                    .into_runnable()
-                    .map_err(|e| format!("Runnable configuration failed: {}", e))?;
-                
-                runnable_cache.insert(target_w, compiled);
-                runnable_cache.get(&target_w).unwrap()
-            };
-            
             let mut data = Vec::with_capacity(3 * target_h as usize * target_w as usize);
             for c in 0..3 {
                 for y_img in 0..target_h {
@@ -392,7 +420,7 @@ pub async fn run_local_ocr(
             let tensor_input = tract_onnx::prelude::Tensor::from_shape(&[1, 3, target_h as usize, target_w as usize], &data)
                 .map_err(|e| format!("Tensor creation failed: {}", e))?;
 
-            let inference_outputs = run_model.run(tvec!(tensor_input.into()))
+            let inference_outputs = rec_runnable.run(tvec!(tensor_input.into()))
                 .map_err(|e| format!("Model execution failed: {}", e))?;
 
             let output_tensor = &inference_outputs[0];
@@ -443,6 +471,22 @@ pub async fn run_local_ocr(
             };
             let _ = on_progress.send(percentage);
         }
+
+        recognition_time = recognition_start.elapsed();
+
+        let total_time = overall_start.elapsed();
+
+        println!("\n========== OCR BENCHMARK ==========");
+        println!("[BENCH] Total OCR time:       {:.2?}", total_time);
+        println!("[BENCH] Detection time:       {:.2?}", detection_time);
+        println!("[BENCH] Recognition time:     {:.2?}", recognition_time);
+        println!("[BENCH] Number of text boxes: {}", sorted_boxes.len());
+
+        if !sorted_boxes.is_empty() {
+            let avg_recog = recognition_time.as_secs_f32() / sorted_boxes.len() as f32;
+            println!("[BENCH] Avg time per box:     {:.3?}s", std::time::Duration::from_secs_f32(avg_recog));
+        }
+        println!("===================================\n");
 
         let finalized_doc_text = recognized_lines.join("\n");
         if finalized_doc_text.is_empty() {

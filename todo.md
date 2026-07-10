@@ -1,7 +1,7 @@
 # Todo List #
 
 ## Features to add ##
-1. Add select text/copy text and OCR functionality (onyx)
+1. Add select text/copy text and OCR functionality (onyx) in main canvas.
 2. Add snapshot tool.
 3. Add File tabs for multiple documents.
 4. Improved titlebar icons and placement (add Undo/Redo buttons. Share via email)
@@ -88,4 +88,26 @@ Cloudflare Pages & Gateway CDN: Functions as the application distribution channe
 ```bash
 npx kill-port 1420
 npm run tauri dev
+```
+
+### OCR BENCHMARK RESULTS ###
+
+```text
+[BENCH] Original image size: 1190x1683
+DEBUG INFO: Original dimensions: 1190x1683, Detector dimensions: 1184x1696
+DEBUG INFO: Detection heatmap range -> Min: -0.00000011920929, Max: 1
+DEBUG INFO: Total text bounding boxes isolated: 181
+[BENCH] Detection time: 45.26s
+[BENCH] Detected text boxes: 181
+DEBUG CROP: Box target [0] -> x: 20, y: 83, w: 438, h: 21
+DEBUG CROP: Box target [1] -> x: 729, y: 86, w: 225, h: 18
+DEBUG CROP: Box target [2] -> x: 959, y: 86, w: 24, h: 19
+
+========== OCR BENCHMARK ==========
+[BENCH] Total OCR time:       256.42s
+[BENCH] Detection time:       45.26s
+[BENCH] Recognition time:     211.05s
+[BENCH] Number of text boxes: 181
+[BENCH] Avg time per box:     1.166ss
+===================================
 ```
