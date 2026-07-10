@@ -5,6 +5,13 @@ use tauri::ipc::Channel;
 use tauri::{command, AppHandle, Manager};
 use tract_onnx::prelude::*;
 use rayon::prelude::*;
+use std::sync::Arc;
+use tokio::sync::OnceCell;
+
+pub struct OcrModelState {
+    pub det_model_bytes: OnceCell<Arc<Vec<u8>>>,
+    pub rec_model_bytes: OnceCell<Arc<Vec<u8>>>,
+}
 
 static ENGLISH_CHAR_DICT: &[&str] = &[
     "blank", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F", "G",
@@ -139,6 +146,24 @@ pub async fn run_local_ocr(
         path
     };
 
+    let ocr_state = app_handle.state::<OcrModelState>();
+
+    // Load detection model into memory cache if missing
+    let det_model_arc = ocr_state.det_model_bytes.get_or_try_init(|| async {
+        let mut det_model_bytes = std::fs::read(&det_model_path)
+            .map_err(|e| format!("Failed to read detection model from disk cache: {}", e))?;
+        sanitize_onnx_parameter_tokens(&mut det_model_bytes);
+        Ok::<_, String>(Arc::new(det_model_bytes))
+    }).await?.clone();
+
+    // Load recognition model into memory cache if missing
+    let rec_model_arc = ocr_state.rec_model_bytes.get_or_try_init(|| async {
+        let mut rec_model_bytes = std::fs::read(&rec_model_path)
+            .map_err(|e| format!("Failed to read recognition ONNX model from disk cache: {}", e))?;
+        sanitize_onnx_parameter_tokens(&mut rec_model_bytes);
+        Ok::<_, String>(Arc::new(rec_model_bytes))
+    }).await?.clone();
+
     // 3. Notify processing start
     let _ = on_progress.send(0);
 
@@ -211,15 +236,8 @@ pub async fn run_local_ocr(
                 }
             });
 
-        // Ingest the detection weights file into memory
-        let mut det_model_bytes = std::fs::read(&det_model_path)
-            .map_err(|e| format!("Failed to read detection model from disk cache: {}", e))?;
-
-        // Clean all dynamic parameter notations (.0, .1, .2, .3) inside the buffer
-        sanitize_onnx_parameter_tokens(&mut det_model_bytes);
-
         let mut det_neural_model = tract_onnx::onnx()
-            .model_for_read(&mut &det_model_bytes[..])
+            .model_for_read(&mut &det_model_arc[..])
             .map_err(|e| {
                 format!(
                     "Failed to parse OCR detector model structure (Technical log: {:?})",
@@ -425,16 +443,8 @@ pub async fn run_local_ocr(
         }
 
         // 9. Prepare and compile the dynamic recognition model once
-        let mut rec_model_bytes = std::fs::read(&rec_model_path).map_err(|e| {
-            format!(
-                "Failed to read recognition ONNX model from disk cache: {}",
-                e
-            )
-        })?;
-        sanitize_onnx_parameter_tokens(&mut rec_model_bytes);
-
         let mut neural_model = tract_onnx::onnx()
-            .model_for_read(&mut &rec_model_bytes[..])
+            .model_for_read(&mut &rec_model_arc[..])
             .map_err(|e| format!("ONNX model streaming initialization failed: {}", e))?;
 
         let w_symbol = neural_model.symbols.sym("W");
