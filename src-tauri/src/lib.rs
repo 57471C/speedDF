@@ -369,6 +369,13 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .max_blocking_threads(512)
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
