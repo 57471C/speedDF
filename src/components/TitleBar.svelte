@@ -14,6 +14,12 @@
     onCloseDocument,
     onSaveSuccess,
     onToggleOcr,
+    // --- NEW TOOLBAR PROPS ---
+    onNew,
+    onSave,
+    onSaveAs,
+    onUndo,
+    onRedo,
   }: {
     onMinimize: () => void;
     onMaximize: () => void;
@@ -24,6 +30,12 @@
     onCloseDocument?: () => void;
     onSaveSuccess?: (msg: string) => void;
     onToggleOcr?: () => void;
+    // --- NEW TOOLBAR PROPS TYPES ---
+    onNew?: () => void;
+    onSave?: () => void;
+    onSaveAs?: () => void;
+    onUndo?: () => void;
+    onRedo?: () => void;
   } = $props();
 
   interface FilePayload {
@@ -521,28 +533,63 @@
         <h1 class="text-lg font-bold tracking-tight text-slate-100" style="font-family: 'Space Grotesk', sans-serif;">speed<span class="text-cyan-400">DF</span></h1>
       </div>
 
-      <div class="flex items-center gap-1 text-[11px] text-slate-400 font-bold">
-        <button
-          onclick={triggerFileOpen}
-          class="titlebar-btn px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:!text-white transition-colors"
-          >Open</button
-        >
-        <button
-          disabled={activeDoc.fileType === "tiff"}
-          onclick={triggerFileSave}
-          title={activeDoc.fileType === "tiff" ? "Direct overwrite disabled for TIFF files. Use 'Save As' to export to PDF." : "Quick Save changes"}
-          class="titlebar-btn px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:!text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >Save</button
-        >
-        <button
-          onclick={triggerFileSaveAs}
-          class="titlebar-btn px-2.5 py-1 rounded-md hover:bg-slate-800/60 hover:!text-white transition-colors"
-          >Save As..</button
-        >
-        <span class="text-zinc-600 px-1 select-none">|</span>
+      <div class="flex items-center gap-0.5 ml-4">
         <button 
+          disabled={!!activeDoc.rawBytes}
+          onclick={onNew} 
+          title="New Blank A4 (Ctrl+N)" 
+          class="toolbar-btn"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
+          </svg>
+        </button>
+
+        <button onclick={onOpenFile} title="Open Document (Ctrl+O)" class="toolbar-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2a2 2 0 0 0 1.66.9H18a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </button>
+
+        <button onclick={onSave} title="Save (Ctrl+S)" class="toolbar-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+          </svg>
+        </button>
+
+        <button onclick={onSaveAs} title="Save As... (Ctrl+Shift+S)" class="toolbar-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/>
+          </svg>
+        </button>
+
+        <button onclick={onPrint} title="Print (Ctrl+P)" class="toolbar-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/>
+          </svg>
+        </button>
+
+        <div class="w-px h-4 bg-slate-700 mx-1.5"></div>
+
+        <button onclick={onUndo} title="Undo (Ctrl+Z)" class="toolbar-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+          </svg>
+        </button>
+
+        <button onclick={onRedo} title="Redo (Ctrl+Y)" class="toolbar-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="flex items-center gap-1 text-[11px] text-slate-400 font-bold">
+        <span class="text-zinc-600 px-1 select-none font-normal">|</span>
+        <button 
+          disabled={!activeDoc.rawBytes}
           onclick={onToggleOcr} 
-          class="titlebar-btn pointer-events-auto text-xs text-zinc-400 hover:text-zinc-100 transition-colors font-medium focus:outline-none"
+          class="titlebar-btn pointer-events-auto text-xs text-zinc-400 hover:text-zinc-100 transition-colors font-medium focus:outline-none disabled:opacity-30 disabled:pointer-events-none"
         >
           Extract Text
         </button>
@@ -586,28 +633,6 @@
 
     <div class="flex items-center gap-3 z-50">
       <div class="flex items-center gap-1">
-        <button
-          onclick={handlePrintClick}
-          class="titlebar-btn p-1 rounded-md text-slate-400 hover:!text-white transition-colors flex items-center justify-center"
-          title="Print Document"
-          aria-label="Print Document"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <polyline points="6 9 6 2 18 2 18 9"></polyline>
-            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-            <rect x="6" y="14" width="12" height="8"></rect>
-          </svg>
-        </button>
         <button
           onclick={onToggleHelp}
           class="titlebar-btn p-1 rounded-md text-slate-400 hover:!text-white transition-colors flex items-center justify-center"
@@ -690,6 +715,29 @@
 </div>
 
 <style>
+  .toolbar-btn {
+    width: 1.75rem;
+    height: 1.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.25rem;
+    color: #94a3b8;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+  
+  .toolbar-btn:hover {
+    background-color: #1e293b;
+    color: #f1f5f9;
+  }
+
+  .toolbar-btn:disabled {
+    opacity: 0.3;
+    pointer-events: none;
+  }
+
   .titlebar-btn {
     color: #94a3b8 !important; /* text-slate-400 fallback */
     transition: color 0.15s ease, background-color 0.15s ease !important;

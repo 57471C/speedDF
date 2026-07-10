@@ -322,6 +322,45 @@
     );
   }
 
+  async function createBlankDocument() {
+    if (activeDoc.rawBytes) return;
+    const doCreate = async () => {
+      activeDoc.flushDocumentState();
+      try {
+        const { PDFDocument } = await import("pdf-lib");
+        const doc = await PDFDocument.create();
+        doc.addPage([595.276, 841.89]); // A4 dimensions
+        const bytes = await doc.save();
+        
+        activeDoc.fileType = "pdf";
+        activeDoc.rawBytes = bytes;
+        activeDoc.fileName = "Untitled.pdf";
+        activeDoc.filePath = null;
+        activeDoc.pageCount = 1;
+        activeDoc.pageOrder = [1];
+        activeDoc.currentPage = 1;
+        activeDoc.shapes = {};
+        activeDoc.rotations = {};
+        activeDoc.bookmarks = [];
+        activeDoc.isDirty = false;
+        showNotification("Created New Blank A4 Document");
+      } catch (e) {
+        console.error("Failed to create blank document:", e);
+      }
+    };
+
+    if (activeDoc.isDirty) {
+      unsavedModalMessage = "You have unsaved changes on this layout sheet. Are you sure you want to create a new blank A4 document and discard your progress?";
+      pendingNavigationAction = () => {
+        activeDoc.isDirty = false;
+        setTimeout(doCreate, 50);
+      };
+      showUnsavedModal = true;
+    } else {
+      await doCreate();
+    }
+  }
+
   async function openFile() {
     // 1. Update the native dialog call to allow filtering for technical drawings
     const selected = await open({
@@ -583,7 +622,12 @@
 
       if (isCtrl) {
         const key = e.key.toLowerCase();
-        if (key === "o") {
+        if (key === "n") {
+          e.preventDefault();
+          if (!activeDoc.rawBytes) {
+            createBlankDocument();
+          }
+        } else if (key === "o") {
           e.preventDefault();
           openFile();
         } else if (key === "s") {
@@ -680,6 +724,11 @@
     onSaveSuccess={(msg: string) =>
       showNotification(msg || "Changes Written Safely to Disk")}
     onToggleOcr={toggleOcrDrawer}
+    onNew={createBlankDocument}
+    onSave={() => titleBarRef?.triggerSave?.()}
+    onSaveAs={() => titleBarRef?.triggerSaveAs?.()}
+    onUndo={executeUndoAction}
+    onRedo={executeRedoAction}
   />
 
   {#if activeDoc.rawBytes}
