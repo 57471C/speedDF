@@ -382,6 +382,10 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .manage(commands::OcrModelState {
+            det_model_bytes: tokio::sync::Mutex::new(None),
+            rec_model_bytes: tokio::sync::Mutex::new(None),
+        })
         .setup(|_app| {
             // Spawn a separate thread immediately to keep the UI initialization instantaneous
             std::thread::spawn(|| {
