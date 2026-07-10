@@ -44,9 +44,3 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
-
-
-
-
-[dev-dependencies]
-criterion = "0.8.2"

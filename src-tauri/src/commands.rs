@@ -6,11 +6,11 @@ use tauri::{command, AppHandle, Manager};
 use tract_onnx::prelude::*;
 use rayon::prelude::*;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::OnceCell;
 
 pub struct OcrModelState {
-    pub det_model_bytes: Mutex<Option<Arc<Vec<u8>>>>,
-    pub rec_model_bytes: Mutex<Option<Arc<Vec<u8>>>>,
+    pub det_model_bytes: OnceCell<Arc<Vec<u8>>>,
+    pub rec_model_bytes: OnceCell<Arc<Vec<u8>>>,
 }
 
 static ENGLISH_CHAR_DICT: &[&str] = &[
@@ -149,28 +149,20 @@ pub async fn run_local_ocr(
     let ocr_state = app_handle.state::<OcrModelState>();
 
     // Load detection model into memory cache if missing
-    let det_model_arc = {
-        let mut det_cache = ocr_state.det_model_bytes.lock().await;
-        if det_cache.is_none() {
-            let mut det_model_bytes = std::fs::read(&det_model_path)
-                .map_err(|e| format!("Failed to read detection model from disk cache: {}", e))?;
-            sanitize_onnx_parameter_tokens(&mut det_model_bytes);
-            *det_cache = Some(Arc::new(det_model_bytes));
-        }
-        det_cache.as_ref().unwrap().clone()
-    };
+    let det_model_arc = ocr_state.det_model_bytes.get_or_try_init(|| async {
+        let mut det_model_bytes = std::fs::read(&det_model_path)
+            .map_err(|e| format!("Failed to read detection model from disk cache: {}", e))?;
+        sanitize_onnx_parameter_tokens(&mut det_model_bytes);
+        Ok::<_, String>(Arc::new(det_model_bytes))
+    }).await?.clone();
 
     // Load recognition model into memory cache if missing
-    let rec_model_arc = {
-        let mut rec_cache = ocr_state.rec_model_bytes.lock().await;
-        if rec_cache.is_none() {
-            let mut rec_model_bytes = std::fs::read(&rec_model_path)
-                .map_err(|e| format!("Failed to read recognition ONNX model from disk cache: {}", e))?;
-            sanitize_onnx_parameter_tokens(&mut rec_model_bytes);
-            *rec_cache = Some(Arc::new(rec_model_bytes));
-        }
-        rec_cache.as_ref().unwrap().clone()
-    };
+    let rec_model_arc = ocr_state.rec_model_bytes.get_or_try_init(|| async {
+        let mut rec_model_bytes = std::fs::read(&rec_model_path)
+            .map_err(|e| format!("Failed to read recognition ONNX model from disk cache: {}", e))?;
+        sanitize_onnx_parameter_tokens(&mut rec_model_bytes);
+        Ok::<_, String>(Arc::new(rec_model_bytes))
+    }).await?.clone();
 
     // 3. Notify processing start
     let _ = on_progress.send(0);
