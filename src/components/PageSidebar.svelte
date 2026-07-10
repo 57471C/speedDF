@@ -24,6 +24,18 @@
   let cachedRawBytes: Uint8Array | null = null;
   let sharedPdfjsDocPromise: Promise<any> | null = null;
 
+  // --- Bookmark Editing State ---
+  let editingBookmarkId = $state<number | null>(null);
+  let editingBookmarkName = $state<string>("");
+
+  // --- Bookmark Sorting Logic ---
+  // Automatically sorts bookmarks based on their actual position in the document (pageOrder)
+  let sortedBookmarks = $derived([...(activeDoc.bookmarks || [])].sort((a, b) => {
+    const idxA = activeDoc.pageOrder.indexOf(a.pageNum);
+    const idxB = activeDoc.pageOrder.indexOf(b.pageNum);
+    return idxA - idxB;
+  }));
+
   function getSharedPdfjsDoc() {
     if (activeDoc.fileType === "tiff" || !activeDoc.rawBytes) return null;
     
@@ -80,44 +92,44 @@
     node: HTMLCanvasElement,
     { pageNum, rotation }: { pageNum: number; rotation: number },
   ) {
-  // (Inside renderThumbnail action logic block)
-  if (activeDoc.fileType === "tiff") {
-    const pageData = activeDoc.tiffPages[pageNum - 1];
-    const rotation = activeDoc.rotations[pageNum] ?? 0;
-    
-    if (pageData) {
-      const blob = new Blob([pageData], { type: "image/png" });
-      const url = URL.createObjectURL(blob);
-      const img = new Image();
-      img.onload = () => {
-        // Swap visual frame dimensions dynamically if rotated on its side (90° or 270°)
-        if (rotation === 90 || rotation === 270) {
-          node.width = img.height;
-          node.height = img.width;
-        } else {
-          node.width = img.width;
-          node.height = img.height;
-        }
+    if (activeDoc.fileType === "tiff") {
+      const pageData = activeDoc.tiffPages[pageNum - 1];
+      const rotation = activeDoc.rotations[pageNum] ?? 0;
+      
+      if (pageData) {
+        const blob = new Blob([pageData as any], { type: "image/png" });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          // Swap visual frame dimensions dynamically if rotated on its side (90° or 270°)
+          if (rotation === 90 || rotation === 270) {
+            node.width = img.height;
+            node.height = img.width;
+          } else {
+            node.width = img.width;
+            node.height = img.height;
+          }
 
-        const ctx = node.getContext("2d");
-        if (ctx) {
-          ctx.clearRect(0, 0, node.width, node.height);
-          ctx.save();
-          
-          // Translate coordinate space origin to the physical center of the updated canvas layout
-          ctx.translate(node.width / 2, node.height / 2);
-          ctx.rotate((rotation * Math.PI) / 180);
-          
-          // Draw the blueprint anchored neatly over the center coordinate pivot
-          ctx.drawImage(img, -img.width / 2, -img.height / 2);
-          ctx.restore();
-        }
-        URL.revokeObjectURL(url);
-      };
-      img.src = url;
+          const ctx = node.getContext("2d");
+          if (ctx) {
+            ctx.clearRect(0, 0, node.width, node.height);
+            ctx.save();
+            
+            // Translate coordinate space origin to the physical center of the updated canvas layout
+            ctx.translate(node.width / 2, node.height / 2);
+            ctx.rotate((rotation * Math.PI) / 180);
+            
+            // Draw the blueprint anchored neatly over the center coordinate pivot
+            ctx.drawImage(img, -img.width / 2, -img.height / 2);
+            ctx.restore();
+          }
+          URL.revokeObjectURL(url);
+        };
+        img.src = url;
+      }
+      return;
     }
-    return;
-  }
+
     let isRendering = false;
 
     async function executeRender(pNum: number, rot: number) {
@@ -332,10 +344,10 @@
   function setupSortableGrid(node: HTMLElement) {
     const sortableInstance = Sortable.create(node, {
       animation: 200,
-      forceFallback: true,      // Tells SortableJS to use pure mouse tracking instead of HTML5 Drag API
-      fallbackOnBody: true,     // Pops the moving item clone out of overflow structures to body
+      forceFallback: true,
+      fallbackOnBody: true,
       fallbackClass: "sortable-fallback",
-      ghostClass: "opacity-10",  // Shadow drop-slot target layout
+      ghostClass: "opacity-10",
       chosenClass: "border-cyan-500/40",
       dragClass: "cursor-grabbing",
       onEnd: (evt) => {
@@ -348,25 +360,15 @@
         const draggedPage = activeDoc.pageOrder[oldIndex];
         let newOrder = [...activeDoc.pageOrder];
 
-        // If the dragged page is part of a multi-selection batch, shift the entire group together
         if (selectedPages.includes(draggedPage) && selectedPages.length > 1) {
           const referencePage = activeDoc.pageOrder[newIndex];
-          
-          // Filter out all selected pages from their current positions
           newOrder = newOrder.filter(p => !selectedPages.includes(p));
-          
-          // Find where the reference drop target sits in the filtered array
           let insertAt = newOrder.indexOf(referencePage);
-          
-          // Adjust position offset based on drag direction mapping
           if (oldIndex < newIndex) {
             insertAt += 1;
           }
-          
-          // Inject the entire batch of selected pages back into the target slot
           newOrder.splice(insertAt, 0, ...selectedPages);
         } else {
-          // Fall back to a standard single card reorder transaction
           const [movedPage] = newOrder.splice(oldIndex, 1);
           newOrder.splice(newIndex, 0, movedPage);
         }
@@ -442,7 +444,7 @@
         {#if activeSidebarTab === 'thumbnails'}
           Pages ({activeDoc.pageOrder.length})
         {:else if activeSidebarTab === 'bookmarks'}
-          Bookmarks ({activeDoc.bookmarks.length})
+          Bookmarks ({sortedBookmarks.length})
         {:else}
           Comments (0)
         {/if}
@@ -610,84 +612,76 @@
 {:else}
   {#if activeSidebarTab === 'bookmarks'}
     <div class="flex flex-col gap-2 p-2 overflow-y-auto w-full h-[calc(100vh-80px)]">
-      {#if activeDoc.bookmarks.length === 0}
+      {#if sortedBookmarks.length === 0}
         <div class="text-center text-[10px] text-slate-600 mt-12 px-4 leading-relaxed">
           No bookmarked elements staged. Hover near the top right of document pages to register quick reference flags.
         </div>
       {:else}
-        {#each activeDoc.bookmarks as b (b.pageNum)}
-          {#snippet sidebarCardUI()}
-            {@const row = (() => {
-              let isEditing = $state(false);
-              let editVal = $state(b.name);
-              return {
-                get isEditing() { return isEditing },
-                set isEditing(v) { isEditing = v },
-                get editVal() { return editVal },
-                set editVal(v) { editVal = v }
-              };
-            })()}
+        {#each sortedBookmarks as b (b.pageNum)}
+          <div class="flex items-center justify-between p-2.5 rounded-lg border border-slate-900/50 bg-[#0e1321]/40 hover:bg-slate-800/30 hover:border-slate-700/30 transition-all group w-full">
+            {#if editingBookmarkId === b.pageNum}
+              <div class="flex items-center gap-1.5 w-full">
+                <input 
+                  type="text"
+                  bind:value={editingBookmarkName}
+                  onkeydown={(e) => {
+                    if (e.key === 'Enter') {
+                      updateBookmarkNameAction(b.pageNum, editingBookmarkName);
+                      editingBookmarkId = null;
+                    } else if (e.key === 'Escape') {
+                      editingBookmarkId = null;
+                    }
+                  }}
+                  class="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-cyan-500 flex-1 min-w-0 font-sans"
+                  autofocus
+                />
+                <button 
+                  onclick={() => {
+                    updateBookmarkNameAction(b.pageNum, editingBookmarkName);
+                    editingBookmarkId = null;
+                  }}
+                  class="text-emerald-400 p-0.5 rounded hover:bg-slate-900">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </button>
+              </div>
+            {:else}
+              <button 
+                onclick={() => jumpToTargetPage(b.pageNum)}
+                class="flex-1 text-left min-w-0 font-sans group-hover:text-cyan-400 transition-colors">
+                <span class="text-[10px] font-semibold block truncate pr-1 {b.name ? 'text-slate-200' : 'text-slate-500 italic'}">
+                  {b.name || 'Untitled bookmark...'}
+                </span>
+              </button>
 
-            <div class="flex items-center justify-between p-2.5 rounded-lg border border-slate-900/50 bg-[#0e1321]/40 hover:bg-slate-800/30 hover:border-slate-700/30 transition-all group w-full">
-              {#if row.isEditing}
-                <div class="flex items-center gap-1.5 w-full">
-                  <input 
-                    type="text"
-                    bind:value={row.editVal}
-                    onkeydown={(e) => {
-                      if (e.key === 'Enter') {
-                        updateBookmarkNameAction(b.pageNum, row.editVal);
-                        row.isEditing = false;
-                      } else if (e.key === 'Escape') {
-                        row.editVal = b.name;
-                        row.isEditing = false;
-                      }
-                    }}
-                    class="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-cyan-500 flex-1 min-w-0 font-sans"
-                    autofocus
-                  />
+              <div class="flex items-center justify-end pl-1 shrink-0">
+                <span class="text-[8px] font-bold px-1.5 py-0.5 rounded bg-slate-900/80 text-slate-500 uppercase tracking-widest group-hover:hidden">
+                  p. {b.pageNum}
+                </span>
+
+                <div class="hidden group-hover:flex items-center gap-1">
                   <button 
-                    onclick={() => {
-                      updateBookmarkNameAction(b.pageNum, row.editVal);
-                      row.isEditing = false;
+                    onclick={(e) => { 
+                      e.stopPropagation(); 
+                      editingBookmarkId = b.pageNum; 
+                      editingBookmarkName = b.name; 
                     }}
-                    class="text-emerald-400 p-0.5 rounded hover:bg-slate-900">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    class="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-900 transition-colors"
+                    title="Rename Bookmark">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                  </button>
+                  <button 
+                    onclick={(e) => { 
+                      e.stopPropagation(); 
+                      deleteBookmarkAction(b.pageNum); 
+                    }}
+                    class="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-slate-900 transition-colors"
+                    title="Remove Bookmark">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                   </button>
                 </div>
-              {:else}
-                <button 
-                  onclick={() => activeDoc.currentPage = b.pageNum}
-                  class="flex-1 text-left min-w-0 font-sans group-hover:text-cyan-400 transition-colors">
-                  <span class="text-[10px] font-semibold block truncate pr-1 {b.name ? 'text-slate-200' : 'text-slate-500 italic'}">
-                    {b.name || 'Untitled bookmark...'}
-                  </span>
-                </button>
-
-                <div class="flex items-center justify-end pl-1 shrink-0">
-                  <span class="text-[8px] font-bold px-1.5 py-0.5 rounded bg-slate-900/80 text-slate-500 uppercase tracking-widest group-hover:hidden">
-                    p. {b.pageNum}
-                  </span>
-
-                  <div class="hidden group-hover:flex items-center gap-1">
-                    <button 
-                      onclick={(e) => { e.stopPropagation(); row.isEditing = true; }}
-                      class="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-900 transition-colors"
-                      title="Rename Bookmark">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                    </button>
-                    <button 
-                      onclick={(e) => { e.stopPropagation(); deleteBookmarkAction(b.pageNum); }}
-                      class="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-slate-900 transition-colors"
-                      title="Remove Bookmark">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                    </button>
-                  </div>
-                </div>
-              {/if}
-            </div>
-          {/snippet}
-          {@render sidebarCardUI()}
+              </div>
+            {/if}
+          </div>
         {/each}
       {/if}
     </div>

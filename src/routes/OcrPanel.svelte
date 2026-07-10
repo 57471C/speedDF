@@ -4,6 +4,8 @@
   import * as pdfjsLib from 'pdfjs-dist';
   import { activeDoc } from '../pdfStore.svelte';
 
+  let { onClose } = $props<{ onClose?: () => void }>();
+
   // Svelte 5 Fine-Grained Reactive State Management
   let engineStatus = $state<'idle' | 'processing' | 'error' | 'success'>('idle');
   let ocrProgress = $state<number>(0);
@@ -44,7 +46,7 @@
         if (capturedImageSrc) {
           URL.revokeObjectURL(capturedImageSrc);
         }
-        const blob = new Blob([rawPngBytes], { type: 'image/png' });
+        const blob = new Blob([rawPngBytes as any], { type: 'image/png' });
         capturedImageSrc = URL.createObjectURL(blob);
         activeTab = 'document';
 
@@ -132,9 +134,14 @@
   });
 </script>
 
-<div class="w-full flex flex-col font-sans text-slate-200">
+<div class="w-[400px] shrink-0 h-full flex flex-col relative bg-[#090d16] border-l border-zinc-800 font-sans text-slate-200 shadow-2xl p-4 overflow-hidden">
+  {#if onClose}
+    <div class="flex items-center justify-between mb-3 border-b border-zinc-900 pb-2 shrink-0">
+      <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">OCR Scan Drawer</span>
+      <button onclick={onClose} class="text-zinc-500 hover:text-white text-xs">✕</button>
+    </div>
+  {/if}
   
-  <!-- Upload Dropzone fallback (shown only when no active document is loaded in viewer) -->
   {#if !activeDoc.rawBytes}
     <div class="flex flex-col items-center justify-center border border-dashed border-zinc-800 bg-zinc-950/40 rounded-lg p-6 text-center text-zinc-500 text-[10px]">
       <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-zinc-600 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -144,9 +151,8 @@
     </div>
   {/if}
 
-  <!-- Hardware-Accelerated Progress Bar Layout -->
   {#if engineStatus === 'processing'}
-    <div class="mt-4 p-4 bg-zinc-900/40 border border-zinc-800 rounded-lg space-y-2">
+    <div class="mb-2 p-4 bg-zinc-900/40 border border-zinc-800 rounded-lg space-y-2 shrink-0">
       <div class="flex items-center justify-between text-xs font-medium font-sans">
         <span class="text-zinc-400 animate-pulse">Analyzing Layout Matrices...</span>
         <span class="text-cyan-400 font-mono font-bold">{ocrProgress}%</span>
@@ -162,16 +168,14 @@
   {/if}
 
   {#if engineStatus === 'error'}
-    <div class="mt-3 bg-red-950/30 border border-red-900/30 rounded-lg p-3 text-red-400 text-[9px] leading-relaxed font-mono shadow-inner select-text">
+    <div class="mb-2 bg-red-950/30 border border-red-900/30 rounded-lg p-3 text-red-400 text-[9px] leading-relaxed font-mono shadow-inner select-text shrink-0">
       <span class="font-bold uppercase tracking-wider block mb-1 font-sans text-red-500 select-none">Pipeline Halted:</span>
       {errorLog}
     </div>
   {/if}
 
-  <!-- Active Workspace split / tab content -->
   {#if activeDoc.rawBytes && capturedImageSrc}
-    <!-- Tab navigation -->
-    <div class="flex border-b border-zinc-800 mb-3 mt-3">
+    <div class="flex border-b border-zinc-800 mb-2 shrink-0">
       <button 
         onclick={() => activeTab = 'document'}
         class="flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all duration-150 border-b-2 {activeTab === 'document' ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-zinc-400 hover:text-zinc-200'}">
@@ -184,11 +188,9 @@
       </button>
     </div>
 
-    <!-- Active Tab Panel Content -->
     {#if activeTab === 'document'}
-      <!-- Document View Canvas -->
-      <div class="flex flex-col bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden">
-        <div class="flex justify-between items-center p-2.5 border-b border-zinc-900 bg-zinc-900/40">
+      <div class="flex flex-col flex-1 min-h-0 bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden">
+        <div class="flex justify-between items-center p-2.5 border-b border-zinc-900 bg-zinc-900/40 shrink-0">
           <span class="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Preview Canvas (Page {activeDoc.currentPage})</span>
           <button 
             disabled={processingLocked}
@@ -197,14 +199,13 @@
             Refresh
           </button>
         </div>
-        <div class="flex items-center justify-center p-3 bg-zinc-950/40 min-h-[220px] max-h-[350px] overflow-auto">
+        <div class="flex flex-1 min-h-0 items-center justify-center p-3 bg-zinc-950/40 overflow-auto">
           <img src={capturedImageSrc} alt="Captured Document Page" class="max-w-full max-h-full object-contain rounded shadow-lg border border-zinc-900" />
         </div>
       </div>
     {:else}
-      <!-- Extracted Text sidebar pane -->
-      <div class="flex flex-col bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden">
-        <div class="flex justify-between items-center p-2.5 border-b border-zinc-900 bg-zinc-900/40">
+      <div class="flex flex-col flex-1 min-h-0 bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden">
+        <div class="flex justify-between items-center p-2.5 border-b border-zinc-900 bg-zinc-900/40 shrink-0">
           <span class="text-[9px] font-bold uppercase tracking-wider text-emerald-400">Extracted Output</span>
           
           {#if outputTextResult}
@@ -233,19 +234,19 @@
           {/if}
         </div>
         
-        <div class="p-3">
+        <div class="p-3 flex-1 min-h-0 flex flex-col">
           {#if engineStatus === 'processing'}
-            <div class="w-full h-48 flex flex-col items-center justify-center text-zinc-500 text-[10px] font-medium italic">
+            <div class="flex-1 flex flex-col items-center justify-center text-zinc-500 text-[10px] font-medium italic">
               <span class="animate-pulse">Transcribing...</span>
             </div>
           {:else if outputTextResult}
             <textarea 
               readonly 
               bind:value={outputTextResult}
-              class="w-full h-[280px] bg-transparent border-0 resize-none text-[10px] text-slate-300 focus:outline-none font-mono leading-relaxed shadow-inner"
+              class="flex-1 w-full bg-transparent border-0 resize-none text-[10px] text-slate-300 focus:outline-none font-mono leading-relaxed shadow-inner"
             ></textarea>
           {:else}
-            <div class="w-full h-48 flex items-center justify-center text-zinc-600 text-[10px] italic">
+            <div class="flex-1 flex items-center justify-center text-zinc-600 text-[10px] italic">
               No text extracted yet.
             </div>
           {/if}

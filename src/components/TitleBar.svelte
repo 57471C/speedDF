@@ -113,12 +113,10 @@
         const fontMapping = FONT_MAP[fontName];
         const pdfFontKey = fontMapping ? (fontMapping.pdf[fontStyle] || fontMapping.pdf["Normal"]) : "Helvetica";
         const pdfFont = await destDoc.embedStandardFont(pdfFontKey as any);
-        
         const fontSize = s.size || 12;
         const textBaselineY = pageHeight - (s.y / 100) * pageHeight;
         const zoomMultiplier = (activeDoc.zoomScale || 120) / 100;
         const yOffset = 10 / zoomMultiplier;
-        
         page.drawText(s?.text || "", {
           x,
           y: textBaselineY - yOffset,
@@ -220,14 +218,11 @@
 
   async function flattenWorkspaceToPDF(): Promise<Uint8Array | null> {
     if (!activeDoc.rawBytes || activeDoc.pageOrder.length === 0) return null;
-
     try {
       const destDoc = await PDFDocument.create();
       const imageCache = new Map<string, any>();
-
       if (activeDoc.fileType === "tiff") {
         console.log("Save Engine: Compiling native multi-page TIFF drawing into a standard PDF structure...");
-        
         for (let i = 0; i < activeDoc.pageOrder.length; i++) {
           const originalPageNumber = activeDoc.pageOrder[i];
           const rawPngBytes = activeDoc.tiffPages[originalPageNumber - 1];
@@ -235,7 +230,6 @@
 
           const embeddedImage = await destDoc.embedPng(rawPngBytes);
           const rotationAngle = activeDoc.rotations[originalPageNumber] ?? 0;
-
           let pageWidth = embeddedImage.width;
           let pageHeight = embeddedImage.height;
 
@@ -245,7 +239,6 @@
           }
 
           const page = destDoc.addPage([pageWidth, pageHeight]);
-
           let drawX = 0;
           let drawY = 0;
           if (rotationAngle === 90) {
@@ -266,7 +259,6 @@
             height: embeddedImage.height,
             rotate: degrees(-rotationAngle)
           });
-
           await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache);
         }
       } else {
@@ -275,14 +267,12 @@
           srcDoc,
           activeDoc.pageOrder.map((num) => num - 1),
         );
-
         for (let i = 0; i < activeDoc.pageOrder.length; i++) {
           const originalPageNumber = activeDoc.pageOrder[i];
           const page = copiedPages[i];
           destDoc.addPage(page);
 
           const { width: pageWidth, height: pageHeight } = page.getSize();
-          
           if (activeDoc.rotations[originalPageNumber] !== undefined) {
             const existingAngle = page.getRotation().angle;
             page.setRotation(
@@ -301,7 +291,6 @@
         const { context } = destDoc;
         const pageRefs = destDoc.getPages().map(p => p.ref); // Get native Object IDs for pages
         const validBookmarks = activeDoc.bookmarks.filter(b => activeDoc.pageOrder.includes(b.pageNum));
-
         if (validBookmarks.length > 0) {
           // Create individual outline item dictionaries
           const outlineItems = validBookmarks.map((b) => {
@@ -315,7 +304,6 @@
               })
             };
           });
-
           // Wire up the linked-list properties (/Parent, /Next, /Prev) for each item ref
           const outlinesDictRef = context.nextRef();
           outlineItems.forEach((item, idx) => {
@@ -324,7 +312,6 @@
             if (idx < outlineItems.length - 1) item.dict.set(PDFName.of('Next'), outlineItems[idx + 1].ref);
             context.assign(item.ref, item.dict);
           });
-
           // Compile the parent /Outlines root control block
           const outlinesDict = context.obj({
             Type: PDFName.of('Outlines'),
@@ -379,7 +366,6 @@
         activeDoc.shapes = {};
         activeDoc.fileName = payload.name;
         activeDoc.filePath = payload.path;
-
         // Ingestion of outlines / bookmarks
         try {
           const outline = await pdfDocument.getOutline();
@@ -423,7 +409,8 @@
         return;
       }
       const defaultName = activeDoc.fileName
-        ? activeDoc.fileName.replace(/\.(pdf|tiff|tif)$/i, "") + "_revised.pdf"
+        ?
+          activeDoc.fileName.replace(/\.(pdf|tiff|tif)$/i, "") + "_revised.pdf"
         : 'Untitled.pdf';
       const savedPath = await invoke<string>("native_save_as_file", {
         fileBytes: Array.from(compiledBytes),
@@ -553,13 +540,18 @@
 
         <button onclick={onSave} title="Save (Ctrl+S)" class="toolbar-btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
           </svg>
         </button>
 
         <button onclick={onSaveAs} title="Save As... (Ctrl+Shift+S)" class="toolbar-btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/>
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+            <polyline points="17 21 17 13 7 13 7 21"/>
+            <polyline points="7 3 7 8 15 8"/>
+            <line x1="20" y1="12" x2="20" y2="18"/>
+            <line x1="20" y1="18" x2="22" y2="16"/>
+            <line x1="20" y1="18" x2="18" y2="16"/>
           </svg>
         </button>
 
@@ -571,27 +563,40 @@
 
         <div class="w-px h-4 bg-slate-700 mx-1.5"></div>
 
-        <button onclick={onUndo} title="Undo (Ctrl+Z)" class="toolbar-btn">
+        <button 
+          disabled={!activeDoc.rawBytes}
+          onclick={onUndo} 
+          title="Undo (Ctrl+Z)" 
+          class="toolbar-btn"
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
           </svg>
         </button>
 
-        <button onclick={onRedo} title="Redo (Ctrl+Y)" class="toolbar-btn">
+        <button 
+          disabled={!activeDoc.rawBytes}
+          onclick={onRedo} 
+          title="Redo (Ctrl+Y)" 
+          class="toolbar-btn"
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
           </svg>
         </button>
-      </div>
 
-      <div class="flex items-center gap-1 text-[11px] text-slate-400 font-bold">
-        <span class="text-zinc-600 px-1 select-none font-normal">|</span>
+        <div class="w-px h-4 bg-slate-700 mx-1.5"></div>
+
         <button 
           disabled={!activeDoc.rawBytes}
           onclick={onToggleOcr} 
-          class="titlebar-btn pointer-events-auto text-xs text-zinc-400 hover:text-zinc-100 transition-colors font-medium focus:outline-none disabled:opacity-30 disabled:pointer-events-none"
+          title="Extract Text" 
+          class="toolbar-btn"
         >
-          Extract Text
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 3a4 4 0 0 1 4 4"/><path d="M21 17a4 4 0 0 1-4 4"/><path d="M7 21a4 4 0 0 1-4-4"/><path d="M3 7a4 4 0 0 1 4-4"/>
+            <path d="M12 7l3 9"/><path d="M9 16h6"/><path d="M12 7L9 16"/>
+          </svg>
         </button>
       </div>
     </div>
@@ -603,11 +608,13 @@
         <span
           class="titlebar-btn text-[11px] font-semibold text-slate-400 tracking-wide truncate max-w-xs hover:!text-white transition-colors"
         >
-          {activeDoc.fileName ? activeDoc.fileName : "No Document Active"}
+          {activeDoc.fileName ?
+            activeDoc.fileName : "No Document Active"}
         </span>
         {#if activeDoc.fileName}
           <button
-            onclick={() => { if (typeof onCloseDocument === 'function') onCloseDocument(); else closeActiveDocument(); }}
+            onclick={() => { if (typeof onCloseDocument === 'function') onCloseDocument();
+            else closeActiveDocument(); }}
             class="titlebar-btn w-5 h-5 flex items-center justify-center rounded-full text-slate-400 hover:!text-white transition-colors pointer-events-auto"
             title="Close Document"
           >
@@ -674,7 +681,8 @@
         </button>
         <button
           onclick={onMaximize}
-          class="titlebar-btn w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:!text-white transition-colors"
+          class="titlebar-btn w-7 h-7 
+            flex items-center justify-center rounded text-slate-400 hover:!text-white transition-colors"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -739,7 +747,8 @@
   }
 
   .titlebar-btn {
-    color: #94a3b8 !important; /* text-slate-400 fallback */
+    color: #94a3b8 !important;
+    /* text-slate-400 fallback */
     transition: color 0.15s ease, background-color 0.15s ease !important;
     pointer-events: auto !important;
   }
@@ -752,7 +761,8 @@
     transition: all 0.15s ease !important;
   }
   .titlebar-close-btn:hover {
-    background-color: #dc2626 !important; /* bg-red-600 fallback */
+    background-color: #dc2626 !important;
+    /* bg-red-600 fallback */
     color: #ffffff !important;
   }
 </style>

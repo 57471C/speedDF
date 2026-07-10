@@ -1,6 +1,7 @@
 # Todo List #
 
 ## Features to add ##
+0. add find/search contect popup with clear text/case insensitive button (on by default)
 1. Add select text/copy text and OCR functionality (onyx) in main canvas.
 2. Add snapshot tool.
 3. Add File tabs for multiple documents.

@@ -421,7 +421,7 @@
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
   onpointerleave={handlePointerLeave}
-  class="flex-1 h-full overflow-auto bg-[#070a12] flex flex-col items-center pt-8 px-4 relative workspace-scroll-container transition-colors duration-200
+  class="flex-1 min-w-0 h-full overflow-auto bg-[#070a12] flex flex-col items-center pt-8 px-4 relative workspace-scroll-container transition-colors duration-200
     {isDragging ? '' : 'scroll-smooth'}
     [&::-webkit-scrollbar]:w-2 
     [&::-webkit-scrollbar-track]:bg-transparent 

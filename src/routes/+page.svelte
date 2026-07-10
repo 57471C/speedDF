@@ -738,6 +738,10 @@
 
       <PageSidebar />
 
+      {#if showOcrDrawer}
+        <OcrPanel onClose={() => (showOcrDrawer = false)} />
+      {/if}
+
       {#if renderDurationMs !== null}
         <div
           class="fixed top-11 left-14 z-10 select-none pointer-events-none font-mono text-[9px] tracking-widest text-slate-500/40 font-semibold uppercase mix-blend-screen"
@@ -1242,25 +1246,6 @@
   </div>
 {/if}
 
-{#if showOcrDrawer}
-  <div
-    class="w-80 border-l border-zinc-800 bg-zinc-950/90 h-full absolute right-0 top-0 z-[1000] shadow-2xl p-4 overflow-y-auto flex flex-col transition-all duration-200"
-  >
-    <div
-      class="flex items-center justify-between mb-3 border-b border-zinc-900 pb-2"
-    >
-      <span
-        class="text-[10px] font-bold uppercase tracking-wider text-slate-400"
-        >OCR Scan Drawer</span
-      >
-      <button
-        onclick={() => (showOcrDrawer = false)}
-        class="text-zinc-500 hover:text-white text-xs">✕</button
-      >
-    </div>
-    <OcrPanel />
-  </div>
-{/if}
 
 <ContextMenu
   bind:show={showMenu}
