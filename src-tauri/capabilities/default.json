@@ -17,6 +17,13 @@
     "dialog:default",
     "dialog:allow-confirm",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "shell:default",
+    {
+      "identifier": "shell:allow-open",
+      "scope": {
+        "open": "https://buymeacoffee.com/**"
+      }
+    }
   ]
 }

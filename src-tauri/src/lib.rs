@@ -382,6 +382,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_shell::init())
         .setup(|_app| {
             // Spawn a separate thread immediately to keep the UI initialization instantaneous
             std::thread::spawn(|| {

@@ -1,14 +1,11 @@
 # Todo List #
 
 ## Features to add ##
-0. add find/search contect popup with clear text/case insensitive button (on by default)
+0. add find/search contect popup with clear text/case insensitive button (on by default) !probably need #1 first?
 1. Add select text/copy text and OCR functionality (onyx) in main canvas.
 2. Add snapshot tool.
 3. Add File tabs for multiple documents.
-4. Improved titlebar icons and placement (add Undo/Redo buttons. Share via email)
 5. Recent document options (clear, delete, compress)
-6. pagesToolbar - add bookmarks, 
-7. pagesToolbar - comments view.
 8. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
 
 
