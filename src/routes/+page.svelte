@@ -5,6 +5,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { check } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
+  import { open as openBrowser } from "@tauri-apps/plugin-shell";
   import * as pdfjsLib from "pdfjs-dist";
   import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
   import TitleBar from "../components/TitleBar.svelte";
@@ -55,6 +56,10 @@
 
   function toggleOcrDrawer() {
     showOcrDrawer = !showOcrDrawer;
+  }
+
+  function openCoffeeLink() {
+    openBrowser("https://buymeacoffee.com/speeddf");
   }
 
   interface RecentFile {
@@ -1188,8 +1193,22 @@
       </div>
 
       <div
-        class="p-3 border-t border-slate-900/60 bg-[#0e1524]/40 flex justify-end"
+        class="p-3 border-t border-slate-900/60 bg-[#0e1524]/40 flex justify-between items-center"
       >
+        <button 
+          onclick={openCoffeeLink}
+          class="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 font-sans text-[11px] font-bold uppercase tracking-wider text-amber-400 transition-all duration-150 hover:border-amber-500/60 hover:bg-amber-500/20"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 8h1a4 4 0 1 1 0 8h-1"></path>
+            <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"></path>
+            <line x1="6" y1="2" x2="6" y2="4"></line>
+            <line x1="10" y1="2" x2="10" y2="4"></line>
+            <line x1="14" y1="2" x2="14" y2="4"></line>
+          </svg>
+          <span>Buy me a coffee</span>
+        </button>
+
         <button
           onclick={() => (showHelpModal = false)}
           class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-[11px] font-bold transition-colors shadow-md"

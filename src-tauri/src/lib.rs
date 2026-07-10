@@ -386,6 +386,7 @@ pub fn run() {
             det_model_bytes: tokio::sync::OnceCell::new(),
             rec_model_bytes: tokio::sync::OnceCell::new(),
         })
+        .plugin(tauri_plugin_shell::init())
         .setup(|_app| {
             // Spawn a separate thread immediately to keep the UI initialization instantaneous
             std::thread::spawn(|| {
