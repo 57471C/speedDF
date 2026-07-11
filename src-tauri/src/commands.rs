@@ -599,3 +599,57 @@ pub async fn run_local_ocr(
     .await
     .map_err(|e| format!("Inference thread panic: {}", e))?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_onnx_parameter_tokens;
+
+    #[test]
+    fn test_sanitize_p2o_basic() {
+        let mut bytes = b"p2o.DynamicDimension".to_vec();
+        sanitize_onnx_parameter_tokens(&mut bytes);
+        assert_eq!(&bytes, b"p2o_DynamicDimension");
+    }
+
+    #[test]
+    fn test_sanitize_dynamic_dimension() {
+        let mut bytes = b"DynamicDimension.".to_vec();
+        sanitize_onnx_parameter_tokens(&mut bytes);
+        assert_eq!(&bytes, b"DynamicDimension_");
+    }
+
+    #[test]
+    fn test_sanitize_dynamic_dimension_in_string() {
+        let mut bytes = b"prefix.DynamicDimension.suffix".to_vec();
+        sanitize_onnx_parameter_tokens(&mut bytes);
+        assert_eq!(&bytes, b"prefix.DynamicDimension_suffix");
+    }
+
+    #[test]
+    fn test_sanitize_multiple_matches() {
+        let mut bytes = b"p2o.DynamicDimension and DynamicDimension. extra".to_vec();
+        sanitize_onnx_parameter_tokens(&mut bytes);
+        assert_eq!(&bytes, b"p2o_DynamicDimension and DynamicDimension_ extra");
+    }
+
+    #[test]
+    fn test_sanitize_no_match() {
+        let mut bytes = b"normal.onnx.parameter".to_vec();
+        sanitize_onnx_parameter_tokens(&mut bytes);
+        assert_eq!(&bytes, b"normal.onnx.parameter");
+    }
+
+    #[test]
+    fn test_sanitize_short_input() {
+        let mut bytes = b"p2o".to_vec();
+        sanitize_onnx_parameter_tokens(&mut bytes);
+        assert_eq!(&bytes, b"p2o");
+    }
+
+    #[test]
+    fn test_sanitize_empty_input() {
+        let mut bytes: Vec<u8> = vec![];
+        sanitize_onnx_parameter_tokens(&mut bytes);
+        assert!(bytes.is_empty());
+    }
+}
