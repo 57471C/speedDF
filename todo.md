@@ -10,6 +10,8 @@
 9. undo/redo should be diab;es if there's nothing to undo or redo
 10. large files go out of sync in thumnails and the viewbox
 11. moving objects around the canvas is stil a bit janky
+12. selected shapes should update their colour and line thickness when the colour and thinkness tool is selected
+13. select tool should be able to ctrl+click to multi select
 
 
 99. Buy me a coffee in help modal and welcome message

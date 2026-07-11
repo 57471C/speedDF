@@ -40,8 +40,8 @@ tract-onnx = "0.21.3"  # 100% Rust NN execution; zero C++ dynamic links
 rayon = "1.10"
 
 [profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
-strip = true
+opt-level = 3          # Maximize compilation speed performance optimizations
+lto = true              # Enable Link-Time Optimization across all crates
+codegen-units = 1       # Reduce parallel code generation blocks to maximize binary compression
+panic = "abort"         # Strip out heavy stack unwinding panic hooks
+strip = true            # Automatically drop all debug symbols and data mappings from the final binary

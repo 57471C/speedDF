@@ -389,7 +389,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .setup(|_app| {
             // Spawn a separate thread immediately to keep the UI initialization instantaneous
-            std::thread::spawn(|| {
+            tokio::task::spawn_blocking(move || {
                 let temp_dir = std::env::temp_dir();
                 println!("Background Sweep: Scanning temp directory: {:?}", temp_dir);
 

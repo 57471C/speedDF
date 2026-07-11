@@ -41,6 +41,7 @@
 
   let showUpdateToast = $state(false);
   let availableUpdate = $state.raw<any>(null);
+  let downloadOnClose = $state(false);
 
   let loadStartTime = 0;
   let renderDurationMs = $state<number | null>(null);
@@ -698,7 +699,7 @@
     });
 
     // Capture system Close Button actions cleanly via browser-native confirmation prompts
-    const unlistenCloseRequest = appWindow.onCloseRequested((event) => {
+    const unlistenCloseRequest = appWindow.onCloseRequested(async (event) => {
       if (activeDoc.isDirty) {
         event.preventDefault(); // 🛡️ STOP EXITING SYNCHRONOUSLY IMMEDIATELY
         unsavedModalMessage =
@@ -709,6 +710,17 @@
           appWindow.close();
         };
         showUnsavedModal = true;
+      } else {
+        if (downloadOnClose) {
+          event.preventDefault();
+          downloadOnClose = false;
+          try {
+            await availableUpdate.downloadAndInstall();
+          } catch (err) {
+            console.error("Failed to install update on close:", err);
+          }
+          await appWindow.close();
+        }
       }
     });
 
@@ -1376,16 +1388,9 @@
           Now
         </button>
         <button
-          onclick={async () => {
-            const up = availableUpdate;
+          onclick={() => {
+            downloadOnClose = true;
             showUpdateToast = false;
-            showNotification("Downloading update in background...");
-            try {
-              await up.downloadAndInstall();
-              showNotification("Update downloaded. It will apply next relaunch.");
-            } catch (err) {
-              console.error("Background update failed:", err);
-            }
           }}
           class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-150 shadow-lg shadow-emerald-950/40 cursor-pointer"
         >
