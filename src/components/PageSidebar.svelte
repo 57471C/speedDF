@@ -324,8 +324,7 @@
       return;
     }
     pushHistorySnapshot();
-    const selectedSet = new Set(selectedPages);
-    activeDoc.pageOrder = activeDoc.pageOrder.filter(p => !selectedSet.has(p));
+    activeDoc.pageOrder = activeDoc.pageOrder.filter(p => !selectedPages.includes(p));
     if (!activeDoc.pageOrder.includes(activeDoc.currentPage)) {
       activeDoc.currentPage = activeDoc.pageOrder[0] || 1;
     }
@@ -363,8 +362,7 @@
 
         if (selectedPages.includes(draggedPage) && selectedPages.length > 1) {
           const referencePage = activeDoc.pageOrder[newIndex];
-          const selectedSet = new Set(selectedPages);
-          newOrder = newOrder.filter(p => !selectedSet.has(p));
+          newOrder = newOrder.filter(p => !selectedPages.includes(p));
           let insertAt = newOrder.indexOf(referencePage);
           if (oldIndex < newIndex) {
             insertAt += 1;
