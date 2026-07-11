@@ -8,6 +8,7 @@ import {
 	redoStack,
 	rotatePageAction,
 	addOrToggleBookmarkAction,
+	deleteBookmarkAction,
 	undoStack,
 } from "./pdfStore.svelte.ts";
 
@@ -206,6 +207,49 @@ describe("rotatePageAction", () => {
 		activeDoc.rotations[2] = 180;
 		rotatePageAction(2, "counter");
 		expect(activeDoc.rotations[2]).toBe(90);
+	});
+});
+
+describe("deleteBookmarkAction", () => {
+	beforeEach(() => {
+		activeDoc.flushDocumentState();
+	});
+
+	it("should do nothing if no bookmarks exist", () => {
+		expect(activeDoc.bookmarks).toEqual([]);
+		deleteBookmarkAction(1);
+		expect(activeDoc.bookmarks).toEqual([]);
+	});
+
+	it("should remove the specified bookmark", () => {
+		activeDoc.bookmarks = [{ pageNum: 1, name: "Test" }];
+		deleteBookmarkAction(1);
+		expect(activeDoc.bookmarks).toEqual([]);
+	});
+
+	it("should only remove the bookmark with the specified page number when multiple bookmarks exist", () => {
+		activeDoc.bookmarks = [
+			{ pageNum: 1, name: "Test 1" },
+			{ pageNum: 2, name: "Test 2" },
+			{ pageNum: 3, name: "Test 3" },
+		];
+		deleteBookmarkAction(2);
+		expect(activeDoc.bookmarks).toEqual([
+			{ pageNum: 1, name: "Test 1" },
+			{ pageNum: 3, name: "Test 3" },
+		]);
+	});
+
+	it("should do nothing if a bookmark with the specified page number does not exist", () => {
+		activeDoc.bookmarks = [
+			{ pageNum: 1, name: "Test 1" },
+			{ pageNum: 3, name: "Test 3" },
+		];
+		deleteBookmarkAction(2);
+		expect(activeDoc.bookmarks).toEqual([
+			{ pageNum: 1, name: "Test 1" },
+			{ pageNum: 3, name: "Test 3" },
+		]);
 	});
 });
 
