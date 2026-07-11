@@ -258,12 +258,14 @@
                     destObj = await pdfDocument.getDestination(destObj);
                   }
                   if (Array.isArray(destObj) && destObj[0]) {
-                    const pageIndex = await pdfDocument.getPageIndex(destObj[0]);
+                    const pageIndex = await pdfDocument.getPageIndex(
+                      destObj[0],
+                    );
                     pageNum = pageIndex + 1;
                   }
                 }
                 return { pageNum, name: item.title || "" };
-              })
+              }),
             );
             activeDoc.bookmarks = loadedBookmarks;
           } else {
@@ -337,7 +339,7 @@
         const doc = await PDFDocument.create();
         doc.addPage([595.276, 841.89]); // A4 dimensions
         const bytes = await doc.save();
-        
+
         activeDoc.fileType = "pdf";
         activeDoc.rawBytes = bytes;
         activeDoc.fileName = "Untitled.pdf";
@@ -356,7 +358,8 @@
     };
 
     if (activeDoc.isDirty) {
-      unsavedModalMessage = "You have unsaved changes on this layout sheet. Are you sure you want to create a new blank A4 document and discard your progress?";
+      unsavedModalMessage =
+        "You have unsaved changes on this layout sheet. Are you sure you want to create a new blank A4 document and discard your progress?";
       pendingNavigationAction = () => {
         activeDoc.isDirty = false;
         setTimeout(doCreate, 50);
@@ -1027,7 +1030,7 @@
           >
           <span
             class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v0.9.8</span
+            >v0.9.9</span
           >
         </div>
         <button
@@ -1196,11 +1199,21 @@
       <div
         class="p-3 border-t border-slate-900/60 bg-[#0e1524]/40 flex justify-between items-center"
       >
-        <button 
+        <button
           onclick={openCoffeeLink}
           class="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 font-sans text-[11px] font-bold uppercase tracking-wider text-amber-400 transition-all duration-150 hover:border-amber-500/60 hover:bg-amber-500/20"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <path d="M17 8h1a4 4 0 1 1 0 8h-1"></path>
             <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"></path>
             <line x1="6" y1="2" x2="6" y2="4"></line>
@@ -1265,7 +1278,6 @@
     </div>
   </div>
 {/if}
-
 
 <ContextMenu
   bind:show={showMenu}
