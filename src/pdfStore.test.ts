@@ -121,23 +121,10 @@ describe("pushHistorySnapshot", () => {
 
 describe("executeUndoAction", () => {
 	beforeEach(() => {
-		// Reset activeDoc and history stacks implicitly by calling flushDocumentState
+		// Reset activeDoc and history stacks explicitly
 		activeDoc.flushDocumentState();
-
-		// Clear stacks by pushing a state then doing a workaround
-		// Wait, since we can't clear undoStack directly, let's flush document state and clear by looping undo
-		while (true) {
-			const oldShapes = JSON.stringify(activeDoc.shapes);
-			const oldPageOrder = JSON.stringify(activeDoc.pageOrder);
-			executeUndoAction();
-			if (
-				JSON.stringify(activeDoc.shapes) === oldShapes &&
-				JSON.stringify(activeDoc.pageOrder) === oldPageOrder
-			) {
-				// To completely clear, we might need to reset redoStack too.
-				break;
-			}
-		}
+		undoStack.length = 0;
+		redoStack.length = 0;
 	});
 
 	afterEach(() => {
@@ -151,14 +138,9 @@ describe("executeUndoAction", () => {
 		const initialShapes = JSON.stringify(activeDoc.shapes);
 		const initialPageOrder = JSON.stringify(activeDoc.pageOrder);
 
-		// Emptying undoStack hack
-		// Since we can't directly access undoStack, we just don't push anything initially.
-		// If the test suite runs in isolation, undoStack is empty here.
-		// If not, we still just test that if we call undo enough times it eventually stops changing.
-
 		executeUndoAction();
 
-		// As undoStack is probably empty, it should not change
+		// As undoStack is empty, it should not change
 		expect(JSON.stringify(activeDoc.shapes)).toEqual(initialShapes);
 		expect(JSON.stringify(activeDoc.pageOrder)).toEqual(initialPageOrder);
 	});
