@@ -269,20 +269,24 @@ export function rotatePageAction(
 }
 
 export function addOrToggleBookmarkAction(pageNum: number) {
-	const index = activeDoc.bookmarks.findIndex(b => b.pageNum === pageNum);
+	const index = activeDoc.bookmarks.findIndex((b) => b.pageNum === pageNum);
 	if (index !== -1) {
-		activeDoc.bookmarks = activeDoc.bookmarks.filter(b => b.pageNum !== pageNum);
+		activeDoc.bookmarks = activeDoc.bookmarks.filter(
+			(b) => b.pageNum !== pageNum,
+		);
 	} else {
 		activeDoc.bookmarks = [...activeDoc.bookmarks, { pageNum, name: "" }];
 	}
 }
 
 export function deleteBookmarkAction(pageNum: number) {
-	activeDoc.bookmarks = activeDoc.bookmarks.filter(b => b.pageNum !== pageNum);
+	activeDoc.bookmarks = activeDoc.bookmarks.filter(
+		(b) => b.pageNum !== pageNum,
+	);
 }
 
 export function updateBookmarkNameAction(pageNum: number, newName: string) {
-	activeDoc.bookmarks = activeDoc.bookmarks.map(b => 
-		b.pageNum === pageNum ? { ...b, name: newName } : b
+	activeDoc.bookmarks = activeDoc.bookmarks.map((b) =>
+		b.pageNum === pageNum ? { ...b, name: newName } : b,
 	);
 }
