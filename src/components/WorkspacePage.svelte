@@ -11,6 +11,8 @@
   }>();
   let canvasElement = $state<HTMLCanvasElement | null>(null);
   let pageContainer = $state<HTMLDivElement | null>(null);
+  let textLayerElement = $state<HTMLDivElement | null>(null);
+  let activeTextLayer: InstanceType<typeof pdfjsLib.TextLayer> | null = null;
   let rendering = false;
 
   let isPreloaded = $state(false); // Tracks metadata visibility (Wide)
@@ -204,8 +206,10 @@
 
   $effect(() => {
     const degrees = activeDoc.rotations[pageNumber] ?? 0;
+    // Read textLayerElement here so the effect re-runs once the overlay mounts
+    const textLayer = textLayerElement;
     if (isRendered && bytes && canvasElement && zoomScale) {
-      renderPageSheet(bytes, pageNumber, zoomScale, canvasElement, degrees);
+      renderPageSheet(bytes, pageNumber, zoomScale, canvasElement, degrees, textLayer);
     }
   });
 
@@ -216,6 +220,15 @@
           activeRenderTask.cancel();
         } catch (e) {}
         activeRenderTask = null;
+      }
+      if (activeTextLayer) {
+        try {
+          activeTextLayer.cancel();
+        } catch (e) {}
+        activeTextLayer = null;
+      }
+      if (textLayerElement) {
+        textLayerElement.replaceChildren();
       }
       if (activePdfPage) {
         try {
@@ -232,10 +245,22 @@
     scale: number,
     canvas: HTMLCanvasElement,
     rotationAngle: number,
+    textLayerContainer: HTMLDivElement | null = null,
   ) {
     if (activeDoc.fileType === "tiff") {
       const pageData = activeDoc.tiffPages[pageNum - 1];
       const rotation = activeDoc.rotations[pageNum] ?? 0;
+
+      // TIFF pages have no PDF text content — clear any leftover text layer
+      if (activeTextLayer) {
+        try {
+          activeTextLayer.cancel();
+        } catch (e) {}
+        activeTextLayer = null;
+      }
+      if (textLayerContainer) {
+        textLayerContainer.replaceChildren();
+      }
       
       if (pageData) {
         const blob = new Blob([pageData as any], { type: "image/png" });
@@ -272,6 +297,12 @@
         } catch (e) {}
         activeRenderTask = null;
       }
+      if (activeTextLayer) {
+        try {
+          activeTextLayer.cancel();
+        } catch (e) {}
+        activeTextLayer = null;
+      }
     }
     rendering = true;
     try {
@@ -288,9 +319,15 @@
       
       const dpr = window.devicePixelRatio || 1;
       const baseScale = scale / 100;
+      const rotation = (page.rotate + rotationAngle) % 360;
       const adjustedViewport = page.getViewport({
         scale: baseScale * dpr,
-        rotation: (page.rotate + rotationAngle) % 360,
+        rotation,
+      });
+      // CSS-pixel viewport for the text layer (matches on-screen canvas size)
+      const textViewport = page.getViewport({
+        scale: baseScale,
+        rotation,
       });
 
       const context = canvas.getContext("2d");
@@ -301,6 +338,30 @@
         canvas.style.height = `${adjustedViewport.height / dpr}px`;
         activeRenderTask = page.render({ canvas: canvas, viewport: adjustedViewport });
         await activeRenderTask.promise;
+      }
+
+      // Superimpose a selectable PDF.js text layer over the rendered canvas
+      if (textLayerContainer) {
+        if (activeTextLayer) {
+          try {
+            activeTextLayer.cancel();
+          } catch (e) {}
+          activeTextLayer = null;
+        }
+        // Always clear prior text runs before re-rendering (zoom / page change)
+        textLayerContainer.replaceChildren();
+        textLayerContainer.style.setProperty("--total-scale-factor", String(baseScale));
+        textLayerContainer.style.setProperty("--scale-round-x", "1px");
+        textLayerContainer.style.setProperty("--scale-round-y", "1px");
+
+        const textContent = await page.getTextContent();
+        const textLayer = new pdfjsLib.TextLayer({
+          textContentSource: textContent,
+          container: textLayerContainer,
+          viewport: textViewport,
+        });
+        activeTextLayer = textLayer;
+        await textLayer.render();
       }
     } catch (error) {
       console.error(error);
@@ -402,6 +463,14 @@
       targetElement.closest(".resize-handle-node")
     )
       return;
+
+    // Let the browser handle native PDF text selection (no annotation side-effects)
+    if (targetElement.closest(".textLayer")) {
+      if (activeDoc.activeTool === "select") {
+        activeDoc.selectedShape = null;
+      }
+      return;
+    }
 
     if (activeDoc.activeTool !== "text") {
       pushHistorySnapshot();
@@ -777,6 +846,13 @@
   {#if isRendered}
     <canvas use:canvasLifecycle class="block max-w-full h-auto rounded-sm"
     ></canvas>
+    <!-- PDF.js text layer: sits above canvas; spans capture selection, empty areas pass through -->
+    <div
+      bind:this={textLayerElement}
+      class="textLayer absolute inset-0 overflow-hidden rounded-sm z-[35]"
+      class:textLayer--interactive={activeDoc.activeTool === "select"}
+      aria-hidden="true"
+    ></div>
   {/if}
 
   <div
@@ -1303,3 +1379,66 @@
     {/if}
   </div>
 </div>
+
+<style>
+  /* Minimal PDF.js text layer styles — characters are invisible but selectable.
+     :global() is required because TextLayer injects spans at runtime. */
+  .textLayer {
+    pointer-events: none;
+    line-height: 1;
+    text-align: initial;
+    opacity: 1;
+    -webkit-text-size-adjust: none;
+    text-size-adjust: none;
+    transform-origin: 0 0;
+    caret-color: transparent;
+    --text-scale-factor: calc(var(--total-scale-factor, 1) * var(--min-font-size, 1));
+    --min-font-size-inv: calc(1 / var(--min-font-size, 1));
+  }
+
+  .textLayer :global(:is(span, br)) {
+    color: transparent;
+    position: absolute;
+    white-space: pre;
+    cursor: text;
+    transform-origin: 0% 0%;
+    -webkit-user-select: text;
+    user-select: text;
+    pointer-events: none;
+  }
+
+  /* Only capture pointer events on glyphs when the select tool is active.
+     Overrides parent select-none so the browser can form a selection. */
+  .textLayer.textLayer--interactive {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  .textLayer.textLayer--interactive :global(:is(span, br)) {
+    pointer-events: auto;
+  }
+
+  .textLayer :global(> :not(.markedContent)),
+  .textLayer :global(.markedContent span:not(.markedContent)) {
+    z-index: 1;
+    font-size: calc(var(--text-scale-factor) * var(--font-height, 0));
+    --scale-x: 1;
+    --rotate: 0deg;
+    transform: rotate(var(--rotate)) scaleX(var(--scale-x))
+      scale(var(--min-font-size-inv));
+  }
+
+  .textLayer :global(.markedContent) {
+    display: contents;
+  }
+
+  .textLayer :global(::selection) {
+    background: rgba(0, 100, 255, 0.28);
+    color: transparent;
+  }
+
+  .textLayer :global(::-moz-selection) {
+    background: rgba(0, 100, 255, 0.28);
+    color: transparent;
+  }
+</style>
