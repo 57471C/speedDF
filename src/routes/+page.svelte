@@ -39,6 +39,9 @@
   let showToast = $state(false);
   let toastTimeoutId: any = null;
 
+  let showUpdateToast = $state(false);
+  let availableUpdate = $state<any>(null);
+
   let loadStartTime = 0;
   let renderDurationMs = $state<number | null>(null);
   let isZippingLoader = $state(false);
@@ -529,14 +532,17 @@
       try {
         const update = await check();
         if (update && update.available) {
-          showNotification(`Optimization patch v${update.version} available`);
-
-          // Download and stream the signed update zip silently to temp memory
-          await update.downloadAndInstall();
-          showNotification("Restarting to apply updates...");
-
-          // Clean hot-swap reboot: Terminates active window and spawns new binary instantly
-          await relaunch();
+          // Check if the manifest has a critical override (e.g. forced or critical flag)
+          const isCritical = (update as any).manifest?.critical || (update as any).manifest?.forced;
+          if (isCritical) {
+            showNotification(`Critical patch v${update.version} available`);
+            await update.downloadAndInstall();
+            showNotification("Restarting to apply updates...");
+            await relaunch();
+          } else {
+            availableUpdate = update;
+            showUpdateToast = true;
+          }
         }
       } catch (updateErr) {
         // Silently swallow network tracking errors when running in offline workstation settings
@@ -1304,6 +1310,76 @@
           class="absolute bottom-0 left-0 h-[2px] bg-gradient-to-r from-cyan-500 to-emerald-400 speeddf-zip-bar"
         ></div>
       {/if}
+    </div>
+  </div>
+{/if}
+
+{#if showUpdateToast && availableUpdate}
+  <div
+    class="fixed bottom-6 right-6 z-[5000] speeddf-toast-animate"
+  >
+    <div
+      class="bg-slate-900 border border-slate-800 shadow-[0_8px_32px_rgba(0,0,0,0.5)] rounded-xl p-4 flex flex-col gap-3 backdrop-blur-md max-w-sm relative overflow-hidden"
+    >
+      <div class="flex items-start gap-3">
+        <div
+          class="flex h-8 w-8 shrink-0 bg-cyan-500/10 rounded-lg items-center justify-center text-cyan-400 font-bold text-sm animate-pulse"
+        >
+          ⚡
+        </div>
+        <div class="flex flex-col">
+          <p class="text-[12px] font-bold text-slate-100 uppercase tracking-wider">
+            Update Available
+          </p>
+          <p class="text-[10px] text-slate-400 font-medium mt-1 leading-normal">
+            Optimization patch v{availableUpdate.version} is ready for installation.
+          </p>
+        </div>
+      </div>
+
+      <div class="flex gap-2 justify-end mt-1">
+        <button
+          onclick={() => {
+            showUpdateToast = false;
+          }}
+          class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-150 border border-slate-700/50 cursor-pointer"
+        >
+          Cancel
+        </button>
+        <button
+          onclick={async () => {
+            const up = availableUpdate;
+            showUpdateToast = false;
+            showNotification("Applying update and relaunching...");
+            try {
+              await up.downloadAndInstall();
+              await relaunch();
+            } catch (err) {
+              console.error("Update failed:", err);
+              showNotification("Update failed");
+            }
+          }}
+          class="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-150 shadow-lg shadow-cyan-950/40 cursor-pointer"
+        >
+          Now
+        </button>
+        <button
+          onclick={async () => {
+            const up = availableUpdate;
+            showUpdateToast = false;
+            showNotification("Downloading update in background...");
+            try {
+              await up.downloadAndInstall();
+              showNotification("Update downloaded. It will apply next relaunch.");
+            } catch (err) {
+              console.error("Background update failed:", err);
+            }
+          }}
+          class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-150 shadow-lg shadow-emerald-950/40 cursor-pointer"
+        >
+          When I close
+        </button>
+      </div>
     </div>
   </div>
 {/if}
