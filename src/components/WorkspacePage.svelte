@@ -2,7 +2,6 @@
   import * as pdfjsLib from "pdfjs-dist";
   import { onMount } from "svelte";
   import { activeDoc, type AnnotationShape, pushHistorySnapshot, FONT_MAP, updateBookmarkNameAction, deleteBookmarkAction, addOrToggleBookmarkAction } from "../pdfStore.svelte";
-  import FreehandPolyline from "./FreehandPolyline.svelte";
 
   let { bytes, pageNumber, zoomScale, isSystemPrinting = false } = $props<{
     bytes: Uint8Array;
@@ -809,7 +808,41 @@
       class="absolute inset-0 w-full h-full pointer-events-none z-10"
     >
       {#each activeDoc.shapes[pageNumber] || [] as shape, idx}
-        <FreehandPolyline {shape} {pageNumber} {idx} />
+        {#if shape && shape.type === "highlight" && shape.points}
+          <polyline
+            onclick={(e) => {
+              e.stopPropagation();
+              if (activeDoc.activeTool === "select")
+                activeDoc.selectedShape = { pageNumber, index: idx };
+            }}
+            points={shape.points.map((p) => `${p.x},${p.y}`).join(" ")}
+            stroke="#fff200"
+            stroke-width="2.0"
+            stroke-opacity="0.42"
+            fill="none"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="cursor-pointer pointer-events-auto hover:stroke-yellow-300 transition-colors {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke-yellow-300 stroke-opacity-60' : ''}"
+          />
+        {:else}
+          {#if shape && shape.type === "pen" && shape.points}
+            <polyline
+              onclick={(e) => {
+                e.stopPropagation();
+                if (activeDoc.activeTool === "select")
+                  activeDoc.selectedShape = { pageNumber, index: idx };
+              }}
+              points={shape.points.map((p) => `${p.x},${p.y}`).join(" ")}
+              stroke={shape.color || "#ef4444"}
+              stroke-width={(shape.thickness || 3) * 0.22}
+              stroke-opacity="1"
+              fill="none"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="cursor-pointer pointer-events-auto hover:stroke-cyan-400 transition-colors {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke-cyan-400' : ''}"
+            />
+          {/if}
+        {/if}
       {/each}
       {#if liveHighlightPoints.length > 1}
         {#if activeDoc.activeTool === "highlight"}
