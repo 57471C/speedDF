@@ -40,7 +40,7 @@
   let toastTimeoutId: any = null;
 
   let showUpdateToast = $state(false);
-  let availableUpdate = $state<any>(null);
+  let availableUpdate = $state.raw<any>(null);
 
   let loadStartTime = 0;
   let renderDurationMs = $state<number | null>(null);
@@ -536,7 +536,7 @@
         const update = await check();
         if (update && update.available) {
           // Check if the manifest has a critical override (e.g. forced or critical flag)
-          const isCritical = (update as any).manifest?.critical || (update as any).manifest?.forced;
+          const isCritical = (update as any).rawJson?.critical || (update as any).rawJson?.forced;
           if (isCritical) {
             showNotification(`Critical patch v${update.version} available`);
             await update.downloadAndInstall();
