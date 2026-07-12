@@ -28,4 +28,3 @@ debug = false                  # Remove debug info
 codegen-units = 1              # Maximize optimizations
 panic = "abort"                # Faster crash handling
 strip = "symbols"              # Strip symbols for smaller binary
-codegen-units = 1
