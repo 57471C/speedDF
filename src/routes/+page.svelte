@@ -42,6 +42,10 @@
   let showUpdateToast = $state(false);
   let availableUpdate = $state.raw<any>(null);
   let downloadOnClose = $state(false);
+  // Deferred update lifecycle: pre-staged binary reference after silent background download
+  let pendingUpdateRef = $state.raw<any>(null);
+  let isUpdateReadyToInstall = $state(false);
+  let isApplyingDeferredUpdate = $state(false);
 
   let loadStartTime = 0;
   let renderDurationMs = $state<number | null>(null);
@@ -700,27 +704,40 @@
 
     // Capture system Close Button actions cleanly via browser-native confirmation prompts
     const unlistenCloseRequest = appWindow.onCloseRequested(async (event) => {
+      // Priority 1 — Unsaved data guard. Must always fire first to prevent data loss.
       if (activeDoc.isDirty) {
         event.preventDefault(); // 🛡️ STOP EXITING SYNCHRONOUSLY IMMEDIATELY
         unsavedModalMessage =
           "Warning: You have unsaved markups on this engineering layout drawing. Are you sure you want to exit speedDF and discard your modifications?";
         pendingNavigationAction = () => {
           activeDoc.isDirty = false;
-          // Directly invoke native close thread bypassing the dirty trap rule
+          // Re-trigger native close: onCloseRequested fires again on a clean document,
+          // flowing naturally into the installer gate below if an update is staged.
           appWindow.close();
         };
         showUnsavedModal = true;
-      } else {
-        if (downloadOnClose) {
-          event.preventDefault();
-          downloadOnClose = false;
-          try {
-            await availableUpdate.downloadAndInstall();
-          } catch (err) {
-            console.error("Failed to install update on close:", err);
-          }
+        return; // Halt — do not proceed to installer or exit until user resolves prompt
+      }
+
+      // Priority 2 — Installer gate. Only reached when document is completely clean.
+      if (isUpdateReadyToInstall && pendingUpdateRef) {
+        // Circuit breaker: atomically consume the state before any async work
+        // to prevent re-entrant loops if appWindow.close() re-fires this handler.
+        isUpdateReadyToInstall = false;
+        const updateRef = pendingUpdateRef;
+        pendingUpdateRef = null;
+
+        isApplyingDeferredUpdate = true;
+        event.preventDefault();
+
+        try {
+          await updateRef.install();
           await appWindow.close();
+        } catch (installErr) {
+          console.error("Deferred update install failed on close:", installErr);
+          isApplyingDeferredUpdate = false;
         }
+        return;
       }
     });
 
@@ -739,6 +756,12 @@
   oncontextmenu={handleRightClick}
   class="flex flex-col h-screen w-screen overflow-hidden select-none bg-[#070a12] text-slate-100 font-sans antialiased"
 >
+  {#if isApplyingDeferredUpdate}
+    <div class="fixed inset-0 z-[9999] bg-[#070a12]/95 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
+      <div class="w-10 h-10 rounded-full border-2 border-cyan-500 border-t-transparent animate-spin"></div>
+      <p class="text-sm font-semibold text-slate-300 tracking-wide uppercase">Installing update&hellip;</p>
+    </div>
+  {/if}
   <TitleBar
     bind:this={titleBarRef}
     onMinimize={minimizeApp}
@@ -1388,9 +1411,26 @@
           Now
         </button>
         <button
-          onclick={() => {
-            downloadOnClose = true;
+          onclick={async () => {
+            const up = availableUpdate;
             showUpdateToast = false;
+            downloadOnClose = true;
+            // Silently pre-download the update binary immediately so the close handler
+            // only needs to run install() — no download wait at shutdown time.
+            try {
+              showNotification("Downloading update in background...");
+              await up.download((event: any) => {
+                // Progress tracking hook — can be wired to a progress bar if needed
+              });
+              pendingUpdateRef = up;
+              isUpdateReadyToInstall = true;
+              showNotification("Update ready — will install when you close.");
+            } catch (dlErr) {
+              console.error("Background update pre-download failed:", dlErr);
+              // Fallback: keep availableUpdate set so close handler can still attempt downloadAndInstall
+              pendingUpdateRef = null;
+              isUpdateReadyToInstall = false;
+            }
           }}
           class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-150 shadow-lg shadow-emerald-950/40 cursor-pointer"
         >
