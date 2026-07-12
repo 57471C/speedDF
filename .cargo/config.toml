@@ -11,7 +11,21 @@ rustflags = ["-C", "target-cpu=apple-m1"]
 # Linux
 [target.x86_64-unknown-linux-gnu]
 
+# Rust 2024 Optimization Profile - Faster builds without quality loss
 [profile.dev]
-opt-level = 0          # Fastest compile times
-debug = 1              # Still usable debugging
+opt-level = 0                  # Keep compile times low
+debug = 2                      # Keep debug info for better stack traces
+lto = "thin"                   # Enable thin LTO (faster linking)
+codegen-units = 4              # Parallel code generation
+panic = "abort"                # Faster crash handling
 incremental = true
+
+# Release Profile - Optimize for size and speed
+[profile.release]
+opt-level = 3                  # Maximize optimizations
+lto = "fat"                    # Full link-time optimization
+debug = false                  # Remove debug info
+codegen-units = 1              # Maximize optimizations
+panic = "abort"                # Faster crash handling
+strip = "symbols"              # Strip symbols for smaller binary
+codegen-units = 1

@@ -1,12 +1,11 @@
 # Todo List #
 
 ## Features to add ##
-1. add find/search contect popup with clear text/case insensitive button (on by default)
-2. Add snapshot tool.
-3. Add File tabs for multiple documents.
-4. Recent document options (clear, delete, compress)
-5. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
-6. large files go out of sync in thumnails and the viewbox
+1. Add snapshot tool.
+2. Add File tabs for multiple documents.
+3. Recent document options (clear, delete, compress)
+4. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
+
 
 
 

@@ -74,18 +74,61 @@
     }
   });
 
-  // Viewport viewfinder box percentage calculations
-  let viewportBoxTop = $derived.by(() => {
-    if (!activeDoc.scrollHeight || activeDoc.scrollHeight === 0) return 0;
-    return Math.min((activeDoc.scrollTop / activeDoc.scrollHeight) * 100, 100);
-  });
+  let globalRedBoxTop = $state(0);
+  let globalRedBoxHeight = $state(0);
 
-  let viewportBoxHeight = $derived.by(() => {
-    if (!activeDoc.scrollHeight || activeDoc.scrollHeight === 0) return 0;
-    return Math.min(
-      (activeDoc.clientHeight / activeDoc.scrollHeight) * 100,
-      100,
-    );
+  $effect(() => {
+    // Svelte 5 reactivity trigger dependencies
+    const _scroll = activeDoc.scrollTop;
+    const _page = activeDoc.currentPage;
+    const _height = activeDoc.scrollHeight;
+    const _zoom = activeDoc.zoomScale;
+
+    // Use requestAnimationFrame to prevent layout thrashing
+    const rafId = requestAnimationFrame(() => {
+      const scrollContainer = document.querySelector(".workspace-scroll-container");
+      if (!scrollContainer) return;
+
+      // 1. Capture the continuous visible boundaries of the viewport
+      const viewTop = scrollContainer.scrollTop;
+      const viewHeight = scrollContainer.clientHeight;
+      const viewBottom = viewTop + viewHeight;
+
+      // 2. Query all rendered workspace page elements in the DOM
+      const workspacePages = Array.from(scrollContainer.querySelectorAll("[data-page-number]")) as HTMLElement[];
+      if (workspacePages.length === 0) return;
+
+      let redBoxTopPixel = 0;
+      let redBoxBottomPixel = 0;
+
+      // 3. Locate the page crossing the top viewport horizon
+      const topPageNode = workspacePages.find(p => (p.offsetTop + p.offsetHeight) >= viewTop) || workspacePages[0];
+      const topPageNum = parseInt(topPageNode.getAttribute("data-page-number") || "1", 10);
+      const topThumbnail = thumbnailElements[topPageNum];
+
+      if (topPageNode && topThumbnail) {
+        const topPagePct = Math.max(0, (viewTop - topPageNode.offsetTop) / topPageNode.offsetHeight);
+        redBoxTopPixel = topThumbnail.offsetTop + (topPagePct * topThumbnail.offsetHeight);
+      }
+
+      // 4. Locate the page crossing the bottom viewport horizon
+      const bottomPageNode = workspacePages.find(p => (p.offsetTop + p.offsetHeight) >= viewBottom) || workspacePages[workspacePages.length - 1];
+      const bottomPageNum = parseInt(bottomPageNode.getAttribute("data-page-number") || "1", 10);
+      const bottomThumbnail = thumbnailElements[bottomPageNum];
+
+      if (bottomPageNode && bottomThumbnail) {
+        const bottomPagePct = Math.min(1, (viewBottom - bottomPageNode.offsetTop) / bottomPageNode.offsetHeight);
+        redBoxBottomPixel = bottomThumbnail.offsetTop + (bottomPagePct * bottomThumbnail.offsetHeight);
+      }
+
+      // 5. Update the global floating state constraints
+      globalRedBoxTop = redBoxTopPixel;
+      globalRedBoxHeight = Math.max(24, redBoxBottomPixel - redBoxTopPixel); // Force minimum visual presence
+    });
+
+    return () => {
+      cancelAnimationFrame(rafId);
+    };
   });
 
   function renderThumbnail(
@@ -460,9 +503,9 @@
   >
     <div class="relative w-full flex flex-col gap-3">
       {#if hasUserScrolled && activeDoc.pageOrder.length > 0 && activeDoc.scrollHeight > 0}
-        <div
-          class="absolute left-0 right-0 pointer-events-none transition-none border-2 border-red-500 bg-red-500/10 rounded-lg z-50 shadow-[0_0_15px_rgba(239,68,68,0.25)]"
-          style="top: {viewportBoxTop}%; height: {viewportBoxHeight}%; min-height: 40px; will-change: top;"
+        <div 
+          class="absolute left-2 right-2 pointer-events-none border-2 border-red-500 bg-red-500/10 rounded z-30 shadow-[0_0_15px_rgba(239,68,68,0.25)] transition-none"
+          style="transform: translateY({globalRedBoxTop}px); height: {globalRedBoxHeight}px; top: 0;"
         ></div>
       {/if}
 
@@ -482,7 +525,7 @@
           </span>
 
           <div
-            class="w-[84px] min-h-[60px] bg-white/5 rounded border border-slate-900/40 overflow-hidden flex items-center justify-center mt-3 shadow-inner relative"
+            class="w-[84px] min-h-[60px] bg-white/5 rounded border border-slate-900/40 overflow-hidden flex items-center justify-center mt-3 shadow-inner relative thumbnail-footprint"
           >
             <canvas
               use:renderThumbnail={{
