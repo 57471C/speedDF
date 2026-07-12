@@ -168,6 +168,27 @@
   let dragStartMouseY = 0;
   let dragTargetElement: HTMLElement | null = null;
 
+  // Non-reactive caching layer for shape dragging/drawing coordinates
+  let dragActive = false;
+  let rawStartX = 0;
+  let rawStartY = 0;
+  let rawCurrentX = 0;
+  let rawCurrentY = 0;
+  let rawLiveHighlightPoints: { x: number; y: number }[] = [];
+  let rawResizedShapeCoords = { x: 0, y: 0, width: 0, height: 0 };
+  let animationFrameId: number | null = null;
+  let dragPageRect: DOMRect | null = null;
+
+  // Lifecycle protection for animation frames in Svelte 5
+  $effect(() => {
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+    };
+  });
+
   let isMouseOverPage = $state(false);
   let hoverPctX = $state(0);
   let hoverPctY = $state(0);
@@ -476,7 +497,8 @@
       pushHistorySnapshot();
     }
 
-    const rect = pageContainer.getBoundingClientRect();
+    dragPageRect = pageContainer.getBoundingClientRect();
+    const rect = dragPageRect;
     const mousePctX = ((e.clientX - rect.left) / rect.width) * 100;
     const mousePctY = ((e.clientY - rect.top) / rect.height) * 100;
 
@@ -488,6 +510,13 @@
       e.preventDefault();
       isDrawing = true;
       liveHighlightPoints = [{ x: mousePctX, y: mousePctY }];
+
+      dragActive = true;
+      rawStartX = e.clientX;
+      rawStartY = e.clientY;
+      rawCurrentX = e.clientX;
+      rawCurrentY = e.clientY;
+      rawLiveHighlightPoints = [{ x: mousePctX, y: mousePctY }];
       return;
     }
 
@@ -519,6 +548,12 @@
       startY = e.clientY - rect.top;
       currentX = startX;
       currentY = startY;
+
+      dragActive = true;
+      rawStartX = startX;
+      rawStartY = startY;
+      rawCurrentX = startX;
+      rawCurrentY = startY;
     }
   }
 
@@ -535,89 +570,120 @@
       dragStartMouseX = e.clientX;
       dragStartMouseY = e.clientY;
       dragTargetElement = e.currentTarget as HTMLElement;
+
+      dragPageRect = pageContainer.getBoundingClientRect();
+      dragActive = true;
+      rawStartX = e.clientX;
+      rawStartY = e.clientY;
+      rawCurrentX = e.clientX;
+      rawCurrentY = e.clientY;
+    }
+  }
+
+  function redrawCanvas() {
+    if (!pageContainer) return;
+
+    // Case 1: Pen / Highlight drawing
+    if (isDrawing && (activeDoc.activeTool === "highlight" || activeDoc.activeTool === "pen")) {
+      liveHighlightPoints = [...rawLiveHighlightPoints];
+    }
+    
+    // Case 2: Shape moving
+    else if (isMovingShape && activeDoc.selectedShape && dragTargetElement) {
+      const deltaX = rawCurrentX - rawStartX;
+      const deltaY = rawCurrentY - rawStartY;
+      dragTargetElement.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+    }
+    
+    // Case 3: Shape resizing
+    else if (draggingHandle && activeDoc.selectedShape && initialShapeState && dragTargetElement) {
+      const rect = dragPageRect || pageContainer.getBoundingClientRect();
+      const mousePctX = ((rawCurrentX - rect.left) / rect.width) * 100;
+      const mousePctY = ((rawCurrentY - rect.top) / rect.height) * 100;
+      const initial = initialShapeState;
+      
+      let x = initial.x;
+      let y = initial.y;
+      let width = initial.width;
+      let height = initial.height;
+      
+      if (draggingHandle === "br") {
+        width = Math.max(0.1, mousePctX - initial.x);
+        height = Math.max(0.1, mousePctY - initial.y);
+      } else if (draggingHandle === "tl") {
+        const r = initial.x + initial.width;
+        const b = initial.y + initial.height;
+        x = Math.min(r - 0.1, Math.max(0, mousePctX));
+        y = Math.min(b - 0.1, Math.max(0, mousePctY));
+        width = r - x;
+        height = b - y;
+      } else if (draggingHandle === "tr") {
+        const b = initial.y + initial.height;
+        y = Math.min(b - 0.1, Math.max(0, mousePctY));
+        width = Math.max(0.1, mousePctX - initial.x);
+        height = b - y;
+      } else if (draggingHandle === "bl") {
+        const r = initial.x + initial.width;
+        x = Math.min(r - 0.1, Math.max(0, mousePctX));
+        width = r - x;
+        height = Math.max(0.1, mousePctY - initial.y);
+      }
+      
+      rawResizedShapeCoords = { x, y, width, height };
+      
+      dragTargetElement.style.left = `${x}%`;
+      dragTargetElement.style.top = `${y}%`;
+      dragTargetElement.style.width = `${width}%`;
+      dragTargetElement.style.height = `${height}%`;
+    }
+    
+    // Case 4: Shape drawing
+    else if (isDrawing && shapeTypesList.includes(activeDoc.activeTool || "")) {
+      const rect = dragPageRect || pageContainer.getBoundingClientRect();
+      currentX = rawCurrentX - rect.left;
+      currentY = rawCurrentY - rect.top;
     }
   }
 
   function handleMouseMove(e: MouseEvent) {
     if (!pageContainer) return;
-    const rect = pageContainer.getBoundingClientRect();
+    const rect = dragPageRect || pageContainer.getBoundingClientRect();
     const mousePctX = ((e.clientX - rect.left) / rect.width) * 100;
     const mousePctY = ((e.clientY - rect.top) / rect.height) * 100;
     hoverPctX = mousePctX;
     hoverPctY = mousePctY;
 
-    if (isDrawing && (activeDoc.activeTool === "highlight" || activeDoc.activeTool === "pen")) {
-      liveHighlightPoints = [
-        ...liveHighlightPoints,
-        { x: mousePctX, y: mousePctY },
-      ];
-      return;
-    }
+    if (dragActive) {
+      e.preventDefault();
+      rawCurrentX = e.clientX;
+      rawCurrentY = e.clientY;
 
-    if (isMovingShape && activeDoc.selectedShape && dragTargetElement) {
-      const deltaX = e.clientX - dragStartMouseX;
-      const deltaY = e.clientY - dragStartMouseY;
-      dragTargetElement.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
-      return;
-    }
-
-    if (draggingHandle && activeDoc.selectedShape && initialShapeState) {
-      const shapesList = [...(activeDoc.shapes[pageNumber] || [])];
-      const index = activeDoc.selectedShape.index;
-      const shape = shapesList[index];
-      const initial = initialShapeState;
-      if (!shape) return;
-
-      if (draggingHandle === "br") {
-        shape.width = Math.max(0.1, mousePctX - initial.x);
-        shape.height = Math.max(0.1, mousePctY - initial.y);
-      } else if (draggingHandle === "tl") {
-        const r = initial.x + initial.width;
-        const b = initial.y + initial.height;
-        shape.x = Math.min(r - 0.1, Math.max(0, mousePctX));
-        shape.y = Math.min(b - 0.1, Math.max(0, mousePctY));
-        shape.width = r - shape.x;
-        shape.height = b - shape.y;
-      } else if (draggingHandle === "tr") {
-        const b = initial.y + initial.height;
-        shape.y = Math.min(b - 0.1, Math.max(0, mousePctY));
-        shape.width = Math.max(0.1, mousePctX - shape.x);
-        shape.height = b - shape.y;
-      } else if (draggingHandle === "bl") {
-        const r = initial.x + initial.width;
-        shape.x = Math.min(r - 0.1, Math.max(0, mousePctX));
-        shape.width = r - shape.x;
-        shape.height = Math.max(0.1, mousePctY - shape.y);
+      if (isDrawing && (activeDoc.activeTool === "highlight" || activeDoc.activeTool === "pen")) {
+        rawLiveHighlightPoints.push({ x: mousePctX, y: mousePctY });
       }
 
-      if (
-        ["tick", "dash", "signature", "initial", ...shapeTypesList].includes(shape.type) &&
-        shape.width &&
-        shape.height
-      ) {
-        localStorage.setItem(
-          `speeddf_stamp_${shape.type}_w`,
-          shape.width.toString(),
-        );
-        localStorage.setItem(
-          `speeddf_stamp_${shape.type}_h`,
-          shape.height.toString(),
-        );
+      if (!animationFrameId) {
+        animationFrameId = requestAnimationFrame(() => {
+          redrawCanvas();
+          animationFrameId = null;
+        });
       }
-      activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: shapesList };
       return;
     }
-
-    if (!isDrawing || !shapeTypesList.includes(activeDoc.activeTool || ""))
-      return;
-    currentX = e.clientX - rect.left;
-    currentY = e.clientY - rect.top;
   }
 
   function handleMouseUp(e: MouseEvent) {
+    if (animationFrameId) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+
     if (isDrawing && (activeDoc.activeTool === "highlight" || activeDoc.activeTool === "pen")) {
       const currentTool = activeDoc.activeTool;
       isDrawing = false;
+      dragActive = false;
+      dragPageRect = null;
+      
       if (liveHighlightPoints.length > 1) {
         const newFreehand: AnnotationShape = {
           type: currentTool as any,
@@ -634,11 +700,14 @@
         };
       }
       liveHighlightPoints = [];
+      rawLiveHighlightPoints = [];
       return;
     }
 
     if (isMovingShape && activeDoc.selectedShape) {
       isMovingShape = false;
+      dragActive = false;
+      dragPageRect = null;
       if (dragTargetElement && pageContainer) {
         dragTargetElement.style.transform = "";
         
@@ -661,28 +730,71 @@
       return;
     }
 
-    if (draggingHandle) {
+    if (draggingHandle && activeDoc.selectedShape) {
+      dragActive = false;
+      dragPageRect = null;
+      const shapesList = [...(activeDoc.shapes[pageNumber] || [])];
+      const index = activeDoc.selectedShape.index;
+      const shape = shapesList[index];
+      if (shape && initialShapeState) {
+        const finalX = rawResizedShapeCoords.width > 0 ? rawResizedShapeCoords.x : initialShapeState.x;
+        const finalY = rawResizedShapeCoords.height > 0 ? rawResizedShapeCoords.y : initialShapeState.y;
+        const finalW = rawResizedShapeCoords.width > 0 ? rawResizedShapeCoords.width : initialShapeState.width;
+        const finalH = rawResizedShapeCoords.height > 0 ? rawResizedShapeCoords.height : initialShapeState.height;
+        
+        shape.x = finalX;
+        shape.y = finalY;
+        shape.width = finalW;
+        shape.height = finalH;
+
+        if (
+          ["tick", "dash", "signature", "initial", ...shapeTypesList].includes(shape.type) &&
+          shape.width &&
+          shape.height
+        ) {
+          localStorage.setItem(
+            `speeddf_stamp_${shape.type}_w`,
+            shape.width.toString(),
+          );
+          localStorage.setItem(
+            `speeddf_stamp_${shape.type}_h`,
+            shape.height.toString(),
+          );
+        }
+        activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: shapesList };
+      }
       draggingHandle = null;
       initialShapeState = null;
+      dragTargetElement = null;
+      rawResizedShapeCoords = { x: 0, y: 0, width: 0, height: 0 };
       return;
     }
+
     if (
       !isDrawing ||
       !pageContainer ||
       !shapeTypesList.includes(activeDoc.activeTool || "")
-    )
+    ) {
+      dragActive = false;
+      dragPageRect = null;
       return;
+    }
+    
     isDrawing = false;
+    dragActive = false;
+    dragPageRect = null;
 
     const rect = pageContainer.getBoundingClientRect();
-    const widthPixels = Math.abs(currentX - startX);
-    const heightPixels = Math.abs(currentY - startY);
+    const finalCurrentX = rawCurrentX - rect.left;
+    const finalCurrentY = rawCurrentY - rect.top;
+    const widthPixels = Math.abs(finalCurrentX - startX);
+    const heightPixels = Math.abs(finalCurrentY - startY);
 
     if (widthPixels > 2 && heightPixels > 2) {
       const newShape: AnnotationShape = {
         type: activeDoc.activeTool as any,
-        x: (Math.min(startX, currentX) / rect.width) * 100,
-        y: (Math.min(startY, currentY) / rect.height) * 100,
+        x: (Math.min(startX, finalCurrentX) / rect.width) * 100,
+        y: (Math.min(startY, finalCurrentY) / rect.height) * 100,
         width: (widthPixels / rect.width) * 100,
         height: (heightPixels / rect.height) * 100,
         color: activeDoc.activeColor,
@@ -697,17 +809,41 @@
   }
 
   function initHandleDrag(e: MouseEvent, index: number, handleType: string) {
+    if (!pageContainer) return;
     e.stopPropagation();
     e.preventDefault();
     draggingHandle = handleType;
     const shape = activeDoc.shapes[pageNumber]?.[index];
-    if (shape)
+    if (shape) {
       initialShapeState = {
         x: shape.x,
         y: shape.y,
         width: shape.width || 0,
         height: shape.height || 0,
       };
+      dragTargetElement = e.currentTarget ? (e.currentTarget as HTMLElement).parentElement : null;
+
+      dragPageRect = pageContainer.getBoundingClientRect();
+      dragActive = true;
+      rawStartX = e.clientX;
+      rawStartY = e.clientY;
+      rawCurrentX = e.clientX;
+      rawCurrentY = e.clientY;
+      rawResizedShapeCoords = { x: shape.x, y: shape.y, width: shape.width || 0, height: shape.height || 0 };
+    }
+  }
+
+  function handleMouseLeave() {
+    isMouseOverPage = false;
+    dragPageRect = null;
+    if (isDrawing) {
+      isDrawing = false;
+      dragActive = false;
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+    }
   }
   function finalizeTextEdit(index: number, element: HTMLInputElement) {
     if (!element.isConnected || (activelyEditingIndex !== null && activelyEditingIndex !== index)) return;
@@ -815,6 +951,10 @@
       observer.disconnect();
       preloadObserver.disconnect();
       paintObserver.disconnect();
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
     };
   });
 
@@ -836,10 +976,7 @@
   onmousemove={handleMouseMove}
   onmouseup={handleMouseUp}
   onmouseenter={() => (isMouseOverPage = true)}
-  onmouseleave={() => {
-    isMouseOverPage = false;
-    isDrawing = false;
-  }}
+  onmouseleave={handleMouseLeave}
   class="bg-white relative rounded-sm mb-12 select-none"
   style="box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.65); width: {expectedDimensions.width}px; min-height: {expectedDimensions.height}px; aspect-ratio: {expectedDimensions.aspectRatio};"
 >
@@ -950,7 +1087,7 @@
         {#if shape.type === "oval" || shape.type === "oval-fill"}
           <div
             onmousedown={(e) => initShapeMove(e, idx)}
-            class="absolute cursor-move z-20 transition-all duration-100
+            class="absolute cursor-move z-20 transition-shadow duration-100
               {activeDoc.selectedShape?.pageNumber === pageNumber &&
             activeDoc.selectedShape?.index === idx
               ? 'shadow-[0_0_12px_rgba(0,210,255,0.35)] ring-1 ring-[#00d2ff]/40'
@@ -998,7 +1135,7 @@
         {:else}
           <div
             onmousedown={(e) => initShapeMove(e, idx)}
-            class="absolute cursor-move z-20 transition-all duration-100
+            class="absolute cursor-move z-20 transition-shadow duration-100
               {shape.type.includes('round') ? 'rounded-lg' : 'rounded-none'}
               {activeDoc.selectedShape?.pageNumber === pageNumber &&
             activeDoc.selectedShape?.index === idx
@@ -1069,7 +1206,7 @@
       {:else if shape && shape.type === "tick"}
         <div
           onmousedown={(e) => initShapeMove(e, idx)}
-          class="absolute pointer-events-auto z-40 flex items-center justify-center p-0.5 border rounded-sm transition-all cursor-move"
+          class="absolute pointer-events-auto z-40 flex items-center justify-center p-0.5 border rounded-sm cursor-move transition-[border-color,background-color] duration-100"
           style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%; border-color: {activeDoc
             .selectedShape?.pageNumber === pageNumber &&
           activeDoc.selectedShape?.index === idx
@@ -1111,7 +1248,7 @@
       {:else if shape && shape.type === "dash"}
         <div
           onmousedown={(e) => initShapeMove(e, idx)}
-          class="absolute pointer-events-auto z-40 flex items-center justify-center p-0.5 border rounded-sm transition-all cursor-move"
+          class="absolute pointer-events-auto z-40 flex items-center justify-center p-0.5 border rounded-sm cursor-move transition-[border-color,background-color] duration-100"
           style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%; border-color: {activeDoc
             .selectedShape?.pageNumber === pageNumber &&
           activeDoc.selectedShape?.index === idx
@@ -1155,7 +1292,7 @@
       {:else if shape && (shape.type === "signature" || shape.type === "initial")}
         <div
           onmousedown={(e) => initShapeMove(e, idx)}
-          class="absolute pointer-events-auto z-40 flex items-center justify-center border rounded-sm transition-all cursor-move p-0.5 overflow-hidden mix-blend-multiply bg-transparent {activeDoc
+          class="absolute pointer-events-auto z-40 flex items-center justify-center border rounded-sm cursor-move p-0.5 overflow-hidden mix-blend-multiply bg-transparent transition-[border-color,box-shadow] duration-100 {activeDoc
             .selectedShape?.pageNumber === pageNumber &&
           activeDoc.selectedShape?.index === idx
             ? 'border-[#00d2ff] shadow-[0_0_12px_rgba(0,210,255,0.35)]'
@@ -1170,19 +1307,23 @@
           {#if activeDoc.activeTool === "select" && activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx}
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "tl")}
-              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -top-1 -left-1 cursor-nwse-resize rounded-full"
+              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -left-1.5 cursor-nwse-resize rounded-full shadow-md"
+              style="border-color: {shape.color || '#000000'};"
             ></div>
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "tr")}
-              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -top-1 -right-1 cursor-nesw-resize rounded-full"
+              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -right-1.5 cursor-nesw-resize rounded-full shadow-md"
+              style="border-color: {shape.color || '#000000'};"
             ></div>
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "bl")}
-              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -bottom-1 -left-1 cursor-nesw-resize rounded-full"
+              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -bottom-1.5 -left-1.5 cursor-nesw-resize rounded-full shadow-md"
+              style="border-color: {shape.color || '#000000'};"
             ></div>
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "br")}
-              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -bottom-1 -right-1 cursor-nwse-resize rounded-full"
+              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -bottom-1.5 -right-1.5 cursor-nwse-resize rounded-full shadow-md"
+              style="border-color: {shape.color || '#000000'};"
             ></div>
           {/if}
         </div>
