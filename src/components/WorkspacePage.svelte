@@ -178,6 +178,9 @@
   let rawResizedShapeCoords = { x: 0, y: 0, width: 0, height: 0 };
   let animationFrameId: number | null = null;
   let dragPageRect: DOMRect | null = null;
+  // Multi-select group drag cache
+  let rawGroupInitialPositions: { index: number; x: number; y: number }[] = [];
+  let groupDragElements: HTMLElement[] = [];
 
   // Lifecycle protection for animation frames in Svelte 5
   $effect(() => {
@@ -187,6 +190,49 @@
         animationFrameId = null;
       }
     };
+  });
+
+  // Local shadow cache variables to isolate toolbar modification actions
+  let lastToolbarColor = activeDoc.activeColor;
+  let lastToolbarThickness = activeDoc.activeThickness;
+
+  $effect(() => {
+    const currentColor = activeDoc.activeColor;
+    const currentThickness = activeDoc.activeThickness;
+
+    // Execute updates ONLY if a tool value has explicitly changed in the toolbar
+    if (currentColor !== lastToolbarColor || currentThickness !== lastToolbarThickness) {
+      if (activeDoc.selectedShape && activeDoc.selectedShape.pageNumber === pageNumber) {
+        const index = activeDoc.selectedShape.index;
+        const shapesList = [...(activeDoc.shapes[pageNumber] || [])];
+        const shape = shapesList[index];
+
+        if (shape) {
+          let isUpdated = false;
+
+          // Update color if supported by the shape type and it changed
+          if (currentColor !== lastToolbarColor && 'color' in shape) {
+            shape.color = currentColor;
+            isUpdated = true;
+          }
+
+          // Update line thickness if supported by the shape type and it changed
+          if (currentThickness !== lastToolbarThickness && 'thickness' in shape) {
+            shape.thickness = currentThickness;
+            isUpdated = true;
+          }
+
+          // Commit changes to the global Svelte store proxy array if modified
+          if (isUpdated) {
+            activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: shapesList };
+          }
+        }
+      }
+    }
+
+    // Synchronize caches to track the next interaction loop
+    lastToolbarColor = currentColor;
+    lastToolbarThickness = currentThickness;
   });
 
   let isMouseOverPage = $state(false);
@@ -504,6 +550,7 @@
 
     if (activeDoc.activeTool === "select") {
       activeDoc.selectedShape = null;
+      activeDoc.selectedShapes = [];
       return;
     }
     if (activeDoc.activeTool === "highlight" || activeDoc.activeTool === "pen") {
@@ -558,10 +605,33 @@
   }
 
   function initShapeMove(e: MouseEvent, index: number) {
-    if (activeDoc.activeTool !== "select" || activelyEditingIndex !== null)
-      return;
+    if (activeDoc.activeTool !== "select" || activelyEditingIndex !== null) return;
     e.stopPropagation();
-    activeDoc.selectedShape = { pageNumber, index };
+
+    const hasModifier = e.ctrlKey || e.metaKey;
+    const isAlreadySelected = activeDoc.selectedShapes.some(
+      (s) => s.pageNumber === pageNumber && s.index === index
+    );
+
+    if (hasModifier) {
+      // Toggle membership in the multi-select collection
+      const existsIdx = activeDoc.selectedShapes.findIndex(
+        (s) => s.pageNumber === pageNumber && s.index === index
+      );
+      if (existsIdx > -1) {
+        activeDoc.selectedShapes.splice(existsIdx, 1);
+      } else {
+        activeDoc.selectedShapes.push({ pageNumber, index });
+      }
+      activeDoc.selectedShape = activeDoc.selectedShapes[0] || null;
+      return; // Toggling selection should not initiate a drag
+    } else {
+      if (!isAlreadySelected) {
+        activeDoc.selectedShapes = [{ pageNumber, index }];
+        activeDoc.selectedShape = { pageNumber, index };
+      }
+    }
+
     pushHistorySnapshot();
     if (!pageContainer) return;
     const shape = activeDoc.shapes[pageNumber]?.[index];
@@ -569,7 +639,29 @@
       isMovingShape = true;
       dragStartMouseX = e.clientX;
       dragStartMouseY = e.clientY;
-      dragTargetElement = e.currentTarget as HTMLElement;
+
+      if (activeDoc.selectedShapes.length > 1) {
+        // Group drag: cache all selected shape positions and their DOM elements
+        rawGroupInitialPositions = activeDoc.selectedShapes
+          .filter((s) => s.pageNumber === pageNumber)
+          .map((s) => {
+            const sh = activeDoc.shapes[pageNumber]?.[s.index];
+            return { index: s.index, x: sh?.x || 0, y: sh?.y || 0 };
+          });
+        groupDragElements = rawGroupInitialPositions
+          .map((pos) =>
+            pageContainer!.querySelector(`[data-shape-idx="${pos.index}"]`) as HTMLElement
+          )
+          .filter(Boolean);
+        dragTargetElement = null;
+      } else {
+        // Single-shape drag
+        rawGroupInitialPositions = [];
+        groupDragElements = [];
+        dragTargetElement = pageContainer.querySelector(
+          `[data-shape-idx="${index}"]`
+        ) as HTMLElement;
+      }
 
       dragPageRect = pageContainer.getBoundingClientRect();
       dragActive = true;
@@ -589,10 +681,17 @@
     }
     
     // Case 2: Shape moving
-    else if (isMovingShape && activeDoc.selectedShape && dragTargetElement) {
+    else if (isMovingShape && activeDoc.selectedShape) {
       const deltaX = rawCurrentX - rawStartX;
       const deltaY = rawCurrentY - rawStartY;
-      dragTargetElement.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+      if (rawGroupInitialPositions.length > 1 && groupDragElements.length > 0) {
+        // Group drag: apply uniform displacement to all selected elements
+        groupDragElements.forEach((el) => {
+          if (el) el.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+        });
+      } else if (dragTargetElement) {
+        dragTargetElement.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+      }
     }
     
     // Case 3: Shape resizing
@@ -708,16 +807,27 @@
       isMovingShape = false;
       dragActive = false;
       dragPageRect = null;
-      if (dragTargetElement && pageContainer) {
-        dragTargetElement.style.transform = "";
-        
-        const rect = pageContainer.getBoundingClientRect();
-        const deltaX = e.clientX - dragStartMouseX;
-        const deltaY = e.clientY - dragStartMouseY;
-        const deltaPctX = (deltaX / rect.width) * 100;
-        const deltaPctY = (deltaY / rect.height) * 100;
 
-        const shapesList = [...(activeDoc.shapes[pageNumber] || [])];
+      const rect = pageContainer ? pageContainer.getBoundingClientRect() : { width: 1, height: 1 };
+      const deltaX = e.clientX - dragStartMouseX;
+      const deltaY = e.clientY - dragStartMouseY;
+      const deltaPctX = (deltaX / rect.width) * 100;
+      const deltaPctY = (deltaY / rect.height) * 100;
+      const shapesList = [...(activeDoc.shapes[pageNumber] || [])];
+
+      if (rawGroupInitialPositions.length > 1 && groupDragElements.length > 0) {
+        // Batch-write group coordinate updates in a single store commit
+        rawGroupInitialPositions.forEach((pos) => {
+          const shape = shapesList[pos.index];
+          if (shape) {
+            shape.x = Math.max(0, Math.min(100, pos.x + deltaPctX));
+            shape.y = Math.max(0, Math.min(100, pos.y + deltaPctY));
+          }
+        });
+        groupDragElements.forEach((el) => { if (el) el.style.transform = ""; });
+        activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: shapesList };
+      } else if (dragTargetElement && pageContainer) {
+        dragTargetElement.style.transform = "";
         const index = activeDoc.selectedShape.index;
         const shape = shapesList[index];
         if (shape) {
@@ -726,6 +836,9 @@
           activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: shapesList };
         }
       }
+
+      groupDragElements = [];
+      rawGroupInitialPositions = [];
       dragTargetElement = null;
       return;
     }
@@ -1086,10 +1199,10 @@
       {#if shape && shapeTypesList.includes(shape.type)}
         {#if shape.type === "oval" || shape.type === "oval-fill"}
           <div
+            data-shape-idx={idx}
             onmousedown={(e) => initShapeMove(e, idx)}
             class="absolute cursor-move z-20 transition-shadow duration-100
-              {activeDoc.selectedShape?.pageNumber === pageNumber &&
-            activeDoc.selectedShape?.index === idx
+              {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
               ? 'shadow-[0_0_12px_rgba(0,210,255,0.35)] ring-1 ring-[#00d2ff]/40'
               : ''}"
             style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%;"
@@ -1109,7 +1222,7 @@
                 fill={shape.type === "oval-fill" ? shape.color || "#000000" : "none"}
               />
             </svg>
-            {#if activeDoc.activeTool === "select" && activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx}
+            {#if activeDoc.activeTool === "select" && activeDoc.selectedShapes.length === 1 && activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)}
               <div
                 onmousedown={(e) => initHandleDrag(e, idx, "tl")}
                 class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -left-1.5 cursor-nwse-resize rounded-full shadow-md"
@@ -1134,18 +1247,18 @@
           </div>
         {:else}
           <div
+            data-shape-idx={idx}
             onmousedown={(e) => initShapeMove(e, idx)}
             class="absolute cursor-move z-20 transition-shadow duration-100
               {shape.type.includes('round') ? 'rounded-lg' : 'rounded-none'}
-              {activeDoc.selectedShape?.pageNumber === pageNumber &&
-            activeDoc.selectedShape?.index === idx
+              {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
               ? 'shadow-[0_0_12px_rgba(0,210,255,0.35)] ring-1 ring-[#00d2ff]/40'
               : ''}"
             style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%; 
                    border: {shape.type.includes('-fill') ? '0px' : (shape.thickness || 3) + 'px'} solid {shape.color || '#000000'}; 
                    background-color: {shape.type.includes('-fill') ? shape.color || '#000000' : 'transparent'};"
           >
-            {#if activeDoc.activeTool === "select" && activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx}
+            {#if activeDoc.activeTool === "select" && activeDoc.selectedShapes.length === 1 && activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)}
               <div
                 onmousedown={(e) => initHandleDrag(e, idx, "tl")}
                 class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -left-1.5 cursor-nwse-resize rounded-full shadow-md"
@@ -1205,15 +1318,12 @@
         </div>
       {:else if shape && shape.type === "tick"}
         <div
+          data-shape-idx={idx}
           onmousedown={(e) => initShapeMove(e, idx)}
           class="absolute pointer-events-auto z-40 flex items-center justify-center p-0.5 border rounded-sm cursor-move transition-[border-color,background-color] duration-100"
-          style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%; border-color: {activeDoc
-            .selectedShape?.pageNumber === pageNumber &&
-          activeDoc.selectedShape?.index === idx
+          style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%; border-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? '#00d2ff'
-            : 'transparent'}; background-color: {activeDoc.selectedShape
-            ?.pageNumber === pageNumber &&
-          activeDoc.selectedShape?.index === idx
+            : 'transparent'}; background-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? '#00d2ff1a'
             : 'transparent'};"
         >
@@ -1226,7 +1336,7 @@
             stroke-linecap="round"
             stroke-linejoin="round"><polyline points="20 6 9 17 4 12" /></svg
           >
-          {#if activeDoc.activeTool === "select" && activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx}
+          {#if activeDoc.activeTool === "select" && activeDoc.selectedShapes.length === 1 && activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)}
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "tl")}
               class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -top-1 -left-1 cursor-nwse-resize rounded-full"
@@ -1247,15 +1357,12 @@
         </div>
       {:else if shape && shape.type === "dash"}
         <div
+          data-shape-idx={idx}
           onmousedown={(e) => initShapeMove(e, idx)}
           class="absolute pointer-events-auto z-40 flex items-center justify-center p-0.5 border rounded-sm cursor-move transition-[border-color,background-color] duration-100"
-          style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%; border-color: {activeDoc
-            .selectedShape?.pageNumber === pageNumber &&
-          activeDoc.selectedShape?.index === idx
+          style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%; border-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? '#00d2ff'
-            : 'transparent'}; background-color: {activeDoc.selectedShape
-            ?.pageNumber === pageNumber &&
-          activeDoc.selectedShape?.index === idx
+            : 'transparent'}; background-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? '#00d2ff1a'
             : 'transparent'};"
         >
@@ -1270,7 +1377,7 @@
             preserveAspectRatio="none"
             ><line x1="2" y1="12" x2="22" y2="12" /></svg
           >
-          {#if activeDoc.activeTool === "select" && activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx}
+          {#if activeDoc.activeTool === "select" && activeDoc.selectedShapes.length === 1 && activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)}
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "tl")}
               class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -top-1 -left-1 cursor-nwse-resize rounded-full"
@@ -1291,10 +1398,9 @@
         </div>
       {:else if shape && (shape.type === "signature" || shape.type === "initial")}
         <div
+          data-shape-idx={idx}
           onmousedown={(e) => initShapeMove(e, idx)}
-          class="absolute pointer-events-auto z-40 flex items-center justify-center border rounded-sm cursor-move p-0.5 overflow-hidden mix-blend-multiply bg-transparent transition-[border-color,box-shadow] duration-100 {activeDoc
-            .selectedShape?.pageNumber === pageNumber &&
-          activeDoc.selectedShape?.index === idx
+          class="absolute pointer-events-auto z-40 flex items-center justify-center border rounded-sm cursor-move p-0.5 overflow-hidden mix-blend-multiply bg-transparent transition-[border-color,box-shadow] duration-100 {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? 'border-[#00d2ff] shadow-[0_0_12px_rgba(0,210,255,0.35)]'
             : 'border-transparent hover:border-slate-400/30'}"
           style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%;"
@@ -1304,7 +1410,7 @@
             alt="Sign"
             class="w-full h-full object-contain pointer-events-none"
           />
-          {#if activeDoc.activeTool === "select" && activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx}
+          {#if activeDoc.activeTool === "select" && activeDoc.selectedShapes.length === 1 && activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)}
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "tl")}
               class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -top-1 -left-1 cursor-nwse-resize rounded-full"

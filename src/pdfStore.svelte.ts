@@ -66,6 +66,7 @@ export interface SharedDocumentState {
 		| null;
 	shapes: Record<number, AnnotationShape[]>;
 	selectedShape: { pageNumber: number; index: number } | null;
+	selectedShapes: { pageNumber: number; index: number }[];
 	savedSignatureSets: SignatureSet[];
 	activeStampDataUrl: string | null;
 	pageOrder: number[];
@@ -142,6 +143,7 @@ export const activeDoc = $state<SharedDocumentState>({
 	activeTool: "select",
 	shapes: {},
 	selectedShape: null,
+	selectedShapes: [],
 	savedSignatureSets: loadSavedSets(),
 	activeStampDataUrl: null,
 	pageOrder: [],
@@ -168,6 +170,7 @@ export const activeDoc = $state<SharedDocumentState>({
 		this.rotations = {};
 		this.shapes = {};
 		this.selectedShape = null;
+		this.selectedShapes = [];
 		this.isDirty = false;
 		this.bookmarks = [];
 		console.log(
