@@ -1085,6 +1085,7 @@
 
 <div
   bind:this={pageContainer}
+  data-page-number={pageNumber}
   onmousedown={handleMouseDown}
   onmousemove={handleMouseMove}
   onmouseup={handleMouseUp}

@@ -6,8 +6,7 @@
 3. Add File tabs for multiple documents.
 4. Recent document options (clear, delete, compress)
 5. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
-6. undo/redo should be disable if there's nothing to undo or redo
-7. large files go out of sync in thumnails and the viewbox
+6. large files go out of sync in thumnails and the viewbox
 
 
 
