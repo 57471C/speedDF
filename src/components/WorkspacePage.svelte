@@ -1307,23 +1307,19 @@
           {#if activeDoc.activeTool === "select" && activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx}
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "tl")}
-              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -left-1.5 cursor-nwse-resize rounded-full shadow-md"
-              style="border-color: {shape.color || '#000000'};"
+              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -top-1 -left-1 cursor-nwse-resize rounded-full"
             ></div>
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "tr")}
-              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -right-1.5 cursor-nesw-resize rounded-full shadow-md"
-              style="border-color: {shape.color || '#000000'};"
+              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -top-1 -right-1 cursor-nesw-resize rounded-full"
             ></div>
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "bl")}
-              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -bottom-1.5 -left-1.5 cursor-nesw-resize rounded-full shadow-md"
-              style="border-color: {shape.color || '#000000'};"
+              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -bottom-1 -left-1 cursor-nesw-resize rounded-full"
             ></div>
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "br")}
-              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -bottom-1.5 -right-1.5 cursor-nwse-resize rounded-full shadow-md"
-              style="border-color: {shape.color || '#000000'};"
+              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -bottom-1 -right-1 cursor-nwse-resize rounded-full"
             ></div>
           {/if}
         </div>
