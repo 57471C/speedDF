@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import * as pdfjsLib from "pdfjs-dist";
-  import { activeDoc, FONT_MAP } from "../pdfStore.svelte";
+  import { activeDoc, FONT_MAP, undoStack, redoStack } from "../pdfStore.svelte";
   import { PDFDocument, rgb, degrees, BlendMode, LineCapStyle, PDFString, PDFName } from "pdf-lib";
 
   let {
@@ -564,7 +564,7 @@
         <div class="w-px h-4 bg-slate-700 mx-1.5"></div>
 
         <button 
-          disabled={!activeDoc.rawBytes}
+          disabled={!activeDoc.rawBytes || undoStack.length === 0}
           onclick={onUndo} 
           title="Undo (Ctrl+Z)" 
           class="toolbar-btn"
@@ -575,7 +575,7 @@
         </button>
 
         <button 
-          disabled={!activeDoc.rawBytes}
+          disabled={!activeDoc.rawBytes || redoStack.length === 0}
           onclick={onRedo} 
           title="Redo (Ctrl+Y)" 
           class="toolbar-btn"

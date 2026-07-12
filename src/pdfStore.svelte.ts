@@ -187,8 +187,8 @@ interface HistorySnapshot {
 }
 
 // Memory-tracked transaction arrays
-export let undoStack: HistorySnapshot[] = [];
-export let redoStack: HistorySnapshot[] = [];
+export const undoStack = $state<HistorySnapshot[]>([]);
+export const redoStack = $state<HistorySnapshot[]>([]);
 
 /**
  * ⏳ Commits a deep-cloned historical snapshot of the current canvas layout state onto the undo stack.
@@ -204,7 +204,7 @@ export function pushHistorySnapshot() {
 
 	// A new user action always invalidates and clears the forward redo stack path
 	if (redoStack.length > 0) {
-		redoStack = [];
+		redoStack.length = 0;
 	}
 }
 

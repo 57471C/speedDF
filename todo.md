@@ -1,16 +1,14 @@
 # Todo List #
 
 ## Features to add ##
-1. add find/search contect popup with clear text/case insensitive button (on by default) !probably need #1 first?
+1. add find/search contect popup with clear text/case insensitive button (on by default)
 2. Add snapshot tool.
 3. Add File tabs for multiple documents.
-5. Recent document options (clear, delete, compress)
-8. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
-9. undo/redo should be diab;es if there's nothing to undo or redo
-10. large files go out of sync in thumnails and the viewbox
-11. moving objects around the canvas is stil a bit janky
-12. selected shapes should update their colour and line thickness when the colour and thinkness tool is selected
-13. select tool should be able to ctrl+click to multi select
+4. Recent document options (clear, delete, compress)
+5. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
+6. undo/redo should be disable if there's nothing to undo or redo
+7. large files go out of sync in thumnails and the viewbox
+
 
 
 99. Buy me a coffee in help modal and welcome message
