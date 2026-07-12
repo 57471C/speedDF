@@ -47,6 +47,141 @@
   let isUpdateReadyToInstall = $state(false);
   let isApplyingDeferredUpdate = $state(false);
 
+  // Find/Search Content Popup State
+  let showSearchPopup = $state(false);
+  let searchQuery = $state("");
+  let caseSensitive = $state(false);
+  let currentMatchIndex = $state(-1);
+  let totalMatches = $state(0);
+  let matchesList = $state<{ pageNumber: number; element: HTMLElement }[]>([]);
+
+  // Maps to store original HTML of spans to restore them before new search highlights
+  const originalSpansMap = new Map<HTMLElement, string>();
+
+  function clearHighlights() {
+    originalSpansMap.forEach((origHTML, element) => {
+      if (element.isConnected) {
+        element.innerHTML = origHTML;
+      }
+    });
+    originalSpansMap.clear();
+  }
+
+  function closeSearch() {
+    showSearchPopup = false;
+    searchQuery = "";
+    currentMatchIndex = -1;
+    totalMatches = 0;
+    matchesList = [];
+    clearHighlights();
+  }
+
+  function performTextSearch() {
+    clearHighlights();
+
+    if (!searchQuery) {
+      totalMatches = 0;
+      currentMatchIndex = -1;
+      matchesList = [];
+      return;
+    }
+
+    const spans = document.querySelectorAll(".textLayer span");
+    const tempMatches: { pageNumber: number; element: HTMLElement }[] = [];
+    const query = searchQuery;
+
+    const regexFlags = caseSensitive ? "g" : "gi";
+    const escapedQuery = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const regex = new RegExp(`(${escapedQuery})`, regexFlags);
+
+    spans.forEach((span) => {
+      const text = span.textContent || "";
+      if (regex.test(text)) {
+        const parentPage = span.closest("[data-page-number]");
+        if (parentPage) {
+          const pageNum = parseInt(parentPage.getAttribute("data-page-number") || "1", 10);
+          tempMatches.push({
+            pageNumber: pageNum,
+            element: span as HTMLElement,
+          });
+        }
+      }
+    });
+
+    matchesList = tempMatches;
+    totalMatches = matchesList.length;
+
+    if (totalMatches > 0) {
+      currentMatchIndex = 0;
+      highlightAllMatches();
+      scrollToMatch(0);
+    } else {
+      currentMatchIndex = -1;
+    }
+  }
+
+  function highlightAllMatches() {
+    if (!searchQuery) return;
+    const query = searchQuery;
+    const regexFlags = caseSensitive ? "g" : "gi";
+    const escapedQuery = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const regex = new RegExp(`(${escapedQuery})`, regexFlags);
+
+    matchesList.forEach((match, index) => {
+      const span = match.element;
+      if (!originalSpansMap.has(span)) {
+        originalSpansMap.set(span, span.innerHTML);
+      }
+
+      const isCurrent = index === currentMatchIndex;
+      const highlightClass = isCurrent
+        ? "bg-amber-400 text-slate-950 font-bold ring-2 ring-cyan-500 rounded-sm px-0.5 z-50 relative"
+        : "bg-yellow-400 text-slate-950 rounded-sm px-0.5";
+
+      span.innerHTML = originalSpansMap.get(span)!.replace(regex, (m) => {
+        return `<mark class="${highlightClass}">${m}</mark>`;
+      });
+    });
+  }
+
+  function goToNextMatch() {
+    if (totalMatches === 0) return;
+    currentMatchIndex = (currentMatchIndex + 1) % totalMatches;
+    highlightAllMatches();
+    scrollToMatch(currentMatchIndex);
+  }
+
+  function goToPrevMatch() {
+    if (totalMatches === 0) return;
+    currentMatchIndex = (currentMatchIndex - 1 + totalMatches) % totalMatches;
+    highlightAllMatches();
+    scrollToMatch(currentMatchIndex);
+  }
+
+  function toggleCaseSensitive() {
+    caseSensitive = !caseSensitive;
+    performTextSearch();
+  }
+
+  function scrollToMatch(index: number) {
+    if (index < 0 || index >= matchesList.length) return;
+    const match = matchesList[index];
+    match.element.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+      inline: "nearest"
+    });
+    // Set currentPage in global store so sidebar tracks correctly
+    activeDoc.currentPage = match.pageNumber;
+  }
+
+  // Auto-Reset Bindings: Reset search when document or zoom scale changes
+  $effect(() => {
+    const _zoom = zoomScale;
+    const _file = activeDoc.fileName;
+    closeSearch();
+  });
+
   let loadStartTime = 0;
   let renderDurationMs = $state<number | null>(null);
   let isZippingLoader = $state(false);
@@ -630,6 +765,29 @@
     );
 
     window.addEventListener("keydown", (e: KeyboardEvent) => {
+      const isCtrl = e.ctrlKey || e.metaKey;
+
+      if (isCtrl && e.key.toLowerCase() === "f") {
+        if (activeDoc.rawBytes) {
+          e.preventDefault();
+          showSearchPopup = true;
+          tick().then(() => {
+            const input = document.getElementById("search-input");
+            if (input) {
+              (input as HTMLInputElement).focus();
+              (input as HTMLInputElement).select();
+            }
+          });
+          return;
+        }
+      }
+
+      if (e.key === "Escape" && showSearchPopup) {
+        e.preventDefault();
+        closeSearch();
+        return;
+      }
+
       if (
         document.activeElement?.tagName === "INPUT" ||
         document.activeElement?.tagName === "TEXTAREA"
@@ -637,7 +795,6 @@
         return;
       }
 
-      const isCtrl = e.ctrlKey || e.metaKey;
       const isShift = e.shiftKey;
 
       if (isCtrl) {
@@ -784,7 +941,103 @@
   {#if activeDoc.rawBytes}
     <div class="flex flex-1 w-full overflow-hidden relative">
       <ToolSidebar bind:zoomScale />
-      <Workspace {zoomScale} {isSystemPrinting} />
+      
+      <div class="relative flex-1 h-full min-w-0 flex flex-col">
+        <Workspace {zoomScale} {isSystemPrinting} />
+
+        {#if showSearchPopup}
+          <!-- Floating search popup UI panel -->
+          <div class="absolute top-4 right-6 z-50 animate-fade-in pointer-events-auto">
+            <div class="bg-[#0B0B0F]/95 border border-slate-800/80 shadow-[0_12px_40px_rgba(0,0,0,0.6)] rounded-xl p-3 flex items-center gap-2.5 backdrop-blur-md text-white select-none">
+              <!-- Input Area -->
+              <div class="relative flex items-center bg-slate-950 rounded-lg border border-slate-800 px-2.5 py-1.5 focus-within:border-cyan-500/80 transition-colors w-60">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="text-slate-500 mr-2">
+                  <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input
+                  id="search-input"
+                  type="text"
+                  bind:value={searchQuery}
+                  oninput={performTextSearch}
+                  onkeydown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (e.shiftKey) {
+                        goToPrevMatch();
+                      } else {
+                        goToNextMatch();
+                      }
+                    }
+                  }}
+                  placeholder="Find in document..."
+                  class="bg-transparent text-slate-100 placeholder-slate-500 text-xs outline-none w-full font-medium border-none p-0 focus:ring-0 focus:outline-none"
+                />
+                {#if searchQuery}
+                  <button
+                    onclick={() => { searchQuery = ""; performTextSearch(); }}
+                    class="text-slate-500 hover:text-slate-300 ml-1.5 p-0.5 rounded-full hover:bg-slate-800 transition-colors cursor-pointer border-none bg-transparent"
+                    title="Clear text"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                  </button>
+                {/if}
+              </div>
+
+              <!-- Case Toggle (Aa) -->
+              <button
+                onclick={toggleCaseSensitive}
+                class="h-8 px-2.5 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all duration-150 cursor-pointer flex items-center justify-center bg-transparent
+                  {caseSensitive 
+                    ? 'bg-cyan-950/40 border-cyan-500/80 text-cyan-400' 
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'}"
+                title="Match Case"
+              >
+                Aa
+              </button>
+
+              <!-- Match Counter Indicator -->
+              <div class="text-[11px] font-mono text-slate-400 min-w-[50px] text-center select-none font-semibold border-l border-r border-slate-800 px-2 h-5 flex items-center justify-center">
+                {#if totalMatches > 0}
+                  {currentMatchIndex + 1}/{totalMatches}
+                {:else if searchQuery && totalMatches === 0}
+                  0/0
+                {:else}
+                  —
+                {/if}
+              </div>
+
+              <!-- Chevrons Navigation -->
+              <div class="flex items-center gap-1">
+                <button
+                  onclick={goToPrevMatch}
+                  disabled={totalMatches === 0}
+                  class="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+                  title="Previous Match (Shift+Enter)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                </button>
+                <button
+                  onclick={goToNextMatch}
+                  disabled={totalMatches === 0}
+                  class="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+                  title="Next Match (Enter)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+              </div>
+
+              <!-- Close Button -->
+              <button
+                onclick={closeSearch}
+                class="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-red-400 hover:border-red-900/50 transition-all cursor-pointer"
+                title="Close Search (Esc)"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+          </div>
+        {/if}
+      </div>
 
       <PageSidebar />
 
