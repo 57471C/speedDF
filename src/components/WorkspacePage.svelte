@@ -3,11 +3,12 @@
   import { onMount } from "svelte";
   import { activeDoc, type AnnotationShape, pushHistorySnapshot, FONT_MAP, updateBookmarkNameAction, deleteBookmarkAction, addOrToggleBookmarkAction } from "../pdfStore.svelte";
 
-  let { bytes, pageNumber, zoomScale, isSystemPrinting = false } = $props<{
+  let { bytes, pageNumber, zoomScale, isSystemPrinting = false, scrollObserver } = $props<{
     bytes: Uint8Array;
     pageNumber: number;
     zoomScale: number;
     isSystemPrinting?: boolean;
+    scrollObserver: IntersectionObserver | null;
   }>();
   let canvasElement = $state<HTMLCanvasElement | null>(null);
   let pageContainer = $state<HTMLDivElement | null>(null);
@@ -1005,20 +1006,6 @@
         }
       }
     }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting && !(activeDoc as any).isClickScrolling) {
-            const containerTop = (activeDoc as any).scrollTop ?? 0;
-            if (containerTop === 0) activeDoc.currentPage = 1;
-            else if (activeDoc.currentPage !== pageNumber)
-              activeDoc.currentPage = pageNumber;
-          }
-        }
-      },
-      { root: trueScrollViewport || null, threshold: 0.4 },
-    );
-
     const preloadObserver = new IntersectionObserver(
       (entries) => {
         if (isSystemPrinting) return;
@@ -1056,17 +1043,27 @@
     );
 
     window.addEventListener("keydown", handleGlobalKeyDown);
-    observer.observe(pageContainer);
     preloadObserver.observe(pageContainer);
     paintObserver.observe(pageContainer);
     return () => {
       window.removeEventListener("keydown", handleGlobalKeyDown);
-      observer.disconnect();
       preloadObserver.disconnect();
       paintObserver.disconnect();
       if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
+      }
+    };
+  });
+
+  $effect(() => {
+    // Self-register to the centralized parent scroll loop upon painting
+    if (pageContainer && scrollObserver) {
+      scrollObserver.observe(pageContainer);
+    }
+    return () => {
+      if (pageContainer && scrollObserver) {
+        scrollObserver.unobserve(pageContainer);
       }
     };
   });

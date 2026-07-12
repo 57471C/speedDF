@@ -697,10 +697,18 @@
 
     // 🛡️ Capturing Phase Firewall: Drops native browser print commands instantly
     const trapBrowserPrintShortcut = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key.toLowerCase() === "p") {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
         e.preventDefault();
         e.stopPropagation();
+
+        // Short-circuit safely to prevent a backend runtime crash if no file is open
+        if (!activeDoc || !activeDoc.pageOrder || activeDoc.pageOrder.length === 0) {
+          return;
+        }
+
+        // Trigger headless print routines only if document is active
         triggerHeadlessPrintSpool();
+        return;
       }
     };
     window.addEventListener("keydown", trapBrowserPrintShortcut, {
@@ -767,19 +775,25 @@
     window.addEventListener("keydown", (e: KeyboardEvent) => {
       const isCtrl = e.ctrlKey || e.metaKey;
 
-      if (isCtrl && e.key.toLowerCase() === "f") {
-        if (activeDoc.rawBytes) {
-          e.preventDefault();
-          showSearchPopup = true;
-          tick().then(() => {
-            const input = document.getElementById("search-input");
-            if (input) {
-              (input as HTMLInputElement).focus();
-              (input as HTMLInputElement).select();
-            }
-          });
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Short-circuit safely if workspace is empty
+        if (!activeDoc || !activeDoc.pageOrder || activeDoc.pageOrder.length === 0) {
           return;
         }
+
+        // Custom search activation logic runs only if document is present
+        showSearchPopup = true;
+        tick().then(() => {
+          const input = document.getElementById("search-input");
+          if (input) {
+            (input as HTMLInputElement).focus();
+            (input as HTMLInputElement).select();
+          }
+        });
+        return;
       }
 
       if (e.key === "Escape" && showSearchPopup) {

@@ -180,6 +180,61 @@
 
   let { zoomScale = $bindable(120), isSystemPrinting = false } = $props<{ zoomScale: number; isSystemPrinting: boolean }>();
   let scrollContainer = $state<HTMLDivElement | null>(null);
+  let scrollObserver = $state<IntersectionObserver | null>(null);
+
+  $effect(() => {
+    if (!scrollContainer) return;
+
+    scrollObserver = new IntersectionObserver(
+      (entries) => {
+        // Block updates if the application is executing an explicit click-to-scroll navigation anchor sweep
+        if ((activeDoc as any).isClickScrolling) return;
+
+        // Filter for live intersecting entries
+        const visibleEntries = entries.filter((e) => e.isIntersecting);
+        if (visibleEntries.length === 0) return;
+
+        // Sort multiple concurrent entries by their vertical layout coordinates to prevent frame jitters
+        visibleEntries.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+
+        // The top-most element crossing our horizon window takes state dominance
+        const targetEntry = visibleEntries[0];
+        const pageNumAttr = targetEntry.target.getAttribute("data-page-number");
+
+        if (pageNumAttr) {
+          const pageNum = parseInt(pageNumAttr, 10);
+          if (activeDoc.currentPage !== pageNum) {
+            activeDoc.currentPage = pageNum;
+          }
+        }
+      },
+      {
+        root: scrollContainer,
+        rootMargin: "-10% 0px -85% 0px", // 🎯 Horizons focal scanning line near the upper third
+        threshold: 0.0,
+      }
+    );
+
+    const handleViewportScroll = () => {
+      if (!scrollContainer) return;
+      (activeDoc as any).scrollTop = scrollContainer.scrollTop;
+      (activeDoc as any).scrollHeight = scrollContainer.scrollHeight;
+      (activeDoc as any).clientHeight = scrollContainer.clientHeight;
+    };
+
+    // Use passive true to ensure the browser thread never drops rendering frames
+    scrollContainer.addEventListener("scroll", handleViewportScroll, { passive: true });
+
+    return () => {
+      if (scrollContainer) {
+        scrollContainer.removeEventListener("scroll", handleViewportScroll);
+      }
+      if (scrollObserver) {
+        scrollObserver.disconnect();
+        scrollObserver = null;
+      }
+    };
+  });
 
   // ⚡ FIXED: Automatically measures the total height of the document when zoom scales or pages change
   $effect(() => {
@@ -297,13 +352,7 @@
     }
   }
 
-  // ⚡ FIXED: Broadcasts exact live pixel coordinates straight to the global store on every mouse wheel tick
-  function handleScroll(e: Event) {
-    const target = e.currentTarget as HTMLDivElement;
-    activeDoc.scrollTop = target.scrollTop;
-    activeDoc.scrollHeight = target.scrollHeight;
-    activeDoc.clientHeight = target.clientHeight;
-  }
+
 
   // Ctrl + Mouse Wheel Zooming
   $effect(() => {
@@ -416,7 +465,6 @@
 
 <div
   bind:this={scrollContainer}
-  onscroll={handleScroll}
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
@@ -511,7 +559,7 @@
   {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
     <div class="flex flex-col items-center gap-6 pb-24 origin-top transition-transform duration-150">
       {#each activeDoc.pageOrder as pageNumber (pageNumber)}
-        <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} {isSystemPrinting} />
+        <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} {isSystemPrinting} {scrollObserver} />
       {/each}
     </div>
   {/if}
