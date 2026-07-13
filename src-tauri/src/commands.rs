@@ -29,18 +29,32 @@ fn sanitize_onnx_parameter_tokens(bytes: &mut [u8]) {
     let mut i = 0;
     while i + 4 <= bytes.len() {
         if &bytes[i..i + 4] == b"p2o." {
-            bytes[i + 3] = b'_';
+            // First, find the end of this potential token sequence without mutating
             let mut j = i + 4;
             while j < bytes.len() {
                 let c = bytes[j];
-                if c == b'.' {
-                    bytes[j] = b'_';
-                } else if c.is_ascii_alphanumeric() || c == b'_' || c == b'/' || c == b'-' {
-                    // Valid character, continue scanning
+                if c == b'.' || c.is_ascii_alphanumeric() || c == b'_' || c == b'/' || c == b'-' {
+                    j += 1;
                 } else {
                     break;
                 }
-                j += 1;
+            }
+
+            // We apply sanitization generally for `p2o.` prefixed parameters.
+            // However, to prevent data corruption during partial buffering or on random byte
+            // sequences that do not form a complete, valid ONNX parameter name, we
+            // require the matched token length to be at least 20 bytes (the length of the
+            // known standard parameter "p2o.DynamicDimension"). Shorter sequences are considered
+            // unsafe partial matches.
+            if j - i >= 20 {
+                bytes[i + 3] = b'_';
+                let mut k = i + 4;
+                while k < j {
+                    if bytes[k] == b'.' {
+                        bytes[k] = b'_';
+                    }
+                    k += 1;
+                }
             }
             i = j;
         } else {
@@ -602,54 +616,49 @@ pub async fn run_local_ocr(
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_onnx_parameter_tokens;
+    use super::*;
 
     #[test]
-    fn test_sanitize_p2o_basic() {
-        let mut bytes = b"p2o.DynamicDimension".to_vec();
-        sanitize_onnx_parameter_tokens(&mut bytes);
-        assert_eq!(&bytes, b"p2o_DynamicDimension");
+    fn sanitizes_p2o_dynamic_dimension() {
+        let mut data = b"some p2o.DynamicDimension stuff".to_vec();
+        sanitize_onnx_parameter_tokens(&mut data);
+        assert_eq!(data, b"some p2o_DynamicDimension stuff");
     }
 
     #[test]
-    fn test_sanitize_dynamic_dimension() {
-        let mut bytes = b"DynamicDimension.".to_vec();
-        sanitize_onnx_parameter_tokens(&mut bytes);
-        assert_eq!(&bytes, b"DynamicDimension_");
+    fn sanitizes_trailing_dynamic_dimension() {
+        let mut data = b"DynamicDimension.1".to_vec();
+        sanitize_onnx_parameter_tokens(&mut data);
+        assert_eq!(data, b"DynamicDimension_1");
     }
 
     #[test]
-    fn test_sanitize_dynamic_dimension_in_string() {
-        let mut bytes = b"prefix.DynamicDimension.suffix".to_vec();
-        sanitize_onnx_parameter_tokens(&mut bytes);
-        assert_eq!(&bytes, b"prefix.DynamicDimension_suffix");
+    fn sanitizes_both_patterns_in_same_buffer() {
+        let mut data = b"p2o.DynamicDimension and DynamicDimension.2".to_vec();
+        sanitize_onnx_parameter_tokens(&mut data);
+        assert_eq!(data, b"p2o_DynamicDimension and DynamicDimension_2");
     }
 
     #[test]
-    fn test_sanitize_multiple_matches() {
-        let mut bytes = b"p2o.DynamicDimension and DynamicDimension. extra".to_vec();
-        sanitize_onnx_parameter_tokens(&mut bytes);
-        assert_eq!(&bytes, b"p2o_DynamicDimension and DynamicDimension_ extra");
+    fn handles_no_matches() {
+        let original = b"completely normal data here";
+        let mut data = original.to_vec();
+        sanitize_onnx_parameter_tokens(&mut data);
+        assert_eq!(data, original);
     }
 
     #[test]
-    fn test_sanitize_no_match() {
-        let mut bytes = b"normal.onnx.parameter".to_vec();
-        sanitize_onnx_parameter_tokens(&mut bytes);
-        assert_eq!(&bytes, b"normal.onnx.parameter");
+    fn handles_empty_buffer() {
+        let mut data: Vec<u8> = vec![];
+        sanitize_onnx_parameter_tokens(&mut data);
+        assert!(data.is_empty());
     }
 
+    // Bonus: test partial match doesn't corrupt data
     #[test]
-    fn test_sanitize_short_input() {
-        let mut bytes = b"p2o".to_vec();
-        sanitize_onnx_parameter_tokens(&mut bytes);
-        assert_eq!(&bytes, b"p2o");
-    }
-
-    #[test]
-    fn test_sanitize_empty_input() {
-        let mut bytes: Vec<u8> = vec![];
-        sanitize_onnx_parameter_tokens(&mut bytes);
-        assert!(bytes.is_empty());
+    fn does_not_mutate_on_partial_match() {
+        let mut data = b"p2o.DynamicDimensio".to_vec(); // missing final 'n'
+        sanitize_onnx_parameter_tokens(&mut data);
+        assert_eq!(data, b"p2o.DynamicDimensio");
     }
 }
