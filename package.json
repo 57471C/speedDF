@@ -34,6 +34,8 @@
 		"@sveltejs/vite-plugin-svelte": "^5.0.0",
 		"@tailwindcss/postcss": "^4.3.1",
 		"@tauri-apps/cli": "^2",
+		"@testing-library/jest-dom": "^6.9.1",
+		"@testing-library/svelte": "^5.4.2",
 		"@types/node": "^25.9.3",
 		"@types/sortablejs": "^1.15.9",
 		"autoprefixer": "^10.5.0",
