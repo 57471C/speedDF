@@ -2,7 +2,7 @@
   import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { open } from "@tauri-apps/plugin-dialog";
+  import { open, ask } from "@tauri-apps/plugin-dialog";
   import { check } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
   import { open as openBrowser } from "@tauri-apps/plugin-shell";
@@ -471,6 +471,49 @@
       name,
       "You have unsaved changes on this layout sheet. Are you sure you want to load this recent file and discard your progress?",
     );
+  }
+
+  function handleClearFromRecents(targetId: string) {
+    recentFiles = recentFiles.filter((f) => f.path !== targetId);
+    localStorage.setItem("speeddf_recents", JSON.stringify(recentFiles));
+    showNotification("Removed document from recents list");
+  }
+
+  async function handleDeleteFromHDD(file: any) {
+    try {
+      // 1. Throw a standard native OS warning modal check
+      const confirmScrub = await ask(
+        `Are you absolutely sure you want to permanently delete "${file.name}" from your computer?\n\nThis will remove the actual file from your hard drive and cannot be undone.`,
+        { title: 'Permanently Delete File', kind: 'warning' }
+      );
+
+      if (!confirmScrub) return;
+
+      // 2. Eradicate the file binary from disk storage using the new native command
+      await invoke("delete_file_from_disk", { filePath: file.path });
+
+      // 3. Chain into your existing working clear method to scrub the UI card asset
+      handleClearFromRecents(file.path);
+
+      showNotification(`Deleted file permanently: ${file.name}`);
+    } catch (err) {
+      console.error('Failed to execute hard drive deletion loop:', err);
+      showNotification("Failed to delete file from disk");
+    }
+  }
+
+  async function handleCompress(file: any) {
+    try {
+      showNotification(`Compressing PDF: ${file.name}`);
+      // Invoke the custom Rust pipeline command, passing the absolute file target path
+      const outputMessage = await invoke<string>('compress_pdf_pipeline', { filePath: file.path });
+      console.log(outputMessage);
+
+      showNotification("PDF compressed successfully");
+    } catch (err) {
+      console.error('PDF optimization engine compression failure:', err);
+      showNotification("Compression failed");
+    }
   }
 
   async function createBlankDocument() {
@@ -1246,70 +1289,75 @@
           </h2>
 
           <div
-            class="flex gap-6 overflow-x-auto pb-6 pt-3 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent scroll-smooth snap-x"
+            class="flex gap-2 overflow-x-auto pt-8 pb-3 pl-7 pr-6 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent scroll-smooth snap-x"
           >
             {#each recentFiles as file}
               {@const exists = fileStatusMap[file.path] !== false}
               {@const isLandscape = file.orientation === "landscape"}
+              {@const doc = { ...file, id: file.path }}
 
-              <div
-                onclick={() => exists && openRecentFile(file.name, file.path)}
-                onkeydown={(e) =>
-                  e.key === "Enter" &&
-                  exists &&
-                  openRecentFile(file.name, file.path)}
-                role="button"
-                tabindex="0"
-                class="flex-none snap-start relative group bg-[#090d16] rounded-xl overflow-hidden border transition-all duration-300 ease-out shadow-lg transform
-                       {exists
-                  ? 'border-slate-800/60 shadow-slate-950/50 cursor-pointer hover:shadow-2xl hover:scale-106 hover:border-emerald-500/30'
-                  : 'border-slate-900 opacity-40 cursor-not-allowed select-none'}
-                       {isLandscape ? 'w-72 h-44' : 'w-44 h-56'}"
-              >
+              <div class="flex-shrink-0 relative snap-start {isLandscape ? 'w-64 h-40' : 'w-40 h-52'}">
                 <div
-                  class="w-full h-full flex items-center justify-center bg-[#04060a] relative"
+                  onclick={() => exists && openRecentFile(file.name, file.path)}
+                  onkeydown={(e) => e.key === "Enter" && exists && openRecentFile(file.name, file.path)}
+                  role="button"
+                  tabindex="0"
+                  class="recent-card w-full h-full relative flex flex-col items-center bg-slate-950 rounded-none cursor-pointer transform scale-90 transition-all duration-200 ease-out origin-center select-none group p-0 border border-slate-900/40 will-change-transform transform-gpu subpixel-antialiased [backface-visibility:hidden] hover:scale-105 hover:-translate-y-2 hover:z-50 hover:border-transparent hover:shadow-[0_20px_40px_rgba(0,0,0,0.9)]"
                 >
-                  {#if file.thumbnail}
-                    <img
-                      src={file.thumbnail}
-                      alt={file.name}
-                      class="w-full h-full object-contain transition-transform duration-500 group-hover:scale-102"
-                    />
-                  {/if}
-
-                  <div
-                    class="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-80 group-hover:opacity-100 transition-opacity"
-                  ></div>
-                </div>
-
-                <div
-                  class="absolute bottom-0 inset-x-0 p-3 flex flex-col justify-end"
-                >
-                  <p
-                    class="text-xs font-medium text-slate-200 truncate w-full tracking-wide drop-shadow-md"
-                  >
-                    {file.name}
-                  </p>
-                </div>
-
-                {#if exists}
-                  <div
-                    class="absolute top-3 right-3 flex h-2 w-2"
-                    title="File available on local storage disk"
-                  >
-                    <span
-                      class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"
-                    ></span>
-                    <span
-                      class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_#10b981]"
-                    ></span>
+                  <div class="absolute -top-5 left-0 right-0 text-[10.5px] font-medium text-slate-400 group-hover:text-cyan-400 overflow-hidden whitespace-nowrap px-0.5 pointer-events-none w-full select-none">
+                    {#if file.name.length > 22}
+                      <div class="speeddf-marquee-track inline-flex whitespace-nowrap will-change-transform">
+                        <span class="speeddf-marquee-content pr-8">{file.name}</span>
+                        <span class="speeddf-marquee-content pr-8">{file.name}</span>
+                      </div>
+                    {:else}
+                      <span class="truncate block w-full text-left">{file.name}</span>
+                    {/if}
                   </div>
-                {:else}
-                  <div
-                    class="absolute top-3 right-3 h-2 w-2 rounded-full bg-slate-700"
-                    title="File path missing or unreadable"
-                  ></div>
-                {/if}
+
+                  <div class="bottom-dock-tray absolute bottom-0 left-0 right-0 h-10 bg-[#0f1424] border-t border-slate-800/80 flex items-center justify-around px-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-out z-40">
+                    {#if exists}
+                      <button
+                        onclick={(e) => { e.stopPropagation(); handleCompress(doc); }}
+                        class="p-1.5 text-cyan-400 hover:text-white hover:bg-cyan-500/20 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer hover-cyan"
+                        title="Compress PDF"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/></svg>
+                      </button>
+                    {/if}
+
+                    <button
+                      onclick={(e) => { e.stopPropagation(); handleClearFromRecents(doc.id); }}
+                      class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer hover-slate"
+                      title="Remove from Recents"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+
+                    {#if exists}
+                      <button
+                        onclick={(e) => { e.stopPropagation(); handleDeleteFromHDD(doc); }}
+                        class="p-1.5 text-red-400 hover:text-white hover:bg-red-500/20 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer hover-red"
+                        title="Delete File From Computer"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                      </button>
+                    {/if}
+                  </div>
+
+                  <div class="w-full h-full flex items-center justify-center bg-[#04060a] relative overflow-hidden transition-all duration-200 {!exists ? 'opacity-25 grayscale brightness-75' : ''}">
+                    {#if file.thumbnail}
+                      <img src={file.thumbnail} alt={file.name} class="w-full h-full object-cover rounded-none" />
+                    {/if}
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-30"></div>
+                  </div>
+
+                  {#if exists}
+                    <div class="absolute top-2.5 left-2.5 h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981] filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" title="File available on local storage disk"></div>
+                  {:else}
+                    <div class="absolute top-2.5 left-2.5 h-2 w-2 rounded-full bg-slate-700 filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" title="File path missing or unreadable"></div>
+                  {/if}
+                </div>
               </div>
             {/each}
           </div>
@@ -1709,6 +1757,54 @@
 {/if}
 
 <style>
+  /* Local Scoped Recent Card Styles to Bypass Build Chain Hover Bugs */
+  .recent-card {
+    transform: scale(0.9);
+    transition: transform 200ms ease-out, border-color 200ms ease-out, box-shadow 200ms ease-out;
+  }
+  .recent-card:hover {
+    transform: scale(1.05) translateY(-8px) !important;
+    z-index: 50 !important;
+    border-color: transparent !important;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.9) !important;
+  }
+  .recent-card:hover .speeddf-marquee-content {
+    color: #22d3ee !important; /* cyan-400 */
+    text-shadow: 0 0 8px rgba(34, 211, 238, 0.4) !important;
+  }
+  .recent-card:hover .speeddf-marquee-track {
+    animation: speeddfMarquee 6s linear infinite;
+    overflow: visible !important;
+    width: max-content !important;
+  }
+  @keyframes speeddfMarquee {
+    0% {
+      transform: translateX(0%);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+  .bottom-dock-tray {
+    opacity: 0;
+    transition: opacity 150ms ease-out;
+  }
+  .recent-card:hover .bottom-dock-tray {
+    opacity: 1 !important;
+  }
+  .hover-cyan:hover {
+    color: #fff !important;
+    background-color: rgba(6, 182, 212, 0.2) !important;
+  }
+  .hover-slate:hover {
+    color: #fff !important;
+    background-color: #1e293b !important;
+  }
+  .hover-red:hover {
+    color: #fff !important;
+    background-color: rgba(239, 68, 68, 0.2) !important;
+  }
+
   /* Drop-down physics for premium window system feedback */
   .speeddf-toast-animate {
     animation: speeddfToastDrop 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
