@@ -492,3 +492,39 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_lut() {
+        let lut = generate_lut();
+
+        // Test byte 0: all bits are 0, so all pixels should be black (0, 0, 0, 255)
+        let byte0 = lut[0];
+        for i in 0..8 {
+            assert_eq!(&byte0[i * 4..i * 4 + 4], &[0, 0, 0, 255]);
+        }
+
+        // Test byte 255: all bits are 1, so all pixels should be white (255, 255, 255, 255)
+        let byte255 = lut[255];
+        for i in 0..8 {
+            assert_eq!(&byte255[i * 4..i * 4 + 4], &[255, 255, 255, 255]);
+        }
+
+        // Test byte 128 (10000000 in binary): first pixel white, rest black
+        let byte128 = lut[128];
+        assert_eq!(&byte128[0..4], &[255, 255, 255, 255]);
+        for i in 1..8 {
+            assert_eq!(&byte128[i * 4..i * 4 + 4], &[0, 0, 0, 255]);
+        }
+
+        // Test byte 1 (00000001 in binary): last pixel white, rest black
+        let byte1 = lut[1];
+        for i in 0..7 {
+            assert_eq!(&byte1[i * 4..i * 4 + 4], &[0, 0, 0, 255]);
+        }
+        assert_eq!(&byte1[28..32], &[255, 255, 255, 255]);
+    }
+}
