@@ -687,4 +687,38 @@ mod tests {
         sanitize_onnx_parameter_tokens(&mut data);
         assert_eq!(data, b"p2o.DynamicDimensio");
     }
+
+    #[tokio::test]
+    async fn download_model_if_missing_file_exists() {
+        use std::io::Write;
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join("test_model_exists.onnx");
+
+        let mut file = std::fs::File::create(&file_path).unwrap();
+        file.write_all(b"dummy data").unwrap();
+
+        let channel = tauri::ipc::Channel::new(|_| Ok(()));
+        let result = download_model_if_missing(&file_path, "http://invalid-url.com", &channel, 0, 1.0).await;
+
+        assert!(result.is_ok());
+
+        std::fs::remove_file(file_path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn download_model_if_missing_network_error() {
+        let temp_dir = std::env::temp_dir();
+        let file_path = temp_dir.join("test_model_network_error.onnx");
+
+        if file_path.exists() {
+            std::fs::remove_file(&file_path).unwrap();
+        }
+
+        let channel = tauri::ipc::Channel::new(|_| Ok(()));
+        let result = download_model_if_missing(&file_path, "http://127.0.0.1:0/invalid", &channel, 0, 1.0).await;
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("Failed to connect to CDN"));
+    }
 }
