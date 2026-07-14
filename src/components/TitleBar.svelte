@@ -114,11 +114,12 @@
         const fontMapping = FONT_MAP[fontName];
         const pdfFontKey = fontMapping ? (fontMapping.pdf[fontStyle] || fontMapping.pdf["Normal"]) : "Helvetica";
 
-        let pdfFont = fontCache.get(pdfFontKey);
-        if (!pdfFont) {
-          pdfFont = await destDoc.embedStandardFont(pdfFontKey as any);
-          fontCache.set(pdfFontKey, pdfFont);
+        let fontPromise = fontCache.get(pdfFontKey);
+        if (!fontPromise) {
+          fontPromise = destDoc.embedStandardFont(pdfFontKey as any);
+          fontCache.set(pdfFontKey, fontPromise);
         }
+        const pdfFont = await fontPromise;
 
         const fontSize = s.size || 12;
         const textBaselineY = pageHeight - (s.y / 100) * pageHeight;
@@ -161,11 +162,12 @@
         (s.type === "signature" || s.type === "initial") &&
         s.dataUrl
       ) {
-        let embeddedImageDest = imageCache.get(s.dataUrl);
-        if (!embeddedImageDest) {
-          embeddedImageDest = await destDoc.embedPng(s.dataUrl);
-          imageCache.set(s.dataUrl, embeddedImageDest);
+        let imgPromise = imageCache.get(s.dataUrl);
+        if (!imgPromise) {
+          imgPromise = destDoc.embedPng(s.dataUrl);
+          imageCache.set(s.dataUrl, imgPromise);
         }
+        const embeddedImageDest = await imgPromise;
         const imgW = embeddedImageDest.width;
         const imgH = embeddedImageDest.height;
         const dampedH = h * 0.80;
@@ -231,6 +233,7 @@
       const fontCache = new Map<string, any>();
       if (activeDoc.fileType === "tiff") {
         console.log("Save Engine: Compiling native multi-page TIFF drawing into a standard PDF structure...");
+        const annotationPromises = [];
         for (let i = 0; i < activeDoc.pageOrder.length; i++) {
           const originalPageNumber = activeDoc.pageOrder[i];
           const rawPngBytes = activeDoc.tiffPages[originalPageNumber - 1];
@@ -267,14 +270,18 @@
             height: embeddedImage.height,
             rotate: degrees(-rotationAngle)
           });
-          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache, fontCache);
+          annotationPromises.push(
+            drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache, fontCache)
+          );
         }
+        await Promise.all(annotationPromises);
       } else {
         const srcDoc = await PDFDocument.load(activeDoc.rawBytes);
         const copiedPages = await destDoc.copyPages(
           srcDoc,
           activeDoc.pageOrder.map((num) => num - 1),
         );
+        const annotationPromises = [];
         for (let i = 0; i < activeDoc.pageOrder.length; i++) {
           const originalPageNumber = activeDoc.pageOrder[i];
           const page = copiedPages[i];
@@ -290,8 +297,11 @@
             );
           }
 
-          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache, fontCache);
+          annotationPromises.push(
+            drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache, fontCache)
+          );
         }
+        await Promise.all(annotationPromises);
       }
 
       // Outline / Bookmark Serialization Layer
