@@ -530,15 +530,11 @@ pub async fn run_local_ocr(
                 );
 
                 let mut data = Vec::with_capacity(3 * target_h as usize * target_w as usize);
-                for c in 0..3 {
-                    for y_img in 0..target_h {
-                        for x_img in 0..target_w {
-                            let pixel = standardized_img.get_pixel(x_img, y_img);
-                            let raw_value = pixel[c] as f32 / 255.0;
-                            data.push((raw_value - 0.5) / 0.5);
-                        }
-                    }
-                }
+                data.extend((0..3).flat_map(|c| {
+                    standardized_img
+                        .pixels()
+                        .map(move |p| (p[c] as f32 / 255.0 - 0.5) / 0.5)
+                }));
                 let tensor_input = tract_onnx::prelude::Tensor::from_shape(
                     &[1, 3, target_h as usize, target_w as usize],
                     &data,
