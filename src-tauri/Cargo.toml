@@ -45,3 +45,14 @@ lto = true              # Enable Link-Time Optimization across all crates
 codegen-units = 1       # Reduce parallel code generation blocks to maximize binary compression
 panic = "abort"         # Strip out heavy stack unwinding panic hooks
 strip = true            # Automatically drop all debug symbols and data mappings from the final binary
+
+[dev-dependencies]
+criterion = "0.8.2"
+
+[[bench]]
+name = "bench"
+harness = false
+
+[[bin]]
+name = "benchmark"
+path = "src/bin/benchmark.rs"
