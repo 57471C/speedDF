@@ -386,7 +386,10 @@ fn compress_pdf_pipeline(file_path: String) -> Result<String, String> {
     doc.save(&export_path)
         .map_err(|e| format!("Failed to write optimized system file: {}", e))?;
 
-    Ok(format!("File compressed cleanly! Generated target clone asset at: {}", export_path))
+    Ok(format!(
+        "File compressed cleanly! Generated target clone asset at: {}",
+        export_path
+    ))
 }
 
 #[tauri::command]
