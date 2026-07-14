@@ -9,7 +9,9 @@ import {
 	rotatePageAction,
 	addOrToggleBookmarkAction,
 	deleteBookmarkAction,
+	updateBookmarkNameAction,
 	undoStack,
+	saveSignatureSetAction,
 } from "./pdfStore.svelte.ts";
 
 describe("loadSavedSets", () => {
@@ -60,6 +62,66 @@ describe("loadSavedSets", () => {
 		];
 		localStorage.setItem("speeddf_signature_sets", JSON.stringify(validData));
 		expect(loadSavedSets()).toEqual(validData);
+	});
+});
+
+describe("saveSignatureSetAction", () => {
+	beforeEach(() => {
+		activeDoc.flushDocumentState();
+		activeDoc.savedSignatureSets = [];
+		localStorage.clear();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("should append a new signature set to activeDoc.savedSignatureSets", () => {
+		const newSet = {
+			id: "1",
+			signatureDataUrl: "data:image/png;base64,sig1",
+			initialDataUrl: "data:image/png;base64,ini1",
+		};
+		saveSignatureSetAction(newSet);
+		expect(activeDoc.savedSignatureSets).toEqual([newSet]);
+	});
+
+	it("should correctly update localStorage with the updated array", () => {
+		const newSet = {
+			id: "1",
+			signatureDataUrl: "data:image/png;base64,sig1",
+			initialDataUrl: "data:image/png;base64,ini1",
+		};
+		const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
+		saveSignatureSetAction(newSet);
+		expect(setItemSpy).toHaveBeenCalledWith(
+			"speeddf_signature_sets",
+			JSON.stringify([newSet]),
+		);
+		expect(localStorage.getItem("speeddf_signature_sets")).toEqual(
+			JSON.stringify([newSet]),
+		);
+	});
+
+	it("should sequentially add multiple signature sets", () => {
+		const set1 = {
+			id: "1",
+			signatureDataUrl: "data:image/png;base64,sig1",
+			initialDataUrl: "data:image/png;base64,ini1",
+		};
+		const set2 = {
+			id: "2",
+			signatureDataUrl: "data:image/png;base64,sig2",
+			initialDataUrl: "data:image/png;base64,ini2",
+		};
+
+		saveSignatureSetAction(set1);
+		saveSignatureSetAction(set2);
+
+		expect(activeDoc.savedSignatureSets).toEqual([set1, set2]);
+		expect(localStorage.getItem("speeddf_signature_sets")).toEqual(
+			JSON.stringify([set1, set2]),
+		);
 	});
 });
 
@@ -248,6 +310,38 @@ describe("deleteBookmarkAction", () => {
 		deleteBookmarkAction(2);
 		expect(activeDoc.bookmarks).toEqual([
 			{ pageNum: 1, name: "Test 1" },
+			{ pageNum: 3, name: "Test 3" },
+		]);
+	});
+});
+
+describe("updateBookmarkNameAction", () => {
+	beforeEach(() => {
+		activeDoc.flushDocumentState();
+	});
+
+	it("should update the name of an existing bookmark", () => {
+		activeDoc.bookmarks = [{ pageNum: 1, name: "Test" }];
+		updateBookmarkNameAction(1, "New Name");
+		expect(activeDoc.bookmarks).toEqual([{ pageNum: 1, name: "New Name" }]);
+	});
+
+	it("should do nothing if the bookmark does not exist", () => {
+		activeDoc.bookmarks = [{ pageNum: 1, name: "Test" }];
+		updateBookmarkNameAction(2, "New Name");
+		expect(activeDoc.bookmarks).toEqual([{ pageNum: 1, name: "Test" }]);
+	});
+
+	it("should only update the name of the specified bookmark when multiple bookmarks exist", () => {
+		activeDoc.bookmarks = [
+			{ pageNum: 1, name: "Test 1" },
+			{ pageNum: 2, name: "Test 2" },
+			{ pageNum: 3, name: "Test 3" },
+		];
+		updateBookmarkNameAction(2, "New Name 2");
+		expect(activeDoc.bookmarks).toEqual([
+			{ pageNum: 1, name: "Test 1" },
+			{ pageNum: 2, name: "New Name 2" },
 			{ pageNum: 3, name: "Test 3" },
 		]);
 	});

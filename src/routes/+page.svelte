@@ -2,8 +2,8 @@
   import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { open } from "@tauri-apps/plugin-dialog";
-  import { check } from "@tauri-apps/plugin-updater";
+  import { open, ask } from "@tauri-apps/plugin-dialog";
+  import { check, type DownloadEvent } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
   import { open as openBrowser } from "@tauri-apps/plugin-shell";
   import * as pdfjsLib from "pdfjs-dist";
@@ -46,6 +46,8 @@
   let pendingUpdateRef = $state.raw<any>(null);
   let isUpdateReadyToInstall = $state(false);
   let isApplyingDeferredUpdate = $state(false);
+  let isDownloadingUpdate = $state(false);
+  let updateDownloadProgress = $state(0);
 
   // Find/Search Content Popup State
   let showSearchPopup = $state(false);
@@ -120,6 +122,19 @@
     }
   }
 
+  function escapeHtml(str: string): string {
+    return str.replace(/[&<>"']/g, (match) => {
+      const escapeMap: Record<string, string> = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      };
+      return escapeMap[match] || match;
+    });
+  }
+
   function highlightAllMatches() {
     if (!searchQuery) return;
     const query = searchQuery;
@@ -139,7 +154,7 @@
         : "bg-yellow-400 text-slate-950 rounded-sm px-0.5";
 
       span.innerHTML = originalSpansMap.get(span)!.replace(regex, (m) => {
-        return `<mark class="${highlightClass}">${m}</mark>`;
+        return `<mark class="${highlightClass}">${escapeHtml(m)}</mark>`;
       });
     });
   }
@@ -473,6 +488,49 @@
     );
   }
 
+  function handleClearFromRecents(targetId: string) {
+    recentFiles = recentFiles.filter((f) => f.path !== targetId);
+    localStorage.setItem("speeddf_recents", JSON.stringify(recentFiles));
+    showNotification("Removed document from recents list");
+  }
+
+  async function handleDeleteFromHDD(file: any) {
+    try {
+      // 1. Throw a standard native OS warning modal check
+      const confirmScrub = await ask(
+        `Are you absolutely sure you want to permanently delete "${file.name}" from your computer?\n\nThis will remove the actual file from your hard drive and cannot be undone.`,
+        { title: 'Permanently Delete File', kind: 'warning' }
+      );
+
+      if (!confirmScrub) return;
+
+      // 2. Eradicate the file binary from disk storage using the new native command
+      await invoke("delete_file_from_disk", { filePath: file.path });
+
+      // 3. Chain into your existing working clear method to scrub the UI card asset
+      handleClearFromRecents(file.path);
+
+      showNotification(`Deleted file permanently: ${file.name}`);
+    } catch (err) {
+      console.error('Failed to execute hard drive deletion loop:', err);
+      showNotification("Failed to delete file from disk");
+    }
+  }
+
+  async function handleCompress(file: any) {
+    try {
+      showNotification(`Compressing PDF: ${file.name}`);
+      // Invoke the custom Rust pipeline command, passing the absolute file target path
+      const outputMessage = await invoke<string>('compress_pdf_pipeline', { filePath: file.path });
+      console.log(outputMessage);
+
+      showNotification("PDF compressed successfully");
+    } catch (err) {
+      console.error('PDF optimization engine compression failure:', err);
+      showNotification("Compression failed");
+    }
+  }
+
   async function createBlankDocument() {
     if (activeDoc.rawBytes) return;
     const doCreate = async () => {
@@ -753,26 +811,61 @@
     }
     initStartupFile();
 
-    // Listen for drag-drop events natively from Tauri
-    appWindow.listen<{ paths: string[] }>(
-      "tauri://drag-drop",
-      async (event) => {
-        const paths = event.payload.paths;
-        if (paths && paths.length > 0) {
-          const path = paths[0];
-          const parts = path.split(/[\\/]/);
-          const name = parts[parts.length - 1];
+    // Capture system Close Button actions cleanly via browser-native confirmation prompts
+    const unlistenCloseRequest = appWindow.onCloseRequested(async (event) => {
+      // Priority 1 — Unsaved data guard. Must always fire first to prevent data loss.
+      if (activeDoc.isDirty) {
+        event.preventDefault(); // 🛡️ STOP EXITING SYNCHRONOUSLY IMMEDIATELY
+        unsavedModalMessage =
+          "Warning: You have unsaved markups on this engineering layout drawing. Are you sure you want to exit speedDF and discard your modifications?";
+        pendingNavigationAction = () => {
+          activeDoc.isDirty = false;
+          // Re-trigger native close: onCloseRequested fires again on a clean document,
+          // flowing naturally into the installer gate below if an update is staged.
+          appWindow.close();
+        };
+        showUnsavedModal = true;
+        return; // Halt — do not proceed to installer or exit until user resolves prompt
+      }
 
-          await promptAndLoadFile(
-            path,
-            name,
-            "You have unsaved markup layers. Do you want to discard your progress and drop this new drawing sheet in?",
-          );
+      // Priority 2 — Installer gate. Only reached when document is completely clean.
+      if (isUpdateReadyToInstall && pendingUpdateRef) {
+        // Circuit breaker: atomically consume the state before any async work
+        // to prevent re-entrant loops if appWindow.close() re-fires this handler.
+        isUpdateReadyToInstall = false;
+        const updateRef = pendingUpdateRef;
+        pendingUpdateRef = null;
+
+        isApplyingDeferredUpdate = true;
+        event.preventDefault();
+
+        try {
+          await updateRef.install();
+          await appWindow.close();
+        } catch (installErr) {
+          console.error("Deferred update install failed on close:", installErr);
+          isApplyingDeferredUpdate = false;
         }
-      },
-    );
+        return;
+      }
+    });
 
-    window.addEventListener("keydown", (e: KeyboardEvent) => {
+    return () => {
+      window.removeEventListener("keydown", trapBrowserPrintShortcut, {
+        capture: true,
+      });
+      unlistenCloseRequest.then((f) => f());
+    };
+  });
+
+  function sanitizeFileName(filePath: string): string {
+    const parts = filePath.split(/[\\/]/);
+    const name = parts[parts.length - 1] || "";
+    return name.replace(/[\x00-\x1F\x7F-\x9F<>&"']/g, "");
+  }
+
+  $effect(() => {
+    const handleGlobalShortcuts = (e: KeyboardEvent) => {
       const isCtrl = e.ctrlKey || e.metaKey;
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
@@ -829,9 +922,6 @@
             }
           } else {
             if (activeDoc.fileType === "tiff") {
-              console.warn(
-                "Keyboard Shortcut: Overwrite blocked for TIFF. Redirecting user transaction to Save As dialog...",
-              );
               if (titleBarRef?.triggerSaveAs) {
                 titleBarRef.triggerSaveAs();
               }
@@ -871,52 +961,30 @@
           showHelpModal = !showHelpModal;
         }
       }
-    });
+    };
+    window.addEventListener('keydown', handleGlobalShortcuts);
 
-    // Capture system Close Button actions cleanly via browser-native confirmation prompts
-    const unlistenCloseRequest = appWindow.onCloseRequested(async (event) => {
-      // Priority 1 — Unsaved data guard. Must always fire first to prevent data loss.
-      if (activeDoc.isDirty) {
-        event.preventDefault(); // 🛡️ STOP EXITING SYNCHRONOUSLY IMMEDIATELY
-        unsavedModalMessage =
-          "Warning: You have unsaved markups on this engineering layout drawing. Are you sure you want to exit speedDF and discard your modifications?";
-        pendingNavigationAction = () => {
-          activeDoc.isDirty = false;
-          // Re-trigger native close: onCloseRequested fires again on a clean document,
-          // flowing naturally into the installer gate below if an update is staged.
-          appWindow.close();
-        };
-        showUnsavedModal = true;
-        return; // Halt — do not proceed to installer or exit until user resolves prompt
-      }
+    let destroyDragDropListener: (() => void) | null = null;
 
-      // Priority 2 — Installer gate. Only reached when document is completely clean.
-      if (isUpdateReadyToInstall && pendingUpdateRef) {
-        // Circuit breaker: atomically consume the state before any async work
-        // to prevent re-entrant loops if appWindow.close() re-fires this handler.
-        isUpdateReadyToInstall = false;
-        const updateRef = pendingUpdateRef;
-        pendingUpdateRef = null;
-
-        isApplyingDeferredUpdate = true;
-        event.preventDefault();
-
-        try {
-          await updateRef.install();
-          await appWindow.close();
-        } catch (installErr) {
-          console.error("Deferred update install failed on close:", installErr);
-          isApplyingDeferredUpdate = false;
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      listen('tauri://drag-drop', (event: any) => {
+        const path = event.payload.paths[0] || '';
+        const cleanName = sanitizeFileName(path);
+        if (path) {
+          promptAndLoadFile(
+            path,
+            cleanName,
+            "You have unsaved markup layers. Do you want to discard your progress and drop this new drawing sheet in?",
+          );
         }
-        return;
-      }
+      }).then((unlistenFn) => {
+        destroyDragDropListener = unlistenFn;
+      });
     });
 
     return () => {
-      window.removeEventListener("keydown", trapBrowserPrintShortcut, {
-        capture: true,
-      });
-      unlistenCloseRequest.then((f) => f());
+      window.removeEventListener('keydown', handleGlobalShortcuts);
+      if (destroyDragDropListener) destroyDragDropListener();
     };
   });
 </script>
@@ -1246,70 +1314,64 @@
           </h2>
 
           <div
-            class="flex gap-6 overflow-x-auto pb-6 pt-3 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent scroll-smooth snap-x"
+            class="grid grid-cols-5 gap-x-4 gap-y-12 pt-10 pb-6 px-4 w-full overflow-visible justify-items-center"
           >
             {#each recentFiles as file}
               {@const exists = fileStatusMap[file.path] !== false}
               {@const isLandscape = file.orientation === "landscape"}
+              {@const doc = { ...file, id: file.path }}
 
-              <div
-                onclick={() => exists && openRecentFile(file.name, file.path)}
-                onkeydown={(e) =>
-                  e.key === "Enter" &&
-                  exists &&
-                  openRecentFile(file.name, file.path)}
-                role="button"
-                tabindex="0"
-                class="flex-none snap-start relative group bg-[#090d16] rounded-xl overflow-hidden border transition-all duration-300 ease-out shadow-lg transform
-                       {exists
-                  ? 'border-slate-800/60 shadow-slate-950/50 cursor-pointer hover:shadow-2xl hover:scale-106 hover:border-emerald-500/30'
-                  : 'border-slate-900 opacity-40 cursor-not-allowed select-none'}
-                       {isLandscape ? 'w-72 h-44' : 'w-44 h-56'}"
-              >
+              <div class="w-full relative {isLandscape ? 'max-w-[288px] h-40' : 'max-w-[176px] h-52'}">
                 <div
-                  class="w-full h-full flex items-center justify-center bg-[#04060a] relative"
+                  onclick={() => exists && openRecentFile(file.name, file.path)}
+                  onkeydown={(e) => e.key === "Enter" && exists && openRecentFile(file.name, file.path)}
+                  role="button"
+                  tabindex="0"
+                  class="w-full h-full relative flex flex-col items-center bg-slate-950 rounded-none cursor-pointer transition-all duration-200 ease-out origin-center select-none group p-0 border border-slate-900/40 will-change-transform transform-gpu subpixel-antialiased [backface-visibility:hidden]
+                         {exists ? 'border-0 hover:scale-105 hover:-translate-y-2 hover:z-50 hover:border-transparent hover:shadow-[0_20px_40px_rgba(0,0,0,0.9)]' : 'border border-slate-900 opacity-40 cursor-default hover:scale-105 hover:-translate-y-2 hover:z-50'}"
                 >
-                  {#if file.thumbnail}
-                    <img
-                      src={file.thumbnail}
-                      alt={file.name}
-                      class="w-full h-full object-contain transition-transform duration-500 group-hover:scale-102"
-                    />
-                  {/if}
-
-                  <div
-                    class="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-80 group-hover:opacity-100 transition-opacity"
-                  ></div>
-                </div>
-
-                <div
-                  class="absolute bottom-0 inset-x-0 p-3 flex flex-col justify-end"
-                >
-                  <p
-                    class="text-xs font-medium text-slate-200 truncate w-full tracking-wide drop-shadow-md"
-                  >
-                    {file.name}
-                  </p>
-                </div>
-
-                {#if exists}
-                  <div
-                    class="absolute top-3 right-3 flex h-2 w-2"
-                    title="File available on local storage disk"
-                  >
-                    <span
-                      class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"
-                    ></span>
-                    <span
-                      class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_0_8px_#10b981]"
-                    ></span>
+                  <div class="absolute -top-5 left-0 right-0 text-[10.5px] font-medium text-slate-400 group-hover:text-cyan-400 overflow-hidden whitespace-nowrap px-0.5 pointer-events-none w-full select-none">
+                    {#if file.name.length > 22}
+                      <div class="speeddf-marquee-track inline-flex whitespace-nowrap will-change-transform">
+                        <span class="speeddf-marquee-content pr-8">{file.name}</span>
+                        <span class="speeddf-marquee-content pr-8">{file.name}</span>
+                      </div>
+                    {:else}
+                      <span class="truncate block w-full text-left">{file.name}</span>
+                    {/if}
                   </div>
-                {:else}
-                  <div
-                    class="absolute top-3 right-3 h-2 w-2 rounded-full bg-slate-700"
-                    title="File path missing or unreadable"
-                  ></div>
-                {/if}
+
+                  <div class="absolute bottom-0 left-0 right-0 h-10 bg-[#0f1424] border-t border-slate-800/80 flex items-center justify-around px-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-out z-40">
+                    {#if exists}
+                      <button onclick={(e) => { e.stopPropagation(); handleCompress(doc); }} class="p-1.5 text-cyan-400 hover:text-white hover:bg-cyan-500/20 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer" title="Compress PDF">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/></svg>
+                      </button>
+                    {/if}
+
+                    <button onclick={(e) => { e.stopPropagation(); handleClearFromRecents(doc.id); }} class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer" title="Remove from Recents">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>
+
+                    {#if exists}
+                      <button onclick={(e) => { e.stopPropagation(); handleDeleteFromHDD(doc); }} class="p-1.5 text-red-400 hover:text-white hover:bg-red-500/20 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer" title="Delete File From Computer">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                      </button>
+                    {/if}
+                  </div>
+
+                  <div class="w-full h-full flex items-center justify-center bg-[#04060a] relative overflow-hidden transition-all duration-200 {!exists ? 'opacity-25 grayscale brightness-75' : ''}">
+                    {#if file.thumbnail}
+                      <img src={file.thumbnail} alt={file.name} class="w-full h-full object-cover rounded-none" />
+                    {/if}
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-30"></div>
+                  </div>
+
+                  {#if exists}
+                    <div class="absolute top-2.5 left-2.5 h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981] filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" title="File available on local storage disk"></div>
+                  {:else}
+                    <div class="absolute top-2.5 left-2.5 h-2 w-2 rounded-full bg-slate-700 filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" title="File path missing or unreadable"></div>
+                  {/if}
+                </div>
               </div>
             {/each}
           </div>
@@ -1338,7 +1400,7 @@
           >
           <span
             class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v0.9.12</span
+            >v0.9.13</span
           >
         </div>
         <button
@@ -1686,14 +1748,32 @@
             // only needs to run install() — no download wait at shutdown time.
             try {
               showNotification("Downloading update in background...");
-              await up.download((event: any) => {
-                // Progress tracking hook — can be wired to a progress bar if needed
+              isDownloadingUpdate = true;
+              let contentLength = 0;
+              let downloaded = 0;
+
+              await up.download((event: DownloadEvent) => {
+                if (event.event === "Started") {
+                  contentLength = event.data.contentLength || 0;
+                  downloaded = 0;
+                  updateDownloadProgress = 0;
+                } else if (event.event === "Progress") {
+                  downloaded += event.data.chunkLength;
+                  if (contentLength > 0) {
+                    updateDownloadProgress = Math.round((downloaded / contentLength) * 100);
+                  }
+                } else if (event.event === "Finished") {
+                  updateDownloadProgress = 100;
+                }
               });
+
+              isDownloadingUpdate = false;
               pendingUpdateRef = up;
               isUpdateReadyToInstall = true;
               showNotification("Update ready — will install when you close.");
             } catch (dlErr) {
               console.error("Background update pre-download failed:", dlErr);
+              isDownloadingUpdate = false;
               // Fallback: keep availableUpdate set so close handler can still attempt downloadAndInstall
               pendingUpdateRef = null;
               isUpdateReadyToInstall = false;
@@ -1708,7 +1788,58 @@
   </div>
 {/if}
 
+{#if isDownloadingUpdate}
+  <div
+    class="fixed bottom-6 right-6 z-[5000] speeddf-toast-animate"
+  >
+    <div
+      class="bg-slate-900 border border-slate-800 shadow-[0_8px_32px_rgba(0,0,0,0.5)] rounded-xl p-4 flex flex-col gap-3 backdrop-blur-md w-64 relative overflow-hidden"
+    >
+      <div class="flex items-start gap-3">
+        <div
+          class="flex h-8 w-8 shrink-0 bg-cyan-500/10 rounded-lg items-center justify-center text-cyan-400 font-bold text-sm animate-pulse"
+        >
+          ⬇️
+        </div>
+        <div class="flex flex-col w-full">
+          <p class="text-[12px] font-bold text-slate-100 uppercase tracking-wider">
+            Downloading Update
+          </p>
+          <div class="mt-2 h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+            <div
+              class="h-full bg-cyan-500 transition-all duration-300 ease-out"
+              style="width: {updateDownloadProgress}%"
+            ></div>
+          </div>
+          <p class="text-[10px] text-slate-400 font-medium mt-1.5 text-right">
+            {updateDownloadProgress}%
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
+  /* Local Scoped Recent Card Styles to Bypass Build Chain Hover Bugs */
+  .group:hover .speeddf-marquee-content {
+    color: #22d3ee !important; /* cyan-400 */
+    text-shadow: 0 0 8px rgba(34, 211, 238, 0.4) !important;
+  }
+  .group:hover .speeddf-marquee-track {
+    animation: speeddfMarquee 6s linear infinite;
+    overflow: visible !important;
+    width: max-content !important;
+  }
+  @keyframes speeddfMarquee {
+    0% {
+      transform: translateX(0%);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+
   /* Drop-down physics for premium window system feedback */
   .speeddf-toast-animate {
     animation: speeddfToastDrop 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;

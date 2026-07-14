@@ -1,9 +1,21 @@
 use std::fs::File;
 
 use std::io::{Read, Write};
+use std::path::Path;
 use tiff::decoder::{Decoder, DecodingResult};
 mod commands;
 use commands::run_local_ocr;
+
+fn is_safe_absolute_path(path_str: &str) -> bool {
+    let path = Path::new(path_str);
+    // Intercept and drop parent directory traversal attempts
+    for component in path.components() {
+        if let std::path::Component::ParentDir = component {
+            return false;
+        }
+    }
+    path.is_absolute()
+}
 
 // ⚡ NEW: Shared payload structure to wrap both the byte array and filename together
 #[derive(serde::Serialize)]
@@ -173,26 +185,32 @@ fn check_files_exist(paths: Vec<String>) -> std::collections::HashMap<String, bo
 
 #[tauri::command]
 async fn read_file_binary(path: String) -> Result<Vec<u8>, String> {
-    let mut file = File::open(&path).map_err(|e| e.to_string())?;
+    if !is_safe_absolute_path(&path) {
+        return Err("Security Violation: Invalid or unauthorized path parameters provided.".to_string());
+    }
+    let mut file = File::open(&path).map_err(|_| "Unable to read file from disk.".to_string())?;
     let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+    file.read_to_end(&mut buffer).map_err(|_| "Unable to read file from disk.".to_string())?;
     Ok(buffer)
 }
 
 #[tauri::command]
 async fn read_file_bytes(path: String) -> Result<FilePayload, String> {
+    if !is_safe_absolute_path(&path) {
+        return Err("Security Violation: Invalid or unauthorized path parameters provided.".to_string());
+    }
     let path_buf = std::path::Path::new(&path);
     if !path_buf.exists() || !path_buf.is_file() {
-        return Err("File does not exist or is not a file".to_string());
+        return Err("File does not exist or is not a file.".to_string());
     }
     let file_name = path_buf
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "document.pdf".to_string());
 
-    let mut file = File::open(path_buf).map_err(|e| e.to_string())?;
+    let mut file = File::open(path_buf).map_err(|_| "Unable to read file from disk.".to_string())?;
     let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+    file.read_to_end(&mut buffer).map_err(|_| "Unable to read file from disk.".to_string())?;
 
     Ok(FilePayload {
         bytes: buffer,
@@ -203,10 +221,13 @@ async fn read_file_bytes(path: String) -> Result<FilePayload, String> {
 
 #[tauri::command]
 async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
+    if !is_safe_absolute_path(&path) {
+        return Err("Security Violation: Invalid or unauthorized path parameters provided.".to_string());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         // Read the file natively straight from disk to avoid frontend JSON serialization overhead
         let file = std::fs::File::open(&path)
-            .map_err(|e| format!("Failed to read file from disk: {}", e))?;
+            .map_err(|_| "Unable to read file from disk.".to_string())?;
         let reader = std::io::BufReader::new(file);
         let mut decoder = Decoder::new(reader)
             .map_err(|e| format!("TIFF Decoder initialization error: {}", e))?;
@@ -367,6 +388,39 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
     .map_err(|e| format!("Failed to execute blocking task: {}", e))?
 }
 
+#[tauri::command]
+fn compress_pdf_pipeline(file_path: String) -> Result<String, String> {
+    // 1. Ingest the raw file binary object tree from local storage disk
+    let mut doc = lopdf::Document::load(&file_path)
+        .map_err(|e| format!("Failed to read target PDF structure: {}", e))?;
+
+    // 2. Structural Clean: Strip unreferenced nodes and clear dead cross-reference arrays
+    doc.prune_objects();
+
+    // Re-encode object data streams into minimized binary payloads
+    doc.compress();
+
+    // 3. Derive a clean optimized naming file output profile
+    let export_path = file_path.replace(".pdf", "_compressed.pdf");
+
+    // 4. Commit the condensed file byte map payload directly back to system disk space
+    doc.save(&export_path)
+        .map_err(|e| format!("Failed to write optimized system file: {}", e))?;
+
+    Ok(format!(
+        "File compressed cleanly! Generated target clone asset at: {}",
+        export_path
+    ))
+}
+
+#[tauri::command]
+fn delete_file_from_disk(file_path: String) -> Result<String, String> {
+    std::fs::remove_file(&file_path)
+        .map_err(|e| format!("Operating system failed to erase local target asset: {}", e))?;
+
+    Ok("Asset successfully scrubbed off local drive bounds.".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -431,8 +485,75 @@ pub fn run() {
             read_file_bytes,
             read_file_binary,
             parse_tiff_document,
-            run_local_ocr
+            run_local_ocr,
+            compress_pdf_pipeline,
+            delete_file_from_disk
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_lut() {
+        let lut = generate_lut();
+
+        // Test byte 0: all bits are 0, so all pixels should be black (0, 0, 0, 255)
+        let byte0 = lut[0];
+        for i in 0..8 {
+            assert_eq!(&byte0[i * 4..i * 4 + 4], &[0, 0, 0, 255]);
+        }
+
+        // Test byte 255: all bits are 1, so all pixels should be white (255, 255, 255, 255)
+        let byte255 = lut[255];
+        for i in 0..8 {
+            assert_eq!(&byte255[i * 4..i * 4 + 4], &[255, 255, 255, 255]);
+        }
+
+        // Test byte 128 (10000000 in binary): first pixel white, rest black
+        let byte128 = lut[128];
+        assert_eq!(&byte128[0..4], &[255, 255, 255, 255]);
+        for i in 1..8 {
+            assert_eq!(&byte128[i * 4..i * 4 + 4], &[0, 0, 0, 255]);
+        }
+
+        // Test byte 1 (00000001 in binary): last pixel white, rest black
+        let byte1 = lut[1];
+        for i in 0..7 {
+            assert_eq!(&byte1[i * 4..i * 4 + 4], &[0, 0, 0, 255]);
+        }
+        assert_eq!(&byte1[28..32], &[255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn test_check_files_exist() {
+        use std::fs::File;
+        let mut temp_dir = std::env::temp_dir();
+        temp_dir.push("test_check_files_exist_dir");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let mut temp_file = temp_dir.clone();
+        temp_file.push("test_file.txt");
+        File::create(&temp_file).expect("Failed to create temp file");
+
+        let mut non_existent_file = temp_dir.clone();
+        non_existent_file.push("does_not_exist.txt");
+
+        let paths = vec![
+            temp_file.to_string_lossy().into_owned(),
+            non_existent_file.to_string_lossy().into_owned(),
+        ];
+
+        let result = check_files_exist(paths);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result.get(&temp_file.to_string_lossy().into_owned()), Some(&true));
+        assert_eq!(result.get(&non_existent_file.to_string_lossy().into_owned()), Some(&false));
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
 }

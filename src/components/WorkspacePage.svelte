@@ -212,9 +212,15 @@
           let isUpdated = false;
 
           // Update color if supported by the shape type and it changed
-          if (currentColor !== lastToolbarColor && 'color' in shape) {
-            shape.color = currentColor;
-            isUpdated = true;
+          if (currentColor !== lastToolbarColor) {
+            if (shape.type === "text") {
+              shape.color = currentColor;
+              shape.textColor = currentColor;
+              isUpdated = true;
+            } else if ('color' in shape || shape.type === "tick" || shape.type === "dash" || shape.type === "pen" || shape.type.includes("rect") || shape.type.includes("oval")) {
+              shape.color = currentColor;
+              isUpdated = true;
+            }
           }
 
           // Update line thickness if supported by the shape type and it changed
@@ -517,6 +523,8 @@
       font: activeDoc.defaultFont,
       size: activeDoc.defaultSize,
       style: activeDoc.defaultStyle || "Normal",
+      color: activeDoc.activeColor,
+      textColor: activeDoc.activeColor,
     };
     const newIndex = addShapeToPage(newTextShape);
     activelyEditingIndex = newIndex;
@@ -671,6 +679,49 @@
       rawCurrentX = e.clientX;
       rawCurrentY = e.clientY;
     }
+  }
+
+  function startTextDrag(e: MouseEvent, index: number) {
+    if (activelyEditingIndex !== null) return;
+    e.stopPropagation();
+    e.preventDefault();
+
+    activeDoc.selectedShape = { pageNumber, index };
+    activeDoc.selectedShapes = [{ pageNumber, index }];
+
+    pushHistorySnapshot();
+
+    const shape = activeDoc.shapes[pageNumber]?.[index];
+    if (!shape) return;
+
+    const dragStartStartX = e.clientX;
+    const dragStartStartY = e.clientY;
+    const dragStartInitialX = shape.x;
+    const dragStartInitialY = shape.y;
+
+    const handleWindowMouseMove = (moveEvent: MouseEvent) => {
+      moveEvent.stopPropagation();
+      moveEvent.preventDefault();
+      if (!pageContainer) return;
+      const rect = pageContainer.getBoundingClientRect();
+      const deltaX = moveEvent.clientX - dragStartStartX;
+      const deltaY = moveEvent.clientY - dragStartStartY;
+      const deltaPctX = (deltaX / rect.width) * 100;
+      const deltaPctY = (deltaY / rect.height) * 100;
+
+      shape.x = Math.max(0, Math.min(100, dragStartInitialX + deltaPctX));
+      shape.y = Math.max(0, Math.min(100, dragStartInitialY + deltaPctY));
+      activeDoc.shapes = { ...activeDoc.shapes };
+    };
+
+    const handleWindowMouseUp = (upEvent: MouseEvent) => {
+      upEvent.stopPropagation();
+      window.removeEventListener("mousemove", handleWindowMouseMove, true);
+      window.removeEventListener("mouseup", handleWindowMouseUp, true);
+    };
+
+    window.addEventListener("mousemove", handleWindowMouseMove, true);
+    window.addEventListener("mouseup", handleWindowMouseUp, true);
   }
 
   function redrawCanvas() {
@@ -986,12 +1037,12 @@
   onMount(() => {
     if (!pageContainer) return;
     const trueScrollViewport = pageContainer.parentElement?.parentElement;
-    function handleGlobalKeyDown(event: KeyboardEvent) {
+    function handleDeletionShortcuts(event: KeyboardEvent): boolean {
       if (
         (event.key === "Delete" || event.key === "Backspace") &&
         activeDoc.selectedShape
       ) {
-        if (document.activeElement?.tagName === "INPUT") return;
+        if (document.activeElement?.tagName === "INPUT") return true;
         pushHistorySnapshot();
         const { pageNumber: targetPage, index: targetIdx } =
           activeDoc.selectedShape;
@@ -1004,7 +1055,23 @@
             [targetPage]: existingList,
           };
         }
+        return true;
       }
+      return false;
+    }
+
+    function handlePageNavigationShortcuts(event: KeyboardEvent): boolean {
+      return false;
+    }
+
+    function handleViewZoomShortcuts(event: KeyboardEvent): boolean {
+      return false;
+    }
+
+    function handleGlobalKeyDown(event: KeyboardEvent) {
+      if (handleDeletionShortcuts(event)) return;
+      if (handlePageNavigationShortcuts(event)) return;
+      if (handleViewZoomShortcuts(event)) return;
     }
     const preloadObserver = new IntersectionObserver(
       (entries) => {
@@ -1282,34 +1349,36 @@
         {/if}
       {:else if shape && shape.type === "text"}
         <div
-          class="absolute text-slate-900 pointer-events-auto transform -translate-y-1/2 z-40"
-          style="left: {shape.x}%; top: {shape.y}%;"
+          data-shape-idx={idx}
+          class="absolute pointer-events-auto transform -translate-y-1/2 z-40"
+          style="left: {shape.x}%; top: {shape.y}%; color: {shape.textColor || shape.color || '#000000'};"
         >
           {#if activelyEditingIndex === idx && activeDoc.shapes[pageNumber]?.[idx]}
             <input
               type="text"
               bind:value={activeDoc.shapes[pageNumber][idx].text}
               use:autofocusAction
+              onmousedown={(e) => e.stopPropagation()}
               onblur={(e) => finalizeTextEdit(idx, e.currentTarget)}
               onkeydown={(e) => {
                 if (e.key === "Enter") finalizeTextEdit(idx, e.currentTarget);
               }}
-              class="bg-white/95 text-slate-900 border border-[#00d2ff] outline-none px-1.5 py-0.5 rounded shadow-xl max-w-[280px]"
-              style="font-size: calc({shape.size || 12}px * {zoomScale / 100}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
+              class="bg-white/95 border border-[#00d2ff] outline-none px-1.5 py-0.5 rounded shadow-xl max-w-[280px]"
+              style="color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {zoomScale / 100}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
             />
           {:else}
             <span
-              onmousedown={(e) => initShapeMove(e, idx)}
+              onmousedown={(e) => startTextDrag(e, idx)}
               ondblclick={(e) => {
                 e.stopPropagation();
                 activelyEditingIndex = idx;
               }}
-              class="block bg-transparent border border-dashed rounded-xs whitespace-nowrap transition-colors text-slate-950 cursor-move p-0.5 {activeDoc
+              class="block bg-transparent border border-dashed rounded-xs whitespace-nowrap transition-colors cursor-move p-0.5 {activeDoc
                 .selectedShape?.pageNumber === pageNumber &&
               activeDoc.selectedShape?.index === idx
                 ? 'border-[#00d2ff] bg-cyan-500/5'
                 : 'border-transparent hover:border-slate-400/30'}"
-              style="font-size: calc({shape.size || 12}px * {zoomScale / 100}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
+              style="color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {zoomScale / 100}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
               >{shape?.text || " "}</span
             >
           {/if}

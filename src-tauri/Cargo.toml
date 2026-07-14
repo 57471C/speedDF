@@ -1,9 +1,10 @@
 [package]
 name = "speeddf"
-version = "0.9.12"
+version = "0.9.13"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
+default-run = "speeddf"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -47,8 +48,17 @@ panic = "abort"         # Strip out heavy stack unwinding panic hooks
 strip = true            # Automatically drop all debug symbols and data mappings from the final binary
 
 [dev-dependencies]
-criterion = "0.5"
+[dev-dependencies]
+criterion = "0.8.2"
 
 [[bench]]
 name = "tiff_decode_bench"
 harness = false
+
+[[bench]]
+name = "bench"
+harness = false
+
+[[bin]]
+name = "benchmark"
+path = "src/bin/benchmark.rs"

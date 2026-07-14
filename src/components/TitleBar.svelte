@@ -114,11 +114,12 @@
         const fontMapping = FONT_MAP[fontName];
         const pdfFontKey = fontMapping ? (fontMapping.pdf[fontStyle] || fontMapping.pdf["Normal"]) : "Helvetica";
 
-        let pdfFont = fontCache.get(pdfFontKey);
-        if (!pdfFont) {
-          pdfFont = await destDoc.embedStandardFont(pdfFontKey as any);
-          fontCache.set(pdfFontKey, pdfFont);
+        let fontPromise = fontCache.get(pdfFontKey);
+        if (!fontPromise) {
+          fontPromise = destDoc.embedStandardFont(pdfFontKey as any);
+          fontCache.set(pdfFontKey, fontPromise);
         }
+        const pdfFont = await fontPromise;
 
         const fontSize = s.size || 12;
         const textBaselineY = pageHeight - (s.y / 100) * pageHeight;
@@ -161,11 +162,12 @@
         (s.type === "signature" || s.type === "initial") &&
         s.dataUrl
       ) {
-        let embeddedImageDest = imageCache.get(s.dataUrl);
-        if (!embeddedImageDest) {
-          embeddedImageDest = await destDoc.embedPng(s.dataUrl);
-          imageCache.set(s.dataUrl, embeddedImageDest);
+        let imgPromise = imageCache.get(s.dataUrl);
+        if (!imgPromise) {
+          imgPromise = destDoc.embedPng(s.dataUrl);
+          imageCache.set(s.dataUrl, imgPromise);
         }
+        const embeddedImageDest = await imgPromise;
         const imgW = embeddedImageDest.width;
         const imgH = embeddedImageDest.height;
         const dampedH = h * 0.80;
@@ -231,6 +233,7 @@
       const fontCache = new Map<string, any>();
       if (activeDoc.fileType === "tiff") {
         console.log("Save Engine: Compiling native multi-page TIFF drawing into a standard PDF structure...");
+        const annotationPromises = [];
         for (let i = 0; i < activeDoc.pageOrder.length; i++) {
           const originalPageNumber = activeDoc.pageOrder[i];
           const rawPngBytes = activeDoc.tiffPages[originalPageNumber - 1];
@@ -267,14 +270,18 @@
             height: embeddedImage.height,
             rotate: degrees(-rotationAngle)
           });
-          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache, fontCache);
+          annotationPromises.push(
+            drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache, fontCache)
+          );
         }
+        await Promise.all(annotationPromises);
       } else {
         const srcDoc = await PDFDocument.load(activeDoc.rawBytes);
         const copiedPages = await destDoc.copyPages(
           srcDoc,
           activeDoc.pageOrder.map((num) => num - 1),
         );
+        const annotationPromises = [];
         for (let i = 0; i < activeDoc.pageOrder.length; i++) {
           const originalPageNumber = activeDoc.pageOrder[i];
           const page = copiedPages[i];
@@ -290,19 +297,25 @@
             );
           }
 
-          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache, fontCache);
+          annotationPromises.push(
+            drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache, fontCache)
+          );
         }
+        await Promise.all(annotationPromises);
       }
 
       // Outline / Bookmark Serialization Layer
       if (activeDoc.bookmarks && activeDoc.bookmarks.length > 0) {
         const { context } = destDoc;
         const pageRefs = destDoc.getPages().map(p => p.ref); // Get native Object IDs for pages
-        const validBookmarks = activeDoc.bookmarks.filter(b => activeDoc.pageOrder.includes(b.pageNum));
+        const pageOrderSet = new Set(activeDoc.pageOrder);
+        const validBookmarks = activeDoc.bookmarks.filter(b => pageOrderSet.has(b.pageNum));
         if (validBookmarks.length > 0) {
+          const pageIndexMap = new Map();
+          activeDoc.pageOrder.forEach((p, i) => pageIndexMap.set(p, i));
           // Create individual outline item dictionaries
           const outlineItems = validBookmarks.map((b) => {
-            const targetIndex = activeDoc.pageOrder.indexOf(b.pageNum);
+            const targetIndex = pageIndexMap.get(b.pageNum);
             const itemRef = context.nextRef();
             return {
               ref: itemRef,
@@ -477,7 +490,6 @@
   }
 
   function handlePrintClick() {
-    console.log("TitleBar: Print icon button physically clicked. Prop onPrint exists?", !!onPrint);
     if (onPrint) {
       onPrint();
     } else {
