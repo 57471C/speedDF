@@ -5,6 +5,18 @@
 2. Add File tabs for multiple documents.
 3. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
 
+## long term goals (may never do)
+1. Forms entry (NOT XFA Forms!)
+2. Froms creation (NOT XFA Forms!)
+3. True Structural Text Reflow:
+Instead of writing a full structural reflow engine, intermediate tools use a visual masking mask shortcut:
+
+When the user clicks to edit a text block, the app detects the bounding box area.
+
+It places a solid background banner matching the page background color directly over the old coordinates to "whiteout" the original graphics.
+
+It puts a standard HTML input text area right on top of it, lets the user type whatever they want, and bakes the final text down as a fresh independent annotation overlay layer upon export.
+
 ## Fixes
 - None
 
