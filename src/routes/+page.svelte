@@ -3,7 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open, ask } from "@tauri-apps/plugin-dialog";
-  import { check } from "@tauri-apps/plugin-updater";
+  import { check, type DownloadEvent } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
   import { open as openBrowser } from "@tauri-apps/plugin-shell";
   import * as pdfjsLib from "pdfjs-dist";
@@ -46,6 +46,8 @@
   let pendingUpdateRef = $state.raw<any>(null);
   let isUpdateReadyToInstall = $state(false);
   let isApplyingDeferredUpdate = $state(false);
+  let isDownloadingUpdate = $state(false);
+  let updateDownloadProgress = $state(0);
 
   // Find/Search Content Popup State
   let showSearchPopup = $state(false);
@@ -1734,14 +1736,32 @@
             // only needs to run install() — no download wait at shutdown time.
             try {
               showNotification("Downloading update in background...");
-              await up.download((event: any) => {
-                // Progress tracking hook — can be wired to a progress bar if needed
+              isDownloadingUpdate = true;
+              let contentLength = 0;
+              let downloaded = 0;
+
+              await up.download((event: DownloadEvent) => {
+                if (event.event === "Started") {
+                  contentLength = event.data.contentLength || 0;
+                  downloaded = 0;
+                  updateDownloadProgress = 0;
+                } else if (event.event === "Progress") {
+                  downloaded += event.data.chunkLength;
+                  if (contentLength > 0) {
+                    updateDownloadProgress = Math.round((downloaded / contentLength) * 100);
+                  }
+                } else if (event.event === "Finished") {
+                  updateDownloadProgress = 100;
+                }
               });
+
+              isDownloadingUpdate = false;
               pendingUpdateRef = up;
               isUpdateReadyToInstall = true;
               showNotification("Update ready — will install when you close.");
             } catch (dlErr) {
               console.error("Background update pre-download failed:", dlErr);
+              isDownloadingUpdate = false;
               // Fallback: keep availableUpdate set so close handler can still attempt downloadAndInstall
               pendingUpdateRef = null;
               isUpdateReadyToInstall = false;
@@ -1751,6 +1771,38 @@
         >
           When I close
         </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if isDownloadingUpdate}
+  <div
+    class="fixed bottom-6 right-6 z-[5000] speeddf-toast-animate"
+  >
+    <div
+      class="bg-slate-900 border border-slate-800 shadow-[0_8px_32px_rgba(0,0,0,0.5)] rounded-xl p-4 flex flex-col gap-3 backdrop-blur-md w-64 relative overflow-hidden"
+    >
+      <div class="flex items-start gap-3">
+        <div
+          class="flex h-8 w-8 shrink-0 bg-cyan-500/10 rounded-lg items-center justify-center text-cyan-400 font-bold text-sm animate-pulse"
+        >
+          ⬇️
+        </div>
+        <div class="flex flex-col w-full">
+          <p class="text-[12px] font-bold text-slate-100 uppercase tracking-wider">
+            Downloading Update
+          </p>
+          <div class="mt-2 h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+            <div
+              class="h-full bg-cyan-500 transition-all duration-300 ease-out"
+              style="width: {updateDownloadProgress}%"
+            ></div>
+          </div>
+          <p class="text-[10px] text-slate-400 font-medium mt-1.5 text-right">
+            {updateDownloadProgress}%
+          </p>
+        </div>
       </div>
     </div>
   </div>
