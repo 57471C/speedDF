@@ -21,6 +21,7 @@ export interface AnnotationShape {
 	dataUrl?: string; // Base64 PNG image stream string (for signatures)
 	points?: { x: number; y: number }[]; // Array of percentage nodes tracking freehand highlighters
 	color?: string; // Captures the unique hexadecimal ink value
+	textColor?: string; // Captures the custom text color
 	thickness?: number;
 	font?: string; // Custom font family name
 	size?: number; // Custom font size in points

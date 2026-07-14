@@ -4,6 +4,7 @@ version = "0.9.12"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
+default-run = "speeddf"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

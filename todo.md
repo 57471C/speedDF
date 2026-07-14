@@ -6,8 +6,7 @@
 3. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
 
 ## Fixes
-- Can't drag text boxes
-- Can't change text colour
+- None
 
 
 ##📝 Short Description

@@ -490,7 +490,6 @@
   }
 
   function handlePrintClick() {
-    console.log("TitleBar: Print icon button physically clicked. Prop onPrint exists?", !!onPrint);
     if (onPrint) {
       onPrint();
     } else {

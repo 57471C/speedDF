@@ -874,9 +874,6 @@
             }
           } else {
             if (activeDoc.fileType === "tiff") {
-              console.warn(
-                "Keyboard Shortcut: Overwrite blocked for TIFF. Redirecting user transaction to Save As dialog...",
-              );
               if (titleBarRef?.triggerSaveAs) {
                 titleBarRef.triggerSaveAs();
               }
@@ -1291,20 +1288,21 @@
           </h2>
 
           <div
-            class="flex gap-2 overflow-x-auto pt-8 pb-3 pl-7 pr-6 scrollbar-thin scrollbar-thumb-slate-800 scrollbar-track-transparent scroll-smooth snap-x"
+            class="grid grid-cols-5 gap-x-4 gap-y-12 pt-10 pb-6 px-4 w-full overflow-visible justify-items-center"
           >
             {#each recentFiles as file}
               {@const exists = fileStatusMap[file.path] !== false}
               {@const isLandscape = file.orientation === "landscape"}
               {@const doc = { ...file, id: file.path }}
 
-              <div class="flex-shrink-0 relative snap-start {isLandscape ? 'w-64 h-40' : 'w-40 h-52'}">
+              <div class="w-full relative {isLandscape ? 'max-w-[288px] h-40' : 'max-w-[176px] h-52'}">
                 <div
                   onclick={() => exists && openRecentFile(file.name, file.path)}
                   onkeydown={(e) => e.key === "Enter" && exists && openRecentFile(file.name, file.path)}
                   role="button"
                   tabindex="0"
-                  class="recent-card w-full h-full relative flex flex-col items-center bg-slate-950 rounded-none cursor-pointer transform scale-90 transition-all duration-200 ease-out origin-center select-none group p-0 border border-slate-900/40 will-change-transform transform-gpu subpixel-antialiased [backface-visibility:hidden] hover:scale-105 hover:-translate-y-2 hover:z-50 hover:border-transparent hover:shadow-[0_20px_40px_rgba(0,0,0,0.9)]"
+                  class="w-full h-full relative flex flex-col items-center bg-slate-950 rounded-none cursor-pointer transition-all duration-200 ease-out origin-center select-none group p-0 border border-slate-900/40 will-change-transform transform-gpu subpixel-antialiased [backface-visibility:hidden]
+                         {exists ? 'border-0 hover:scale-105 hover:-translate-y-2 hover:z-50 hover:border-transparent hover:shadow-[0_20px_40px_rgba(0,0,0,0.9)]' : 'border border-slate-900 opacity-40 cursor-default hover:scale-105 hover:-translate-y-2 hover:z-50'}"
                 >
                   <div class="absolute -top-5 left-0 right-0 text-[10.5px] font-medium text-slate-400 group-hover:text-cyan-400 overflow-hidden whitespace-nowrap px-0.5 pointer-events-none w-full select-none">
                     {#if file.name.length > 22}
@@ -1317,31 +1315,19 @@
                     {/if}
                   </div>
 
-                  <div class="bottom-dock-tray absolute bottom-0 left-0 right-0 h-10 bg-[#0f1424] border-t border-slate-800/80 flex items-center justify-around px-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-out z-40">
+                  <div class="absolute bottom-0 left-0 right-0 h-10 bg-[#0f1424] border-t border-slate-800/80 flex items-center justify-around px-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-out z-40">
                     {#if exists}
-                      <button
-                        onclick={(e) => { e.stopPropagation(); handleCompress(doc); }}
-                        class="p-1.5 text-cyan-400 hover:text-white hover:bg-cyan-500/20 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer hover-cyan"
-                        title="Compress PDF"
-                      >
+                      <button onclick={(e) => { e.stopPropagation(); handleCompress(doc); }} class="p-1.5 text-cyan-400 hover:text-white hover:bg-cyan-500/20 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer" title="Compress PDF">
                         <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/></svg>
                       </button>
                     {/if}
 
-                    <button
-                      onclick={(e) => { e.stopPropagation(); handleClearFromRecents(doc.id); }}
-                      class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer hover-slate"
-                      title="Remove from Recents"
-                    >
+                    <button onclick={(e) => { e.stopPropagation(); handleClearFromRecents(doc.id); }} class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer" title="Remove from Recents">
                       <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                     </button>
 
                     {#if exists}
-                      <button
-                        onclick={(e) => { e.stopPropagation(); handleDeleteFromHDD(doc); }}
-                        class="p-1.5 text-red-400 hover:text-white hover:bg-red-500/20 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer hover-red"
-                        title="Delete File From Computer"
-                      >
+                      <button onclick={(e) => { e.stopPropagation(); handleDeleteFromHDD(doc); }} class="p-1.5 text-red-400 hover:text-white hover:bg-red-500/20 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer" title="Delete File From Computer">
                         <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                       </button>
                     {/if}
@@ -1810,21 +1796,11 @@
 
 <style>
   /* Local Scoped Recent Card Styles to Bypass Build Chain Hover Bugs */
-  .recent-card {
-    transform: scale(0.9);
-    transition: transform 200ms ease-out, border-color 200ms ease-out, box-shadow 200ms ease-out;
-  }
-  .recent-card:hover {
-    transform: scale(1.05) translateY(-8px) !important;
-    z-index: 50 !important;
-    border-color: transparent !important;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.9) !important;
-  }
-  .recent-card:hover .speeddf-marquee-content {
+  .group:hover .speeddf-marquee-content {
     color: #22d3ee !important; /* cyan-400 */
     text-shadow: 0 0 8px rgba(34, 211, 238, 0.4) !important;
   }
-  .recent-card:hover .speeddf-marquee-track {
+  .group:hover .speeddf-marquee-track {
     animation: speeddfMarquee 6s linear infinite;
     overflow: visible !important;
     width: max-content !important;
@@ -1836,25 +1812,6 @@
     100% {
       transform: translateX(-50%);
     }
-  }
-  .bottom-dock-tray {
-    opacity: 0;
-    transition: opacity 150ms ease-out;
-  }
-  .recent-card:hover .bottom-dock-tray {
-    opacity: 1 !important;
-  }
-  .hover-cyan:hover {
-    color: #fff !important;
-    background-color: rgba(6, 182, 212, 0.2) !important;
-  }
-  .hover-slate:hover {
-    color: #fff !important;
-    background-color: #1e293b !important;
-  }
-  .hover-red:hover {
-    color: #fff !important;
-    background-color: rgba(239, 68, 68, 0.2) !important;
   }
 
   /* Drop-down physics for premium window system feedback */
