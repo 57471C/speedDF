@@ -225,9 +225,9 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
                 DecodingResult::U8(data) => {
                     match colortype {
                         tiff::ColorType::RGB(_) => {
-                            for chunk in data.chunks_exact(3) {
-                                rgba_buffer.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
-                            }
+                            rgba_buffer.extend(data.chunks_exact(3).flat_map(|chunk| {
+                                [chunk[0], chunk[1], chunk[2], 255]
+                            }));
                         }
                         tiff::ColorType::RGBA(_) => {
                             rgba_buffer.extend(data);
@@ -236,9 +236,9 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
                             if bits == 1 {
                                 if data.len() == (width * height) as usize {
                                     // If it's already unpacked/expanded to 1 byte per pixel by the decoder layer
-                                    for gray in data {
-                                        rgba_buffer.extend_from_slice(&[gray, gray, gray, 255]);
-                                    }
+                                    rgba_buffer.extend(data.into_iter().flat_map(|gray| {
+                                        [gray, gray, gray, 255]
+                                    }));
                                 } else {
                                     // Unpack packed bits (1 bit per pixel, with each row padded to a byte boundary per TIFF spec)
                                     let bytes_per_row = width.div_ceil(8) as usize;
@@ -278,9 +278,9 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
                                 }
                             } else {
                                 // Standard 8-bit grayscale channels (1 byte per pixel)
-                                for gray in data {
-                                    rgba_buffer.extend_from_slice(&[gray, gray, gray, 255]);
-                                }
+                                rgba_buffer.extend(data.into_iter().flat_map(|gray| {
+                                    [gray, gray, gray, 255]
+                                }));
                             }
                         }
                         _ => {
@@ -293,30 +293,30 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
                 }
                 DecodingResult::U16(data) => match colortype {
                     tiff::ColorType::RGB(_) => {
-                        for chunk in data.chunks_exact(3) {
-                            rgba_buffer.extend_from_slice(&[
+                        rgba_buffer.extend(data.chunks_exact(3).flat_map(|chunk| {
+                            [
                                 (chunk[0] >> 8) as u8,
                                 (chunk[1] >> 8) as u8,
                                 (chunk[2] >> 8) as u8,
                                 255,
-                            ]);
-                        }
+                            ]
+                        }));
                     }
                     tiff::ColorType::RGBA(_) => {
-                        for chunk in data.chunks_exact(4) {
-                            rgba_buffer.extend_from_slice(&[
+                        rgba_buffer.extend(data.chunks_exact(4).flat_map(|chunk| {
+                            [
                                 (chunk[0] >> 8) as u8,
                                 (chunk[1] >> 8) as u8,
                                 (chunk[2] >> 8) as u8,
                                 (chunk[3] >> 8) as u8,
-                            ]);
-                        }
+                            ]
+                        }));
                     }
                     tiff::ColorType::Gray(_) => {
-                        for gray in data {
+                        rgba_buffer.extend(data.into_iter().flat_map(|gray| {
                             let val = (gray >> 8) as u8;
-                            rgba_buffer.extend_from_slice(&[val, val, val, 255]);
-                        }
+                            [val, val, val, 255]
+                        }));
                     }
                     _ => {
                         return Err(format!(
