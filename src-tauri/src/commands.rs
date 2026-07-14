@@ -1,12 +1,12 @@
 use futures_util::StreamExt;
+use rayon::prelude::*;
 use std::fs::File;
 use std::io::Write;
+use std::sync::Arc;
 use tauri::ipc::Channel;
 use tauri::{command, AppHandle, Manager};
-use tract_onnx::prelude::*;
-use rayon::prelude::*;
-use std::sync::Arc;
 use tokio::sync::OnceCell;
+use tract_onnx::prelude::*;
 
 pub struct OcrModelState {
     pub det_model_bytes: OnceCell<Arc<Vec<u8>>>,
@@ -163,20 +163,32 @@ pub async fn run_local_ocr(
     let ocr_state = app_handle.state::<OcrModelState>();
 
     // Load detection model into memory cache if missing
-    let det_model_arc = ocr_state.det_model_bytes.get_or_try_init(|| async {
-        let mut det_model_bytes = std::fs::read(&det_model_path)
-            .map_err(|e| format!("Failed to read detection model from disk cache: {}", e))?;
-        sanitize_onnx_parameter_tokens(&mut det_model_bytes);
-        Ok::<_, String>(Arc::new(det_model_bytes))
-    }).await?.clone();
+    let det_model_arc = ocr_state
+        .det_model_bytes
+        .get_or_try_init(|| async {
+            let mut det_model_bytes = std::fs::read(&det_model_path)
+                .map_err(|e| format!("Failed to read detection model from disk cache: {}", e))?;
+            sanitize_onnx_parameter_tokens(&mut det_model_bytes);
+            Ok::<_, String>(Arc::new(det_model_bytes))
+        })
+        .await?
+        .clone();
 
     // Load recognition model into memory cache if missing
-    let rec_model_arc = ocr_state.rec_model_bytes.get_or_try_init(|| async {
-        let mut rec_model_bytes = std::fs::read(&rec_model_path)
-            .map_err(|e| format!("Failed to read recognition ONNX model from disk cache: {}", e))?;
-        sanitize_onnx_parameter_tokens(&mut rec_model_bytes);
-        Ok::<_, String>(Arc::new(rec_model_bytes))
-    }).await?.clone();
+    let rec_model_arc = ocr_state
+        .rec_model_bytes
+        .get_or_try_init(|| async {
+            let mut rec_model_bytes = std::fs::read(&rec_model_path).map_err(|e| {
+                format!(
+                    "Failed to read recognition ONNX model from disk cache: {}",
+                    e
+                )
+            })?;
+            sanitize_onnx_parameter_tokens(&mut rec_model_bytes);
+            Ok::<_, String>(Arc::new(rec_model_bytes))
+        })
+        .await?
+        .clone();
 
     // 3. Notify processing start
     let _ = on_progress.send(0);
@@ -232,7 +244,8 @@ pub async fn run_local_ocr(
 
         // 3. Normalize channels via standard ImageNet coefficients (parallelized with Rayon)
         let mut det_data = vec![0.0f32; 3 * det_h as usize * det_w as usize];
-        det_data.par_chunks_mut(det_h as usize * det_w as usize)
+        det_data
+            .par_chunks_mut(det_h as usize * det_w as usize)
             .enumerate()
             .for_each(|(c, channel_slice)| {
                 let (mean, std) = match c {
@@ -374,7 +387,12 @@ pub async fn run_local_ocr(
                     // Filter out extreme aspect ratio skew
                     let is_skewed = aspect_ratio < 0.12 || (aspect_ratio > 25.0 && h_box < 7);
 
-                    if !is_too_small && !is_too_large && !is_thin_vertical_line && !is_thin_horizontal_line && !is_skewed {
+                    if !is_too_small
+                        && !is_too_large
+                        && !is_thin_vertical_line
+                        && !is_thin_horizontal_line
+                        && !is_skewed
+                    {
                         detected_boxes.push((min_cx, min_cy, w_box, h_box));
                     }
                 }
@@ -420,18 +438,28 @@ pub async fn run_local_ocr(
         let mut rows: Vec<Vec<(u32, u32, u32, u32)>> = Vec::new();
         for box_item in scaled_boxes {
             let (_, y, _, _) = box_item;
-            let mut added = false;
-            for row in &mut rows {
+
+            let search_result = rows.binary_search_by(|row| {
                 if let Some(&(_, first_y, _, _)) = row.first() {
-                    if (y as i32 - first_y as i32).abs() <= 12 {
-                        row.push(box_item);
-                        added = true;
-                        break;
+                    if (first_y as i32 - y as i32).abs() <= 12 {
+                        std::cmp::Ordering::Equal
+                    } else if first_y < y {
+                        std::cmp::Ordering::Less
+                    } else {
+                        std::cmp::Ordering::Greater
                     }
+                } else {
+                    std::cmp::Ordering::Less
                 }
-            }
-            if !added {
-                rows.push(vec![box_item]);
+            });
+
+            match search_result {
+                Ok(idx) => {
+                    rows[idx].push(box_item);
+                }
+                Err(idx) => {
+                    rows.insert(idx, vec![box_item]);
+                }
             }
         }
         rows.sort_by_key(|row| row.first().map(|&(_, y, _, _)| y).unwrap_or(0));
@@ -486,7 +514,7 @@ pub async fn run_local_ocr(
         let total_boxes = sorted_boxes.len();
         let completed_count = std::sync::atomic::AtomicUsize::new(0);
         let last_sent_percentage = std::sync::atomic::AtomicUsize::new(0);
-        
+
         let recognized_results: Result<Vec<String>, String> = sorted_boxes
             .par_iter()
             .map(|&(x, y, w, h)| {
@@ -539,7 +567,8 @@ pub async fn run_local_ocr(
                             let mut highest_score = f32::MIN;
                             let mut argmax_index = 0;
 
-                            for (class_idx, &score) in class_probabilities_slice.iter().enumerate() {
+                            for (class_idx, &score) in class_probabilities_slice.iter().enumerate()
+                            {
                                 if score > highest_score {
                                     highest_score = score;
                                     argmax_index = class_idx;
@@ -560,7 +589,8 @@ pub async fn run_local_ocr(
                     }
                 }
 
-                let current_completed = completed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                let current_completed =
+                    completed_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                 let percentage = if total_boxes > 0 {
                     ((current_completed as f32 / total_boxes as f32) * 100.0) as usize
                 } else {
