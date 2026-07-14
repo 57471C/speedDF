@@ -11,6 +11,7 @@ import {
 	deleteBookmarkAction,
 	updateBookmarkNameAction,
 	undoStack,
+	saveSignatureSetAction,
 } from "./pdfStore.svelte.ts";
 
 describe("loadSavedSets", () => {
@@ -61,6 +62,66 @@ describe("loadSavedSets", () => {
 		];
 		localStorage.setItem("speeddf_signature_sets", JSON.stringify(validData));
 		expect(loadSavedSets()).toEqual(validData);
+	});
+});
+
+describe("saveSignatureSetAction", () => {
+	beforeEach(() => {
+		activeDoc.flushDocumentState();
+		activeDoc.savedSignatureSets = [];
+		localStorage.clear();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("should append a new signature set to activeDoc.savedSignatureSets", () => {
+		const newSet = {
+			id: "1",
+			signatureDataUrl: "data:image/png;base64,sig1",
+			initialDataUrl: "data:image/png;base64,ini1",
+		};
+		saveSignatureSetAction(newSet);
+		expect(activeDoc.savedSignatureSets).toEqual([newSet]);
+	});
+
+	it("should correctly update localStorage with the updated array", () => {
+		const newSet = {
+			id: "1",
+			signatureDataUrl: "data:image/png;base64,sig1",
+			initialDataUrl: "data:image/png;base64,ini1",
+		};
+		const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
+		saveSignatureSetAction(newSet);
+		expect(setItemSpy).toHaveBeenCalledWith(
+			"speeddf_signature_sets",
+			JSON.stringify([newSet]),
+		);
+		expect(localStorage.getItem("speeddf_signature_sets")).toEqual(
+			JSON.stringify([newSet]),
+		);
+	});
+
+	it("should sequentially add multiple signature sets", () => {
+		const set1 = {
+			id: "1",
+			signatureDataUrl: "data:image/png;base64,sig1",
+			initialDataUrl: "data:image/png;base64,ini1",
+		};
+		const set2 = {
+			id: "2",
+			signatureDataUrl: "data:image/png;base64,sig2",
+			initialDataUrl: "data:image/png;base64,ini2",
+		};
+
+		saveSignatureSetAction(set1);
+		saveSignatureSetAction(set2);
+
+		expect(activeDoc.savedSignatureSets).toEqual([set1, set2]);
+		expect(localStorage.getItem("speeddf_signature_sets")).toEqual(
+			JSON.stringify([set1, set2]),
+		);
 	});
 });
 
