@@ -298,11 +298,14 @@
       if (activeDoc.bookmarks && activeDoc.bookmarks.length > 0) {
         const { context } = destDoc;
         const pageRefs = destDoc.getPages().map(p => p.ref); // Get native Object IDs for pages
-        const validBookmarks = activeDoc.bookmarks.filter(b => activeDoc.pageOrder.includes(b.pageNum));
+        const pageOrderSet = new Set(activeDoc.pageOrder);
+        const validBookmarks = activeDoc.bookmarks.filter(b => pageOrderSet.has(b.pageNum));
         if (validBookmarks.length > 0) {
+          const pageIndexMap = new Map();
+          activeDoc.pageOrder.forEach((p, i) => pageIndexMap.set(p, i));
           // Create individual outline item dictionaries
           const outlineItems = validBookmarks.map((b) => {
-            const targetIndex = activeDoc.pageOrder.indexOf(b.pageNum);
+            const targetIndex = pageIndexMap.get(b.pageNum);
             const itemRef = context.nextRef();
             return {
               ref: itemRef,
