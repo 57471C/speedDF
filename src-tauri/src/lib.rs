@@ -1,9 +1,21 @@
 use std::fs::File;
 
 use std::io::{Read, Write};
+use std::path::Path;
 use tiff::decoder::{Decoder, DecodingResult};
 mod commands;
 use commands::run_local_ocr;
+
+fn is_safe_absolute_path(path_str: &str) -> bool {
+    let path = Path::new(path_str);
+    // Intercept and drop parent directory traversal attempts
+    for component in path.components() {
+        if let std::path::Component::ParentDir = component {
+            return false;
+        }
+    }
+    path.is_absolute()
+}
 
 // ⚡ NEW: Shared payload structure to wrap both the byte array and filename together
 #[derive(serde::Serialize)]
@@ -173,26 +185,32 @@ fn check_files_exist(paths: Vec<String>) -> std::collections::HashMap<String, bo
 
 #[tauri::command]
 async fn read_file_binary(path: String) -> Result<Vec<u8>, String> {
-    let mut file = File::open(&path).map_err(|e| e.to_string())?;
+    if !is_safe_absolute_path(&path) {
+        return Err("Security Violation: Invalid or unauthorized path parameters provided.".to_string());
+    }
+    let mut file = File::open(&path).map_err(|_| "Unable to read file from disk.".to_string())?;
     let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+    file.read_to_end(&mut buffer).map_err(|_| "Unable to read file from disk.".to_string())?;
     Ok(buffer)
 }
 
 #[tauri::command]
 async fn read_file_bytes(path: String) -> Result<FilePayload, String> {
+    if !is_safe_absolute_path(&path) {
+        return Err("Security Violation: Invalid or unauthorized path parameters provided.".to_string());
+    }
     let path_buf = std::path::Path::new(&path);
     if !path_buf.exists() || !path_buf.is_file() {
-        return Err("File does not exist or is not a file".to_string());
+        return Err("File does not exist or is not a file.".to_string());
     }
     let file_name = path_buf
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "document.pdf".to_string());
 
-    let mut file = File::open(path_buf).map_err(|e| e.to_string())?;
+    let mut file = File::open(path_buf).map_err(|_| "Unable to read file from disk.".to_string())?;
     let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+    file.read_to_end(&mut buffer).map_err(|_| "Unable to read file from disk.".to_string())?;
 
     Ok(FilePayload {
         bytes: buffer,
@@ -203,10 +221,13 @@ async fn read_file_bytes(path: String) -> Result<FilePayload, String> {
 
 #[tauri::command]
 async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
+    if !is_safe_absolute_path(&path) {
+        return Err("Security Violation: Invalid or unauthorized path parameters provided.".to_string());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         // Read the file natively straight from disk to avoid frontend JSON serialization overhead
         let file = std::fs::File::open(&path)
-            .map_err(|e| format!("Failed to read file from disk: {}", e))?;
+            .map_err(|_| "Unable to read file from disk.".to_string())?;
         let reader = std::io::BufReader::new(file);
         let mut decoder = Decoder::new(reader)
             .map_err(|e| format!("TIFF Decoder initialization error: {}", e))?;

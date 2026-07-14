@@ -122,6 +122,19 @@
     }
   }
 
+  function escapeHtml(str: string): string {
+    return str.replace(/[&<>"']/g, (match) => {
+      const escapeMap: Record<string, string> = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      };
+      return escapeMap[match] || match;
+    });
+  }
+
   function highlightAllMatches() {
     if (!searchQuery) return;
     const query = searchQuery;
@@ -141,7 +154,7 @@
         : "bg-yellow-400 text-slate-950 rounded-sm px-0.5";
 
       span.innerHTML = originalSpansMap.get(span)!.replace(regex, (m) => {
-        return `<mark class="${highlightClass}">${m}</mark>`;
+        return `<mark class="${highlightClass}">${escapeHtml(m)}</mark>`;
       });
     });
   }
@@ -798,26 +811,61 @@
     }
     initStartupFile();
 
-    // Listen for drag-drop events natively from Tauri
-    appWindow.listen<{ paths: string[] }>(
-      "tauri://drag-drop",
-      async (event) => {
-        const paths = event.payload.paths;
-        if (paths && paths.length > 0) {
-          const path = paths[0];
-          const parts = path.split(/[\\/]/);
-          const name = parts[parts.length - 1];
+    // Capture system Close Button actions cleanly via browser-native confirmation prompts
+    const unlistenCloseRequest = appWindow.onCloseRequested(async (event) => {
+      // Priority 1 — Unsaved data guard. Must always fire first to prevent data loss.
+      if (activeDoc.isDirty) {
+        event.preventDefault(); // 🛡️ STOP EXITING SYNCHRONOUSLY IMMEDIATELY
+        unsavedModalMessage =
+          "Warning: You have unsaved markups on this engineering layout drawing. Are you sure you want to exit speedDF and discard your modifications?";
+        pendingNavigationAction = () => {
+          activeDoc.isDirty = false;
+          // Re-trigger native close: onCloseRequested fires again on a clean document,
+          // flowing naturally into the installer gate below if an update is staged.
+          appWindow.close();
+        };
+        showUnsavedModal = true;
+        return; // Halt — do not proceed to installer or exit until user resolves prompt
+      }
 
-          await promptAndLoadFile(
-            path,
-            name,
-            "You have unsaved markup layers. Do you want to discard your progress and drop this new drawing sheet in?",
-          );
+      // Priority 2 — Installer gate. Only reached when document is completely clean.
+      if (isUpdateReadyToInstall && pendingUpdateRef) {
+        // Circuit breaker: atomically consume the state before any async work
+        // to prevent re-entrant loops if appWindow.close() re-fires this handler.
+        isUpdateReadyToInstall = false;
+        const updateRef = pendingUpdateRef;
+        pendingUpdateRef = null;
+
+        isApplyingDeferredUpdate = true;
+        event.preventDefault();
+
+        try {
+          await updateRef.install();
+          await appWindow.close();
+        } catch (installErr) {
+          console.error("Deferred update install failed on close:", installErr);
+          isApplyingDeferredUpdate = false;
         }
-      },
-    );
+        return;
+      }
+    });
 
-    window.addEventListener("keydown", (e: KeyboardEvent) => {
+    return () => {
+      window.removeEventListener("keydown", trapBrowserPrintShortcut, {
+        capture: true,
+      });
+      unlistenCloseRequest.then((f) => f());
+    };
+  });
+
+  function sanitizeFileName(filePath: string): string {
+    const parts = filePath.split(/[\\/]/);
+    const name = parts[parts.length - 1] || "";
+    return name.replace(/[\x00-\x1F\x7F-\x9F<>&"']/g, "");
+  }
+
+  $effect(() => {
+    const handleGlobalShortcuts = (e: KeyboardEvent) => {
       const isCtrl = e.ctrlKey || e.metaKey;
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
@@ -913,52 +961,30 @@
           showHelpModal = !showHelpModal;
         }
       }
-    });
+    };
+    window.addEventListener('keydown', handleGlobalShortcuts);
 
-    // Capture system Close Button actions cleanly via browser-native confirmation prompts
-    const unlistenCloseRequest = appWindow.onCloseRequested(async (event) => {
-      // Priority 1 — Unsaved data guard. Must always fire first to prevent data loss.
-      if (activeDoc.isDirty) {
-        event.preventDefault(); // 🛡️ STOP EXITING SYNCHRONOUSLY IMMEDIATELY
-        unsavedModalMessage =
-          "Warning: You have unsaved markups on this engineering layout drawing. Are you sure you want to exit speedDF and discard your modifications?";
-        pendingNavigationAction = () => {
-          activeDoc.isDirty = false;
-          // Re-trigger native close: onCloseRequested fires again on a clean document,
-          // flowing naturally into the installer gate below if an update is staged.
-          appWindow.close();
-        };
-        showUnsavedModal = true;
-        return; // Halt — do not proceed to installer or exit until user resolves prompt
-      }
+    let destroyDragDropListener: (() => void) | null = null;
 
-      // Priority 2 — Installer gate. Only reached when document is completely clean.
-      if (isUpdateReadyToInstall && pendingUpdateRef) {
-        // Circuit breaker: atomically consume the state before any async work
-        // to prevent re-entrant loops if appWindow.close() re-fires this handler.
-        isUpdateReadyToInstall = false;
-        const updateRef = pendingUpdateRef;
-        pendingUpdateRef = null;
-
-        isApplyingDeferredUpdate = true;
-        event.preventDefault();
-
-        try {
-          await updateRef.install();
-          await appWindow.close();
-        } catch (installErr) {
-          console.error("Deferred update install failed on close:", installErr);
-          isApplyingDeferredUpdate = false;
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      listen('tauri://drag-drop', (event: any) => {
+        const path = event.payload.paths[0] || '';
+        const cleanName = sanitizeFileName(path);
+        if (path) {
+          promptAndLoadFile(
+            path,
+            cleanName,
+            "You have unsaved markup layers. Do you want to discard your progress and drop this new drawing sheet in?",
+          );
         }
-        return;
-      }
+      }).then((unlistenFn) => {
+        destroyDragDropListener = unlistenFn;
+      });
     });
 
     return () => {
-      window.removeEventListener("keydown", trapBrowserPrintShortcut, {
-        capture: true,
-      });
-      unlistenCloseRequest.then((f) => f());
+      window.removeEventListener('keydown', handleGlobalShortcuts);
+      if (destroyDragDropListener) destroyDragDropListener();
     };
   });
 </script>
