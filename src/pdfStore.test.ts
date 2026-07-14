@@ -9,6 +9,7 @@ import {
 	rotatePageAction,
 	addOrToggleBookmarkAction,
 	deleteBookmarkAction,
+	updateBookmarkNameAction,
 	undoStack,
 } from "./pdfStore.svelte.ts";
 
@@ -248,6 +249,38 @@ describe("deleteBookmarkAction", () => {
 		deleteBookmarkAction(2);
 		expect(activeDoc.bookmarks).toEqual([
 			{ pageNum: 1, name: "Test 1" },
+			{ pageNum: 3, name: "Test 3" },
+		]);
+	});
+});
+
+describe("updateBookmarkNameAction", () => {
+	beforeEach(() => {
+		activeDoc.flushDocumentState();
+	});
+
+	it("should update the name of an existing bookmark", () => {
+		activeDoc.bookmarks = [{ pageNum: 1, name: "Test" }];
+		updateBookmarkNameAction(1, "New Name");
+		expect(activeDoc.bookmarks).toEqual([{ pageNum: 1, name: "New Name" }]);
+	});
+
+	it("should do nothing if the bookmark does not exist", () => {
+		activeDoc.bookmarks = [{ pageNum: 1, name: "Test" }];
+		updateBookmarkNameAction(2, "New Name");
+		expect(activeDoc.bookmarks).toEqual([{ pageNum: 1, name: "Test" }]);
+	});
+
+	it("should only update the name of the specified bookmark when multiple bookmarks exist", () => {
+		activeDoc.bookmarks = [
+			{ pageNum: 1, name: "Test 1" },
+			{ pageNum: 2, name: "Test 2" },
+			{ pageNum: 3, name: "Test 3" },
+		];
+		updateBookmarkNameAction(2, "New Name 2");
+		expect(activeDoc.bookmarks).toEqual([
+			{ pageNum: 1, name: "Test 1" },
+			{ pageNum: 2, name: "New Name 2" },
 			{ pageNum: 3, name: "Test 3" },
 		]);
 	});
