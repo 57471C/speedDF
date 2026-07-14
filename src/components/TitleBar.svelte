@@ -59,6 +59,7 @@
     pageWidth: number,
     pageHeight: number,
     imageCache: Map<string, any>,
+    fontCache: Map<string, any>,
   ) {
     const pageShapes = activeDoc.shapes[originalPageNumber] || [];
     for (const shape of pageShapes) {
@@ -112,7 +113,13 @@
         const fontStyle = (s.style || "Normal") as "Normal" | "Bold" | "Italic";
         const fontMapping = FONT_MAP[fontName];
         const pdfFontKey = fontMapping ? (fontMapping.pdf[fontStyle] || fontMapping.pdf["Normal"]) : "Helvetica";
-        const pdfFont = await destDoc.embedStandardFont(pdfFontKey as any);
+
+        let pdfFont = fontCache.get(pdfFontKey);
+        if (!pdfFont) {
+          pdfFont = await destDoc.embedStandardFont(pdfFontKey as any);
+          fontCache.set(pdfFontKey, pdfFont);
+        }
+
         const fontSize = s.size || 12;
         const textBaselineY = pageHeight - (s.y / 100) * pageHeight;
         const zoomMultiplier = (activeDoc.zoomScale || 120) / 100;
@@ -221,6 +228,7 @@
     try {
       const destDoc = await PDFDocument.create();
       const imageCache = new Map<string, any>();
+      const fontCache = new Map<string, any>();
       if (activeDoc.fileType === "tiff") {
         console.log("Save Engine: Compiling native multi-page TIFF drawing into a standard PDF structure...");
         for (let i = 0; i < activeDoc.pageOrder.length; i++) {
@@ -259,7 +267,7 @@
             height: embeddedImage.height,
             rotate: degrees(-rotationAngle)
           });
-          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache);
+          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache, fontCache);
         }
       } else {
         const srcDoc = await PDFDocument.load(activeDoc.rawBytes);
@@ -282,7 +290,7 @@
             );
           }
 
-          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache);
+          await drawAnnotationsOnPage(destDoc, page, originalPageNumber, pageWidth, pageHeight, imageCache, fontCache);
         }
       }
 
