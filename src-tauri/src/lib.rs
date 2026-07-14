@@ -367,6 +367,36 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
     .map_err(|e| format!("Failed to execute blocking task: {}", e))?
 }
 
+#[tauri::command]
+fn compress_pdf_pipeline(file_path: String) -> Result<String, String> {
+    // 1. Ingest the raw file binary object tree from local storage disk
+    let mut doc = lopdf::Document::load(&file_path)
+        .map_err(|e| format!("Failed to read target PDF structure: {}", e))?;
+
+    // 2. Structural Clean: Strip unreferenced nodes and clear dead cross-reference arrays
+    doc.prune_objects();
+
+    // Re-encode object data streams into minimized binary payloads
+    doc.compress();
+
+    // 3. Derive a clean optimized naming file output profile
+    let export_path = file_path.replace(".pdf", "_compressed.pdf");
+
+    // 4. Commit the condensed file byte map payload directly back to system disk space
+    doc.save(&export_path)
+        .map_err(|e| format!("Failed to write optimized system file: {}", e))?;
+
+    Ok(format!("File compressed cleanly! Generated target clone asset at: {}", export_path))
+}
+
+#[tauri::command]
+fn delete_file_from_disk(file_path: String) -> Result<String, String> {
+    std::fs::remove_file(&file_path)
+        .map_err(|e| format!("Operating system failed to erase local target asset: {}", e))?;
+
+    Ok("Asset successfully scrubbed off local drive bounds.".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -431,7 +461,9 @@ pub fn run() {
             read_file_bytes,
             read_file_binary,
             parse_tiff_document,
-            run_local_ocr
+            run_local_ocr,
+            compress_pdf_pipeline,
+            delete_file_from_disk
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

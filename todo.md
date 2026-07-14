@@ -3,22 +3,11 @@
 ## Features to add ##
 1. Add snapshot tool.
 2. Add File tabs for multiple documents.
-3. Recent document options (clear, delete, compress)
-4. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
-
-
-
-
-## Completed v0.9.4: ##
-1. Add "Speed loading" maybe a progessbar and a background "Loaded in: ##ms" burned into the background.
-2. Add Update checker.
-3. Fix "Printing is broken in macOS" issue
-
-
-
+3. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
 
 ## Fixes
-1. Scaling is a bit off for annotations (stamps and singnatures - possibly others) are slightly lager after saving.
+- Can't drag text boxes
+- Can't change text colour
 
 
 ##📝 Short Description
