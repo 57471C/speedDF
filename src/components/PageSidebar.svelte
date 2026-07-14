@@ -384,6 +384,30 @@
     appendFileInput?.click();
   }
 
+  function handleGridSortEnd(oldIndex: number | undefined, newIndex: number | undefined) {
+    if (oldIndex === undefined || newIndex === undefined || oldIndex === newIndex) return;
+
+    pushHistorySnapshot();
+    
+    const draggedPage = activeDoc.pageOrder[oldIndex];
+    let newOrder = [...activeDoc.pageOrder];
+
+    if (selectedPages.includes(draggedPage) && selectedPages.length > 1) {
+      const referencePage = activeDoc.pageOrder[newIndex];
+      newOrder = newOrder.filter(p => !selectedPages.includes(p));
+      let insertAt = newOrder.indexOf(referencePage);
+      if (oldIndex < newIndex) {
+        insertAt += 1;
+      }
+      newOrder.splice(insertAt, 0, ...selectedPages);
+    } else {
+      const [movedPage] = newOrder.splice(oldIndex, 1);
+      newOrder.splice(newIndex, 0, movedPage);
+    }
+    
+    activeDoc.pageOrder = newOrder;
+  }
+
   function setupSortableGrid(node: HTMLElement) {
     const sortableInstance = Sortable.create(node, {
       animation: 200,
@@ -394,29 +418,7 @@
       chosenClass: "border-cyan-500/40",
       dragClass: "cursor-grabbing",
       onEnd: (evt) => {
-        const oldIndex = evt.oldIndex;
-        const newIndex = evt.newIndex;
-        if (oldIndex === undefined || newIndex === undefined || oldIndex === newIndex) return;
-
-        pushHistorySnapshot();
-        
-        const draggedPage = activeDoc.pageOrder[oldIndex];
-        let newOrder = [...activeDoc.pageOrder];
-
-        if (selectedPages.includes(draggedPage) && selectedPages.length > 1) {
-          const referencePage = activeDoc.pageOrder[newIndex];
-          newOrder = newOrder.filter(p => !selectedPages.includes(p));
-          let insertAt = newOrder.indexOf(referencePage);
-          if (oldIndex < newIndex) {
-            insertAt += 1;
-          }
-          newOrder.splice(insertAt, 0, ...selectedPages);
-        } else {
-          const [movedPage] = newOrder.splice(oldIndex, 1);
-          newOrder.splice(newIndex, 0, movedPage);
-        }
-        
-        activeDoc.pageOrder = newOrder;
+        handleGridSortEnd(evt.oldIndex, evt.newIndex);
       }
     });
 

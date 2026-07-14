@@ -127,15 +127,38 @@
       canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
   }
 
-  function commitNewSignatureSet() {
-    if (!sigCanvas || !initCanvas) return;
-    saveSignatureSetAction({
-      id: crypto.randomUUID(),
+  function validateSignatureCanvases(): boolean {
+    return !!sigCanvas && !!initCanvas;
+  }
+
+  function extractSignatureData(): { signatureDataUrl: string; initialDataUrl: string } {
+    if (!sigCanvas || !initCanvas) {
+      throw new Error("Signature canvases are not initialized.");
+    }
+    return {
       signatureDataUrl: sigCanvas.toDataURL("image/png"),
       initialDataUrl: initCanvas.toDataURL("image/png"),
+    };
+  }
+
+  function saveSignatureToStorage(data: { signatureDataUrl: string; initialDataUrl: string }) {
+    saveSignatureSetAction({
+      id: crypto.randomUUID(),
+      signatureDataUrl: data.signatureDataUrl,
+      initialDataUrl: data.initialDataUrl,
     });
-    isModalOpen = false;
-    isMenuOpen = true;
+  }
+
+  function commitNewSignatureSet() {
+    if (!validateSignatureCanvases()) return;
+    try {
+      const data = extractSignatureData();
+      saveSignatureToStorage(data);
+      isModalOpen = false;
+      isMenuOpen = true;
+    } catch (e) {
+      console.error("Failed to commit new signature set:", e);
+    }
   }
 </script>
 

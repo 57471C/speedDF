@@ -1037,12 +1037,12 @@
   onMount(() => {
     if (!pageContainer) return;
     const trueScrollViewport = pageContainer.parentElement?.parentElement;
-    function handleGlobalKeyDown(event: KeyboardEvent) {
+    function handleDeletionShortcuts(event: KeyboardEvent): boolean {
       if (
         (event.key === "Delete" || event.key === "Backspace") &&
         activeDoc.selectedShape
       ) {
-        if (document.activeElement?.tagName === "INPUT") return;
+        if (document.activeElement?.tagName === "INPUT") return true;
         pushHistorySnapshot();
         const { pageNumber: targetPage, index: targetIdx } =
           activeDoc.selectedShape;
@@ -1055,7 +1055,23 @@
             [targetPage]: existingList,
           };
         }
+        return true;
       }
+      return false;
+    }
+
+    function handlePageNavigationShortcuts(event: KeyboardEvent): boolean {
+      return false;
+    }
+
+    function handleViewZoomShortcuts(event: KeyboardEvent): boolean {
+      return false;
+    }
+
+    function handleGlobalKeyDown(event: KeyboardEvent) {
+      if (handleDeletionShortcuts(event)) return;
+      if (handlePageNavigationShortcuts(event)) return;
+      if (handleViewZoomShortcuts(event)) return;
     }
     const preloadObserver = new IntersectionObserver(
       (entries) => {
