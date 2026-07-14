@@ -527,4 +527,33 @@ mod tests {
         }
         assert_eq!(&byte1[28..32], &[255, 255, 255, 255]);
     }
+
+    #[test]
+    fn test_check_files_exist() {
+        use std::fs::File;
+        let mut temp_dir = std::env::temp_dir();
+        temp_dir.push("test_check_files_exist_dir");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let mut temp_file = temp_dir.clone();
+        temp_file.push("test_file.txt");
+        File::create(&temp_file).expect("Failed to create temp file");
+
+        let mut non_existent_file = temp_dir.clone();
+        non_existent_file.push("does_not_exist.txt");
+
+        let paths = vec![
+            temp_file.to_string_lossy().into_owned(),
+            non_existent_file.to_string_lossy().into_owned(),
+        ];
+
+        let result = check_files_exist(paths);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result.get(&temp_file.to_string_lossy().into_owned()), Some(&true));
+        assert_eq!(result.get(&non_existent_file.to_string_lossy().into_owned()), Some(&false));
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
 }
