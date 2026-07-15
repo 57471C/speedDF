@@ -48,7 +48,6 @@ panic = "abort"         # Strip out heavy stack unwinding panic hooks
 strip = true            # Automatically drop all debug symbols and data mappings from the final binary
 
 [dev-dependencies]
-[dev-dependencies]
 criterion = "0.8.2"
 
 [[bench]]
