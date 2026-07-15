@@ -394,12 +394,23 @@
     </div>
   {/if}
 
-  {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
-    <div class="flex flex-col items-center gap-6 pb-24 origin-top transition-transform duration-150">
-      {#each activeDoc.pageOrder as pageNumber (pageNumber)}
-        <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} {isSystemPrinting} {scrollObserver} />
-      {/each}
+  {#if activeDoc.fileType === 'image'}
+    <div class="flex items-center justify-center w-full h-full p-4 select-none pointer-events-auto">
+      <img 
+        src={activeDoc.imageUrl} 
+        alt={activeDoc.fileName} 
+        class="max-w-full max-h-full object-contain shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)] border border-slate-800/40 select-none unselectable transform-gpu"
+        style="transform: scale({zoomScale / 100}); transition: transform 0.1s ease-out;"
+      />
     </div>
+  {:else}
+    {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
+      <div class="flex flex-col items-center gap-6 pb-24 origin-top transition-transform duration-150">
+        {#each activeDoc.pageOrder as pageNumber (pageNumber)}
+          <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} {isSystemPrinting} {scrollObserver} />
+        {/each}
+      </div>
+    {/if}
   {/if}
 
   {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}

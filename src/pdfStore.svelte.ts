@@ -79,7 +79,8 @@ export interface SharedDocumentState {
 	defaultFont: string;
 	defaultSize: number;
 	defaultStyle: "Normal" | "Bold" | "Italic";
-	fileType: "pdf" | "tiff" | null;
+	fileType: "pdf" | "tiff" | "image" | null;
+	imageUrl?: string | null;
 	tiffPages: Uint8Array[];
 	flushDocumentState(): void;
 	isDirty: boolean;
@@ -157,10 +158,15 @@ export const activeDoc = $state<SharedDocumentState>({
 	defaultSize: 12,
 	defaultStyle: "Normal",
 	fileType: "pdf",
+	imageUrl: null,
 	tiffPages: [],
 	isDirty: false,
 	bookmarks: [],
 	flushDocumentState() {
+		if (this.imageUrl) {
+			URL.revokeObjectURL(this.imageUrl);
+			this.imageUrl = null;
+		}
 		this.rawBytes = null;
 		this.fileType = null;
 		this.fileName = "";
