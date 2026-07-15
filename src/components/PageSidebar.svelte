@@ -506,12 +506,55 @@
     style="color-scheme: dark;"
   >
     <div class="relative w-full flex flex-col gap-3">
-      {#if hasUserScrolled && activeDoc.pageOrder.length > 0 && activeDoc.scrollHeight > 0}
-        <div 
-          class="absolute left-2 right-2 pointer-events-none border-2 border-red-500 bg-red-500/10 rounded z-30 shadow-[0_0_15px_rgba(239,68,68,0.25)] transition-none"
-          style="transform: translateY({globalRedBoxTop}px); height: {globalRedBoxHeight}px; top: 0;"
-        ></div>
+      {#if activeDoc.openDocuments && activeDoc.openDocuments.length > 1}
+        <div class="w-full flex flex-col gap-2 p-3 border-b border-slate-800 bg-slate-950/40">
+          <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider px-1">
+            Open Sessions
+          </div>
+          <div class="flex flex-col gap-1.5 max-h-[220px] overflow-y-auto pr-1">
+            {#each activeDoc.openDocuments as doc}
+              <div 
+                class="flex items-center justify-between group px-2.5 py-2 rounded border transition-all cursor-pointer text-sm
+                  {activeDoc.activeDocumentId === (doc.filePath || doc.fileName) 
+                    ? 'bg-cyan-950/30 border-cyan-500/40 text-cyan-400' 
+                    : 'bg-slate-900/40 border-slate-800/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'}"
+                onclick={() => {
+                  activeDoc.activeDocumentId = doc.filePath || doc.fileName;
+                }}
+              >
+                <div class="flex items-center gap-2 overflow-hidden w-full">
+                  <span class="text-xs opacity-60">
+                    {doc.fileType === 'image' ? '🖼️' : '📄'}
+                  </span>
+                  <span class="truncate font-medium text-xs">
+                    {doc.fileName}
+                  </span>
+                </div>
+
+                <button 
+                  class="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-500 hover:bg-slate-800 hover:text-red-400 transition-all ml-1"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    activeDoc.activeDocumentId = doc.filePath || doc.fileName;
+                    activeDoc.flushDocumentState();
+                  }}
+                  title="Close Document"
+                >
+                  ✕
+                </button>
+              </div>
+            {/each}
+          </div>
+        </div>
       {/if}
+
+      {#if !(activeDoc.fileType === 'image' && activeDoc.openDocuments && activeDoc.openDocuments.length > 1)}
+        {#if hasUserScrolled && activeDoc.pageOrder.length > 0 && activeDoc.scrollHeight > 0}
+          <div 
+            class="absolute left-2 right-2 pointer-events-none border-2 border-red-500 bg-red-500/10 rounded z-30 shadow-[0_0_15px_rgba(239,68,68,0.25)] transition-none"
+            style="transform: translateY({globalRedBoxTop}px); height: {globalRedBoxHeight}px; top: 0;"
+          ></div>
+        {/if}
 
       {#each activeDoc.pageOrder as pageNum, index (pageNum)}
         <div
@@ -659,6 +702,7 @@
           </div>
         </div>
       {/each}
+      {/if}
 
       <input
         type="file"
