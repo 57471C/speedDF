@@ -28,7 +28,7 @@
   // Calculate the current expected width and height (CSS pixels)
   // based on current zoomScale and rotations
   const expectedDimensions = $derived.by(() => {
-    const scale = zoomScale / 100;
+    const scale = Math.max(0.1, zoomScale / 100);
     const rotationAngle = activeDoc.rotations[pageNumber] ?? 0;
     const totalRotation = rotationAngle % 360;
     
@@ -40,7 +40,7 @@
     return {
       width: w * scale,
       height: h * scale,
-      aspectRatio: w / h
+      aspectRatio: Math.max(0.1, w / Math.max(0.1, Math.abs(h)))
     };
   });
 
@@ -392,15 +392,15 @@
       activePdfPage = page;
       
       const dpr = window.devicePixelRatio || 1;
-      const baseScale = scale / 100;
+      const safeScale = Math.max(0.1, scale / 100);
       const rotation = (page.rotate + rotationAngle) % 360;
       const adjustedViewport = page.getViewport({
-        scale: baseScale * dpr,
+        scale: safeScale * dpr,
         rotation,
       });
       // CSS-pixel viewport for the text layer (matches on-screen canvas size)
       const textViewport = page.getViewport({
-        scale: baseScale,
+        scale: safeScale,
         rotation,
       });
 
@@ -424,7 +424,7 @@
         }
         // Always clear prior text runs before re-rendering (zoom / page change)
         textLayerContainer.replaceChildren();
-        textLayerContainer.style.setProperty("--total-scale-factor", String(baseScale));
+        textLayerContainer.style.setProperty("--total-scale-factor", String(safeScale));
         textLayerContainer.style.setProperty("--scale-round-x", "1px");
         textLayerContainer.style.setProperty("--scale-round-y", "1px");
 
@@ -706,8 +706,8 @@
       const rect = pageContainer.getBoundingClientRect();
       const deltaX = moveEvent.clientX - dragStartStartX;
       const deltaY = moveEvent.clientY - dragStartStartY;
-      const deltaPctX = (deltaX / rect.width) * 100;
-      const deltaPctY = (deltaY / rect.height) * 100;
+      const deltaPctX = (deltaX / Math.max(1, Math.abs(rect.width))) * 100;
+      const deltaPctY = (deltaY / Math.max(1, Math.abs(rect.height))) * 100;
 
       shape.x = Math.max(0, Math.min(100, dragStartInitialX + deltaPctX));
       shape.y = Math.max(0, Math.min(100, dragStartInitialY + deltaPctY));
@@ -863,8 +863,8 @@
       const rect = pageContainer ? pageContainer.getBoundingClientRect() : { width: 1, height: 1 };
       const deltaX = e.clientX - dragStartMouseX;
       const deltaY = e.clientY - dragStartMouseY;
-      const deltaPctX = (deltaX / rect.width) * 100;
-      const deltaPctY = (deltaY / rect.height) * 100;
+      const deltaPctX = (deltaX / Math.max(1, Math.abs(rect.width))) * 100;
+      const deltaPctY = (deltaY / Math.max(1, Math.abs(rect.height))) * 100;
       const shapesList = [...(activeDoc.shapes[pageNumber] || [])];
 
       if (rawGroupInitialPositions.length > 1 && groupDragElements.length > 0) {
@@ -958,10 +958,10 @@
     if (widthPixels > 2 && heightPixels > 2) {
       const newShape: AnnotationShape = {
         type: activeDoc.activeTool as any,
-        x: (Math.min(startX, finalCurrentX) / rect.width) * 100,
-        y: (Math.min(startY, finalCurrentY) / rect.height) * 100,
-        width: (widthPixels / rect.width) * 100,
-        height: (heightPixels / rect.height) * 100,
+        x: (Math.min(startX, finalCurrentX) / Math.max(1, Math.abs(rect.width))) * 100,
+        y: (Math.min(startY, finalCurrentY) / Math.max(1, Math.abs(rect.height))) * 100,
+        width: (widthPixels / Math.max(1, Math.abs(rect.width))) * 100,
+        height: (heightPixels / Math.max(1, Math.abs(rect.height))) * 100,
         color: activeDoc.activeColor,
         thickness: activeDoc.activeThickness,
       };

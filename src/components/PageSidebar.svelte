@@ -18,6 +18,7 @@
   let appendFileInput = $state<HTMLInputElement | null>(null);
   let insertAfterPageNum = $state<number | null>(null);
   let isGridViewOpen = $state(false);
+  let isPageMenuOpen = $state(false);
   let selectedPages = $state<number[]>([]);
   let activeSidebarTab = $state<'thumbnails' | 'bookmarks' | 'comments'>('thumbnails');
 
@@ -195,7 +196,7 @@
         const renderWidth = isVerticalFactor
           ? unrotatedViewport.width
           : unrotatedViewport.height;
-        const calculatedScale = targetWidth / renderWidth;
+        const calculatedScale = Math.max(0.1, targetWidth / Math.max(0.1, Math.abs(renderWidth)));
 
         const viewport = page.getViewport({
           scale: calculatedScale,
@@ -384,6 +385,67 @@
     appendFileInput?.click();
   }
 
+  function handleMergeAction() {
+    insertAfterPageNum = activeDoc.currentPage || activeDoc.pageOrder[activeDoc.pageOrder.length - 1] || 1;
+    appendFileInput?.click();
+  }
+
+  async function handleInsertBlankPage() {
+    if (!activeDoc.rawBytes) return;
+    try {
+      pushHistorySnapshot();
+      
+      const cleanMainBytes = new Uint8Array($state.snapshot(activeDoc.rawBytes));
+      
+      const unprotectedMainRes = await invoke<ArrayBuffer | Uint8Array>("unprotect_pdf", {
+        bytes: cleanMainBytes,
+      });
+
+      const mainDoc = await PDFDocument.load(new Uint8Array(unprotectedMainRes));
+      const mergedDoc = await PDFDocument.create();
+
+      const afterPageNum = activeDoc.currentPage || activeDoc.pageOrder[activeDoc.pageOrder.length - 1] || 1;
+      const targetIndex = activeDoc.pageOrder.indexOf(afterPageNum);
+      const prePagesOrder = activeDoc.pageOrder.slice(0, targetIndex + 1);
+      const postPagesOrder = activeDoc.pageOrder.slice(targetIndex + 1);
+
+      const prePages = await mergedDoc.copyPages(
+        mainDoc,
+        prePagesOrder.map((n) => n - 1),
+      );
+      for (const p of prePages) mergedDoc.addPage(p);
+
+      mergedDoc.addPage([595.276, 841.89]); // A4 Page
+
+      const postPages = await mergedDoc.copyPages(
+        mainDoc,
+        postPagesOrder.map((n) => n - 1),
+      );
+      for (const p of postPages) mergedDoc.addPage(p);
+
+      const newRawBytes = await mergedDoc.save();
+
+      const loadingTask = pdfjsLib.getDocument({
+        data: new Uint8Array(newRawBytes),
+        cMapUrl: window.location.origin + "/cmaps/",
+        cMapPacked: true,
+        standardFontDataUrl: window.location.origin + "/standard_fonts/",
+        wasmUrl: window.location.origin + "/"
+      });
+      const pdfDocument = await loadingTask.promise;
+
+      activeDoc.rawBytes = newRawBytes;
+      activeDoc.pageCount = pdfDocument.numPages;
+      activeDoc.pageOrder = Array.from(
+        { length: pdfDocument.numPages },
+        (_, idx) => idx + 1,
+      );
+    } catch (err) {
+      console.error("Blank page insertion failure:", err);
+      alert("Failed to insert blank page.");
+    }
+  }
+
   function handleGridSortEnd(oldIndex: number | undefined, newIndex: number | undefined) {
     if (oldIndex === undefined || newIndex === undefined || oldIndex === newIndex) return;
 
@@ -425,6 +487,22 @@
     return {
       destroy() {
         sortableInstance.destroy();
+      }
+    };
+  }
+
+  function clickOutside(node: HTMLElement, callback: () => void) {
+    const handleClick = (event: MouseEvent) => {
+      if (node && !node.contains(event.target as Node) && !event.defaultPrevented) {
+        callback();
+      }
+    };
+
+    document.addEventListener("click", handleClick, true);
+
+    return {
+      destroy() {
+        document.removeEventListener("click", handleClick, true);
       }
     };
   }
@@ -547,6 +625,49 @@
           </div>
         </div>
       {/if}
+
+      <div class="relative inline-block text-left w-full px-3 my-2">
+        <button
+          type="button"
+          disabled={activeDoc.fileType === 'image'}
+          class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded border text-xs font-semibold tracking-wide transition-all
+            {activeDoc.fileType === 'image'
+              ? 'bg-slate-900/20 border-slate-800/40 text-slate-600 opacity-40 cursor-not-allowed'
+              : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-850 hover:border-slate-700 hover:text-white'}"
+          onclick={() => isPageMenuOpen = !isPageMenuOpen}
+          title={activeDoc.fileType === 'image' ? "Page operations require a PDF document" : "Manage Document Pages"}
+        >
+          <span>⚙️</span> Page Options
+          <span class="text-[9px] opacity-60 ml-auto">{isPageMenuOpen ? '▲' : '▼'}</span>
+        </button>
+
+        {#if isPageMenuOpen && activeDoc.fileType !== 'image'}
+          <div 
+            class="absolute left-3 right-3 mt-1.5 z-50 rounded border border-slate-800 bg-slate-950 shadow-[0_10px_30px_rgba(0,0,0,0.85)] p-1 flex flex-col gap-0.5 animate-speeddf-toast-drop"
+            use:clickOutside={() => isPageMenuOpen = false}
+          >
+            <button
+              class="w-full text-left px-2.5 py-2 rounded text-xs text-slate-300 hover:bg-cyan-950/40 hover:text-cyan-400 font-medium transition-all"
+              onclick={() => {
+                isPageMenuOpen = false;
+                handleMergeAction(); 
+              }}
+            >
+              🔀 Merge / Stitch PDF Files...
+            </button>
+            
+            <button
+              class="w-full text-left px-2.5 py-2 rounded text-xs text-slate-300 hover:bg-cyan-950/40 hover:text-cyan-400 font-medium transition-all"
+              onclick={() => {
+                isPageMenuOpen = false;
+                handleInsertBlankPage(); 
+              }}
+            >
+              📄 Insert Blank Page Vector
+            </button>
+          </div>
+        {/if}
+      </div>
 
       {#if !(activeDoc.fileType === 'image' && activeDoc.openDocuments && activeDoc.openDocuments.length > 1)}
         {#if hasUserScrolled && activeDoc.pageOrder.length > 0 && activeDoc.scrollHeight > 0}
