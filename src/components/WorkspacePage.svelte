@@ -1364,7 +1364,7 @@
                 if (e.key === "Enter") finalizeTextEdit(idx, e.currentTarget);
               }}
               class="bg-white/95 border border-[#00d2ff] outline-none px-1.5 py-0.5 rounded shadow-xl max-w-[280px]"
-              style="color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {zoomScale / 100}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
+              style="color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
             />
           {:else}
             <span
@@ -1378,7 +1378,7 @@
               activeDoc.selectedShape?.index === idx
                 ? 'border-[#00d2ff] bg-cyan-500/5'
                 : 'border-transparent hover:border-slate-400/30'}"
-              style="color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {zoomScale / 100}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
+              style="color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
               >{shape?.text || " "}</span
             >
           {/if}

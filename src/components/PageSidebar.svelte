@@ -626,48 +626,6 @@
         </div>
       {/if}
 
-      <div class="relative inline-block text-left w-full px-3 my-2">
-        <button
-          type="button"
-          disabled={activeDoc.fileType === 'image'}
-          class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded border text-xs font-semibold tracking-wide transition-all
-            {activeDoc.fileType === 'image'
-              ? 'bg-slate-900/20 border-slate-800/40 text-slate-600 opacity-40 cursor-not-allowed'
-              : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-850 hover:border-slate-700 hover:text-white'}"
-          onclick={() => isPageMenuOpen = !isPageMenuOpen}
-          title={activeDoc.fileType === 'image' ? "Page operations require a PDF document" : "Manage Document Pages"}
-        >
-          <span>⚙️</span> Page Options
-          <span class="text-[9px] opacity-60 ml-auto">{isPageMenuOpen ? '▲' : '▼'}</span>
-        </button>
-
-        {#if isPageMenuOpen && activeDoc.fileType !== 'image'}
-          <div 
-            class="absolute left-3 right-3 mt-1.5 z-50 rounded border border-slate-800 bg-slate-950 shadow-[0_10px_30px_rgba(0,0,0,0.85)] p-1 flex flex-col gap-0.5 animate-speeddf-toast-drop"
-            use:clickOutside={() => isPageMenuOpen = false}
-          >
-            <button
-              class="w-full text-left px-2.5 py-2 rounded text-xs text-slate-300 hover:bg-cyan-950/40 hover:text-cyan-400 font-medium transition-all"
-              onclick={() => {
-                isPageMenuOpen = false;
-                handleMergeAction(); 
-              }}
-            >
-              🔀 Merge / Stitch PDF Files...
-            </button>
-            
-            <button
-              class="w-full text-left px-2.5 py-2 rounded text-xs text-slate-300 hover:bg-cyan-950/40 hover:text-cyan-400 font-medium transition-all"
-              onclick={() => {
-                isPageMenuOpen = false;
-                handleInsertBlankPage(); 
-              }}
-            >
-              📄 Insert Blank Page Vector
-            </button>
-          </div>
-        {/if}
-      </div>
 
       {#if !(activeDoc.fileType === 'image' && activeDoc.openDocuments && activeDoc.openDocuments.length > 1)}
         {#if hasUserScrolled && activeDoc.pageOrder.length > 0 && activeDoc.scrollHeight > 0}
@@ -742,35 +700,67 @@
               </svg>
             </button>
 
-            <button
-              disabled={activeDoc.fileType === 'image'}
-              onclick={(e) => {
-                e.stopPropagation();
-                insertAfterPageNum = pageNum;
-                appendFileInput?.click();
-              }}
-              class="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors {activeDoc.fileType === 'image' ? 'opacity-30 pointer-events-none' : ''}"
-              title={activeDoc.fileType === 'image' ? "Structural merging and page injection require a PDF layout document." : "Insert PDF After This Page"}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
+            <div class="relative">
+              <button
+                disabled={activeDoc.fileType === 'image'}
+                onclick={(e) => {
+                  e.stopPropagation();
+                  insertAfterPageNum = pageNum;
+                  isPageMenuOpen = !isPageMenuOpen;
+                }}
+                class="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors {activeDoc.fileType === 'image' ? 'opacity-30 pointer-events-none' : ''}"
+                title={activeDoc.fileType === 'image' ? "Structural merging and page injection require a PDF layout document." : "Page Options"}
               >
-                <line x1="12" y1="5" x2="12" y2="19"></line><line
-                  x1="5"
-                  y1="12"
-                  x2="19"
-                  y2="12"
-                ></line>
-              </svg>
-            </button>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19"></line><line
+                    x1="5"
+                    y1="12"
+                    x2="19"
+                    y2="12"
+                  ></line>
+                </svg>
+              </button>
+
+              {#if isPageMenuOpen && insertAfterPageNum === pageNum && activeDoc.fileType !== 'image'}
+                <div 
+                  class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-[100] rounded border border-slate-800 bg-slate-950 shadow-[0_10px_30px_rgba(0,0,0,0.85)] p-1 flex flex-col gap-0.5 animate-speeddf-toast-drop whitespace-nowrap"
+                  style="min-width: 170px;"
+                  use:clickOutside={() => isPageMenuOpen = false}
+                >
+                  <button
+                    class="w-full text-left px-2 py-1 rounded text-[10px] text-slate-300 hover:bg-cyan-950/40 hover:text-cyan-400 font-medium transition-all"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      isPageMenuOpen = false;
+                      handleMergeAction(); 
+                    }}
+                  >
+                    🔀 Merge / Stitch PDF Files...
+                  </button>
+                  
+                  <button
+                    class="w-full text-left px-2 py-1 rounded text-[10px] text-slate-300 hover:bg-cyan-950/40 hover:text-cyan-400 font-medium transition-all"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      isPageMenuOpen = false;
+                      handleInsertBlankPage(); 
+                    }}
+                  >
+                    📄 Insert Blank Page Vector
+                  </button>
+                </div>
+              {/if}
+            </div>
 
             {#if activeDoc.fileType !== 'image'}
               <button

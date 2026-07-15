@@ -88,7 +88,7 @@
 
   // Bind zoomScale to activeDoc.zoomScale
   $effect(() => {
-    activeDoc.zoomScale = zoomScale;
+    activeDoc.zoomScale = Math.max(5, Math.abs(zoomScale));
   });
 
   // Reactively track changes to your annotations database layer
@@ -192,24 +192,25 @@
 
 
 
-  // Ctrl + Mouse Wheel Zooming
-  $effect(() => {
-    if (!scrollContainer) return;
+  function setupWheelZoom(node: HTMLElement) {
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey) {
         e.preventDefault();
-        if (e.deltaY < 0) {
-          zoomScale = Math.min(400, zoomScale + 10);
-        } else if (e.deltaY > 0) {
-          zoomScale = Math.max(5, zoomScale - 10);
-        }
+        const delta = e.deltaY < 0 ? 10 : -10;
+        const nextZoom = activeDoc.zoomScale + delta;
+        activeDoc.zoomScale = Math.max(10, Math.min(500, Math.abs(nextZoom)));
+        zoomScale = activeDoc.zoomScale;
       }
     };
-    scrollContainer.addEventListener("wheel", handleWheel, { passive: false });
-    return () => {
-      scrollContainer?.removeEventListener("wheel", handleWheel);
+
+    node.addEventListener("wheel", handleWheel, { passive: false });
+
+    return {
+      destroy() {
+        node.removeEventListener("wheel", handleWheel);
+      }
     };
-  });
+  }
 
   // Spacebar + Left-Click Drag Panning
   let isSpacePressed = $state(false);
@@ -303,6 +304,7 @@
 
 <div
   bind:this={scrollContainer}
+  use:setupWheelZoom
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
@@ -400,7 +402,7 @@
         src={activeDoc.imageUrl} 
         alt={activeDoc.fileName} 
         class="max-w-full max-h-full object-contain shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)] border border-slate-800/40 select-none unselectable transform-gpu"
-        style="transform: rotate({activeDoc.imageRotation || 0}deg) scale({zoomScale / 100}); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);"
+        style="transform: rotate({activeDoc.imageRotation || 0}deg) scale({Math.max(0.1, Math.abs(zoomScale / 100))}); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);"
       />
     </div>
   {:else}
