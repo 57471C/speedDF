@@ -248,9 +248,30 @@
   async function registerRecentFile(
     name: string,
     path: string,
-    bytes: Uint8Array,
+    bytesOrThumbnail: Uint8Array | string,
+    fileType?: string,
   ) {
     try {
+      if (fileType === 'image' && typeof bytesOrThumbnail === 'string') {
+        let currentList: RecentFile[] = [];
+        const stored = localStorage.getItem("speeddf_recents");
+        if (stored) currentList = JSON.parse(stored);
+
+        currentList = currentList.filter((f) => f.path !== path);
+        currentList.unshift({
+          name,
+          path,
+          timestamp: Date.now(),
+          thumbnail: bytesOrThumbnail,
+          orientation: 'portrait',
+        });
+        if (currentList.length > 10) currentList = currentList.slice(0, 10);
+
+        localStorage.setItem("speeddf_recents", JSON.stringify(currentList));
+        recentFiles = currentList;
+        return;
+      }
+
       if (activeDoc.fileType === "tiff" || activeDoc.fileType === "image") {
         console.log(
           `Recent Tracker: Document type is ${activeDoc.fileType.toUpperCase()}. Registering basic file history metadata entry...`,
@@ -296,6 +317,7 @@
         recentFiles = currentList;
         return;
       }
+      const bytes = bytesOrThumbnail as Uint8Array;
       const loadingTask = pdfjsLib.getDocument({
         data: bytes.slice(0),
         cMapUrl: window.location.origin + "/cmaps/",
@@ -417,6 +439,22 @@
         const blob = new Blob([rawBytes], { type: mimeType });
 
         activeDoc.imageUrl = URL.createObjectURL(blob);
+
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          const targetWidth = 140;
+          const scaleFactor = targetWidth / img.width;
+          canvas.width = targetWidth;
+          canvas.height = img.height * scaleFactor;
+
+          ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const base64Thumbnail = canvas.toDataURL('image/jpeg', 0.6);
+
+          registerRecentFile(fileName, filePath, base64Thumbnail, 'image');
+        };
+        img.src = activeDoc.imageUrl;
 
         // Skip PDF.js rendering entirely and log it out
         console.log(`Image Ingestion Setup: Initialized image frame for ${fileName}`);

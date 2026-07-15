@@ -733,30 +733,32 @@
 
               {#if isPageMenuOpen && insertAfterPageNum === pageNum && activeDoc.fileType !== 'image'}
                 <div 
-                  class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 z-[100] rounded border border-slate-800 bg-slate-950 shadow-[0_10px_30px_rgba(0,0,0,0.85)] p-1 flex flex-col gap-0.5 animate-speeddf-toast-drop whitespace-nowrap"
-                  style="min-width: 170px;"
+                  class="absolute bottom-full left-0 mb-2 z-[100] shadow-[0_10px_30px_rgba(0,0,0,0.9)] bg-slate-950 border border-slate-800 p-1 rounded flex flex-col gap-0.5 min-w-[120px] pointer-events-auto"
+                  style="z-index: 99999 !important;"
                   use:clickOutside={() => isPageMenuOpen = false}
                 >
                   <button
                     class="w-full text-left px-2 py-1 rounded text-[10px] text-slate-300 hover:bg-cyan-950/40 hover:text-cyan-400 font-medium transition-all"
                     onclick={(e) => {
                       e.stopPropagation();
+                      e.preventDefault();
                       isPageMenuOpen = false;
                       handleMergeAction(); 
                     }}
                   >
-                    🔀 Merge / Stitch PDF Files...
+                    Add/Merge...
                   </button>
                   
                   <button
                     class="w-full text-left px-2 py-1 rounded text-[10px] text-slate-300 hover:bg-cyan-950/40 hover:text-cyan-400 font-medium transition-all"
                     onclick={(e) => {
                       e.stopPropagation();
+                      e.preventDefault();
                       isPageMenuOpen = false;
                       handleInsertBlankPage(); 
                     }}
                   >
-                    📄 Insert Blank Page Vector
+                    Insert Blank
                   </button>
                 </div>
               {/if}

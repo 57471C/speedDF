@@ -196,6 +196,7 @@
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey) {
         e.preventDefault();
+        e.stopPropagation();
         const delta = e.deltaY < 0 ? 10 : -10;
         const nextZoom = activeDoc.zoomScale + delta;
         activeDoc.zoomScale = Math.max(10, Math.min(500, Math.abs(nextZoom)));
@@ -316,7 +317,7 @@
     [&::-webkit-scrollbar-thumb]:bg-slate-800/80 
     [&::-webkit-scrollbar-thumb]:rounded-full 
     hover:[&::-webkit-scrollbar-thumb]:bg-slate-700"
-  style={isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : ''}
+  style={(isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : '') + ' touch-action: pan-x pan-y;'}
 >
   {#if showFloatingMenu}
     <div
