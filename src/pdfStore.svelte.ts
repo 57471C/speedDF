@@ -105,6 +105,7 @@ export interface SharedDocumentState {
 	bookmarks: Bookmark[];
 	openDocuments: DocumentWorkspace[];
 	activeDocumentId: string | null;
+	readonly current: DocumentWorkspace | null;
 }
 
 export const FONT_MAP: Record<
@@ -280,7 +281,7 @@ export const activeDoc: SharedDocumentState = {
 		openDocuments = openDocuments.filter(d => d.filePath !== activeDocumentId && d.fileName !== activeDocumentId);
 		activeDocumentId = openDocuments[0]?.filePath || openDocuments[0]?.fileName || null;
 	}
-} as any;
+};
 
 // ⚡ SURGICAL INSERTION: Append this directly below your "export const activeDoc = ..." declaration block
 

@@ -436,7 +436,7 @@
 
         const ext = fileName.toLowerCase().split('.').pop() || "png";
         const mimeType = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `image/${ext}`;
-        const blob = new Blob([rawBytes], { type: mimeType });
+        const blob = new Blob([rawBytes as any], { type: mimeType });
 
         activeDoc.imageUrl = URL.createObjectURL(blob);
 

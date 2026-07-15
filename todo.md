@@ -19,7 +19,9 @@ It places a solid background banner matching the page background color directly 
 It puts a standard HTML input text area right on top of it, lets the user type whatever they want, and bakes the final text down as a fresh independent annotation overlay layer upon export.
 
 ## Fixes
-- None
+- Ctrl+scroll zooming sometimes rotates the page 180deg.
+- Images don't have thumbnail for recent documents.
+- Images can't Print
 
 
 ##📝 Short Description
