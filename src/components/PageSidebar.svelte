@@ -700,7 +700,7 @@
               </svg>
             </button>
 
-            <div class="relative">
+            <div class="relative z-[60] isolate font-sans text-left">
               <button
                 disabled={activeDoc.fileType === 'image'}
                 onclick={(e) => {
@@ -766,9 +766,17 @@
 
             {#if activeDoc.fileType !== 'image'}
               <button
-                onclick={(e) => dropTargetPageElement(e, pageNum)}
-                class="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/20 transition-colors"
-                title="Delete Page"
+                type="button"
+                disabled={activeDoc.pageOrder.length <= 1}
+                class="p-1 rounded transition-all 
+                  {activeDoc.pageOrder.length <= 1 
+                    ? 'opacity-25 cursor-not-allowed pointer-events-none text-slate-650' 
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-red-400'}"
+                onclick={(e) => {
+                  if (activeDoc.pageOrder.length <= 1) return;
+                  dropTargetPageElement(e, pageNum);
+                }}
+                title={activeDoc.pageOrder.length <= 1 ? "Cannot delete the sole page of a document" : "Delete Page"}
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
