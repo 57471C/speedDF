@@ -639,7 +639,7 @@
         <div
           bind:this={thumbnailElements[pageNum]}
           onclick={() => jumpToTargetPage(pageNum)}
-          class="group relative flex flex-col items-center bg-[#111827]/40 border rounded-lg p-2 transition-all cursor-pointer select-none z-20
+          class="group flex flex-col items-center bg-[#111827]/40 border rounded-lg p-2 transition-all cursor-pointer select-none {isPageMenuOpen && insertAfterPageNum === pageNum ? 'relative z-[60] isolate' : 'relative z-10'}
           {activeDoc.currentPage === pageNum
             ? 'border-slate-600 bg-[#161b22]'
             : 'border-slate-800 hover:border-slate-700'}"
@@ -673,7 +673,8 @@
           {/if}
 
           <div
-            class="flex items-center justify-center gap-1 mt-2.5 w-full opacity-40 group-hover:opacity-100 transition-opacity"
+            class="flex items-center justify-center gap-1 mt-2.5 w-full transition-opacity
+            {isPageMenuOpen && insertAfterPageNum === pageNum ? 'opacity-100' : 'opacity-40 group-hover:opacity-100'}"
           >
             <button
               onclick={(e) => {
@@ -733,8 +734,8 @@
 
               {#if isPageMenuOpen && insertAfterPageNum === pageNum && activeDoc.fileType !== 'image'}
                 <div 
-                  class="absolute bottom-full left-0 mb-2 z-[100] shadow-[0_10px_30px_rgba(0,0,0,0.9)] bg-slate-950 border border-slate-800 p-1 rounded flex flex-col gap-0.5 min-w-[120px] pointer-events-auto"
-                  style="z-index: 99999 !important;"
+                  class="absolute bottom-full left-0 mb-2 z-[100] bg-slate-950 opacity-100 text-slate-200 border border-slate-800 p-1.5 rounded flex flex-col gap-0.5 min-w-[125px] shadow-[0_15px_30px_rgba(0,0,0,0.95)] pointer-events-auto"
+                  style="z-index: 99999 !important; background-color: #020617 !important; opacity: 1 !important;"
                   use:clickOutside={() => isPageMenuOpen = false}
                 >
                   <button
@@ -770,13 +771,14 @@
                 disabled={activeDoc.pageOrder.length <= 1}
                 class="p-1 rounded transition-all 
                   {activeDoc.pageOrder.length <= 1 
-                    ? 'opacity-25 cursor-not-allowed pointer-events-none text-slate-650' 
+                    ? 'opacity-20 cursor-not-allowed pointer-events-none text-slate-600' 
                     : 'text-slate-400 hover:bg-slate-800 hover:text-red-400'}"
                 onclick={(e) => {
+                  e.stopPropagation();
                   if (activeDoc.pageOrder.length <= 1) return;
                   dropTargetPageElement(e, pageNum);
                 }}
-                title={activeDoc.pageOrder.length <= 1 ? "Cannot delete the sole page of a document" : "Delete Page"}
+                title={activeDoc.pageOrder.length <= 1 ? "Cannot delete the sole sheet of a document" : "Delete Page"}
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
