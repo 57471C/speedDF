@@ -37,7 +37,7 @@
   }));
 
   function getSharedPdfjsDoc() {
-    if (activeDoc.fileType === "tiff" || !activeDoc.rawBytes) return null;
+    if (activeDoc.fileType === "tiff" || activeDoc.fileType === "image" || !activeDoc.rawBytes) return null;
     
     // If the byte array reference changes, re-initialize the single master parsing handle
     if (activeDoc.rawBytes !== cachedRawBytes) {
@@ -526,17 +526,27 @@
             #{index + 1}
           </span>
 
-          <div
-            class="w-[84px] min-h-[60px] bg-white/5 rounded border border-slate-900/40 overflow-hidden flex items-center justify-center mt-3 shadow-inner relative thumbnail-footprint"
-          >
-            <canvas
-              use:renderThumbnail={{
-                pageNum,
-                rotation: activeDoc.rotations[pageNum] ?? 0,
-              }}
-              class="block h-auto max-w-full bg-white filter tracking-tight"
-            ></canvas>
-          </div>
+          {#if activeDoc.fileType === 'image'}
+            <div class="w-full aspect-[3/4] bg-slate-950 border border-cyan-500/30 rounded flex items-center justify-center overflow-hidden p-1 p-2">
+              <img 
+                src={activeDoc.imageUrl} 
+                alt="Image Thumbnail" 
+                class="w-full h-full object-cover rounded-sm opacity-80"
+              />
+            </div>
+          {:else}
+            <div
+              class="w-[84px] min-h-[60px] bg-white/5 rounded border border-slate-900/40 overflow-hidden flex items-center justify-center mt-3 shadow-inner relative thumbnail-footprint"
+            >
+              <canvas
+                use:renderThumbnail={{
+                  pageNum,
+                  rotation: activeDoc.rotations[pageNum] ?? 0,
+                }}
+                class="block h-auto max-w-full bg-white filter tracking-tight"
+              ></canvas>
+            </div>
+          {/if}
 
           <div
             class="flex items-center justify-center gap-1 mt-2.5 w-full opacity-40 group-hover:opacity-100 transition-opacity"
