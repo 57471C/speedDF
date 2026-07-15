@@ -399,6 +399,7 @@
         activeDoc.currentPage = 1;
         activeDoc.shapes = {};
         activeDoc.bookmarks = [];
+        activeDoc.imageRotation = 0;
 
         const ext = fileName.toLowerCase().split('.').pop() || "png";
         const mimeType = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `image/${ext}`;

@@ -400,7 +400,7 @@
         src={activeDoc.imageUrl} 
         alt={activeDoc.fileName} 
         class="max-w-full max-h-full object-contain shadow-[0_25px_50px_-12px_rgba(0,0,0,0.7)] border border-slate-800/40 select-none unselectable transform-gpu"
-        style="transform: scale({zoomScale / 100}); transition: transform 0.1s ease-out;"
+        style="transform: rotate({activeDoc.imageRotation || 0}deg) scale({zoomScale / 100}); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);"
       />
     </div>
   {:else}

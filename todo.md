@@ -8,7 +8,8 @@
 ## long term goals (may never do)
 1. Forms entry (NOT XFA Forms!)
 2. Froms creation (NOT XFA Forms!)
-3. True Structural Text Reflow:
+3. tauri-plugin-tts for Text to Speach
+4. True Structural Text Reflow:
 Instead of writing a full structural reflow engine, intermediate tools use a visual masking mask shortcut:
 
 When the user clicks to edit a text block, the app detects the bounding box area.

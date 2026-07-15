@@ -448,22 +448,24 @@
         </svg>
       </button>
 
-      <button 
-        onclick={toggleGridView}
-        class="flex justify-center p-1.5 rounded transition-all hover:text-white {isGridViewOpen ? 'text-amber-400 bg-slate-800/50' : 'text-slate-500'}"
-        title="Expand Workspace Grid View">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="4" height="4" rx="0.5" />
-          <rect x="11" y="3" width="4" height="4" rx="0.5" />
-          <rect x="19" y="3" width="4" height="4" rx="0.5" />
-          <rect x="3" y="11" width="4" height="4" rx="0.5" />
-          <rect x="11" y="11" width="4" height="4" rx="0.5" />
-          <rect x="19" y="11" width="4" height="4" rx="0.5" />
-          <rect x="3" y="19" width="4" height="4" rx="0.5" />
-          <rect x="11" y="19" width="4" height="4" rx="0.5" />
-          <rect x="19" y="19" width="4" height="4" rx="0.5" />
-        </svg>
-      </button>
+      {#if activeDoc.fileType !== 'image'}
+        <button 
+          onclick={toggleGridView}
+          class="flex justify-center p-1.5 rounded transition-all hover:text-white {isGridViewOpen ? 'text-amber-400 bg-slate-800/50' : 'text-slate-500'}"
+          title="Expand Workspace Grid View">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="4" height="4" rx="0.5" />
+            <rect x="11" y="3" width="4" height="4" rx="0.5" />
+            <rect x="19" y="3" width="4" height="4" rx="0.5" />
+            <rect x="3" y="11" width="4" height="4" rx="0.5" />
+            <rect x="11" y="11" width="4" height="4" rx="0.5" />
+            <rect x="19" y="11" width="4" height="4" rx="0.5" />
+            <rect x="3" y="19" width="4" height="4" rx="0.5" />
+            <rect x="11" y="19" width="4" height="4" rx="0.5" />
+            <rect x="19" y="19" width="4" height="4" rx="0.5" />
+          </svg>
+        </button>
+      {/if}
 
       <button 
         onclick={() => activeSidebarTab = 'bookmarks'}
@@ -577,13 +579,14 @@
             </button>
 
             <button
+              disabled={activeDoc.fileType === 'image'}
               onclick={(e) => {
                 e.stopPropagation();
                 insertAfterPageNum = pageNum;
                 appendFileInput?.click();
               }}
-              class="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-              title="Insert PDF After This Page"
+              class="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors {activeDoc.fileType === 'image' ? 'opacity-30 pointer-events-none' : ''}"
+              title={activeDoc.fileType === 'image' ? "Structural merging and page injection require a PDF layout document." : "Insert PDF After This Page"}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -605,27 +608,29 @@
               </svg>
             </button>
 
-            <button
-              onclick={(e) => dropTargetPageElement(e, pageNum)}
-              class="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/20 transition-colors"
-              title="Delete Page"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
+            {#if activeDoc.fileType !== 'image'}
+              <button
+                onclick={(e) => dropTargetPageElement(e, pageNum)}
+                class="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/20 transition-colors"
+                title="Delete Page"
               >
-                <path d="M3 6h18" /><path
-                  d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"
-                /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-              </svg>
-            </button>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M3 6h18" /><path
+                    d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"
+                  /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                </svg>
+              </button>
+            {/if}
 
             <button
               onclick={(e) => {

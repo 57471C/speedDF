@@ -81,6 +81,7 @@ export interface SharedDocumentState {
 	defaultStyle: "Normal" | "Bold" | "Italic";
 	fileType: "pdf" | "tiff" | "image" | null;
 	imageUrl?: string | null;
+	imageRotation?: number;
 	tiffPages: Uint8Array[];
 	flushDocumentState(): void;
 	isDirty: boolean;
@@ -159,6 +160,7 @@ export const activeDoc = $state<SharedDocumentState>({
 	defaultStyle: "Normal",
 	fileType: "pdf",
 	imageUrl: null,
+	imageRotation: 0,
 	tiffPages: [],
 	isDirty: false,
 	bookmarks: [],
@@ -167,6 +169,7 @@ export const activeDoc = $state<SharedDocumentState>({
 			URL.revokeObjectURL(this.imageUrl);
 			this.imageUrl = null;
 		}
+		this.imageRotation = 0;
 		this.rawBytes = null;
 		this.fileType = null;
 		this.fileName = "";
@@ -267,6 +270,14 @@ export function rotatePageAction(
 	pageNumber: number,
 	direction: "clockwise" | "counter",
 ) {
+	if (activeDoc.fileType === "image") {
+		const currentRotation = activeDoc.imageRotation ?? 0;
+		const degreeShift = direction === "clockwise" ? 90 : -90;
+		let targetDegree = (currentRotation + degreeShift) % 360;
+		if (targetDegree < 0) targetDegree += 360;
+		activeDoc.imageRotation = targetDegree;
+		return;
+	}
 	const currentRotation = activeDoc.rotations[pageNumber] ?? 0;
 	const degreeShift = direction === "clockwise" ? 90 : -90;
 	let targetDegree = (currentRotation + degreeShift) % 360;
