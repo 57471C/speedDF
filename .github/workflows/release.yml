@@ -23,7 +23,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: 22 # Bypasses the manifest api and runs instantly!
           cache: 'npm'
 
       - name: Install Rust Stable
