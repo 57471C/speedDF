@@ -1,20 +1,29 @@
 use std::fs::File;
 
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, Component};
 use tiff::decoder::{Decoder, DecodingResult};
 mod commands;
 use commands::run_local_ocr;
 
-fn is_safe_absolute_path(path_str: &str) -> bool {
-    let path = Path::new(path_str);
-    // Intercept and drop parent directory traversal attempts
+/// Validates that an incoming frontend path string does not contain parent directory
+/// traversal sequences (`..`) and resolves to a legitimate absolute location.
+/// Returns a sanitized PathBuf on success, or a security error string on violation.
+fn secure_verify_path(input_path: &str) -> Result<std::path::PathBuf, String> {
+    let path = Path::new(input_path);
+
+    // Catch explicit directory traversal attacks targeting systemic directory boundaries
     for component in path.components() {
-        if let std::path::Component::ParentDir = component {
-            return false;
+        if component == Component::ParentDir {
+            return Err("Security Violation: Directory traversal sequence detected.".to_string());
         }
     }
-    path.is_absolute()
+
+    if !path.is_absolute() {
+        return Err("Security Violation: Only absolute paths are permitted.".to_string());
+    }
+
+    Ok(path.to_path_buf())
 }
 
 // ⚡ NEW: Shared payload structure to wrap both the byte array and filename together
@@ -130,7 +139,8 @@ async fn native_save_as_file(
 
 #[tauri::command]
 async fn native_overwrite_file(path: String, file_bytes: Vec<u8>) -> Result<String, String> {
-    let mut file = File::create(&path).map_err(|e| e.to_string())?;
+    let safe_path = secure_verify_path(&path)?;
+    let mut file = File::create(&safe_path).map_err(|e| e.to_string())?;
     file.write_all(&file_bytes).map_err(|e| e.to_string())?;
     Ok("File saved successfully".to_string())
 }
@@ -185,10 +195,8 @@ fn check_files_exist(paths: Vec<String>) -> std::collections::HashMap<String, bo
 
 #[tauri::command]
 async fn read_file_binary(path: String) -> Result<Vec<u8>, String> {
-    if !is_safe_absolute_path(&path) {
-        return Err("Security Violation: Invalid or unauthorized path parameters provided.".to_string());
-    }
-    let mut file = File::open(&path).map_err(|_| "Unable to read file from disk.".to_string())?;
+    let safe_path = secure_verify_path(&path)?;
+    let mut file = File::open(&safe_path).map_err(|_| "Unable to read file from disk.".to_string())?;
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).map_err(|_| "Unable to read file from disk.".to_string())?;
     Ok(buffer)
@@ -196,19 +204,16 @@ async fn read_file_binary(path: String) -> Result<Vec<u8>, String> {
 
 #[tauri::command]
 async fn read_file_bytes(path: String) -> Result<FilePayload, String> {
-    if !is_safe_absolute_path(&path) {
-        return Err("Security Violation: Invalid or unauthorized path parameters provided.".to_string());
-    }
-    let path_buf = std::path::Path::new(&path);
-    if !path_buf.exists() || !path_buf.is_file() {
+    let safe_path = secure_verify_path(&path)?;
+    if !safe_path.exists() || !safe_path.is_file() {
         return Err("File does not exist or is not a file.".to_string());
     }
-    let file_name = path_buf
+    let file_name = safe_path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "document.pdf".to_string());
 
-    let mut file = File::open(path_buf).map_err(|_| "Unable to read file from disk.".to_string())?;
+    let mut file = File::open(&safe_path).map_err(|_| "Unable to read file from disk.".to_string())?;
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).map_err(|_| "Unable to read file from disk.".to_string())?;
 
@@ -221,9 +226,7 @@ async fn read_file_bytes(path: String) -> Result<FilePayload, String> {
 
 #[tauri::command]
 async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
-    if !is_safe_absolute_path(&path) {
-        return Err("Security Violation: Invalid or unauthorized path parameters provided.".to_string());
-    }
+    let _safe_path = secure_verify_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
         // Read the file natively straight from disk to avoid frontend JSON serialization overhead
         let file = std::fs::File::open(&path)

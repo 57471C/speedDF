@@ -62,6 +62,7 @@ export interface DocumentWorkspace {
 	isDirty: boolean;
 	tiffPages: Uint8Array[];
 	rotations: Record<number, number>;
+	cachedDimensions?: { width: number; height: number }[];
 }
 
 export interface SignatureSet {

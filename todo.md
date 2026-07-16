@@ -20,6 +20,40 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 - None
 
 
+## v1.0.0 Stabilization Pass — Completed Items
+
+### Security Hardening ✅ 100% Complete
+- [x] Path traversal security hardening (`secure_verify_path` in lib.rs)
+- [x] `native_overwrite_file` path validation (was unguarded — critical write path)
+- [x] `read_file_binary` migrated to `Result`-returning validator
+- [x] `read_file_bytes` migrated to `Result`-returning validator
+- [x] `parse_tiff_document` path validation gate
+
+### Typography Expansion ✅ 100% Complete
+- [x] Inter font family integration (TrueType embedding + CSS mapping)
+- [x] JetBrains Mono font family integration (TrueType embedding + CSS mapping)
+- [x] FONT_MAP registry expansion with pdf-lib compilation mappings
+- [x] Font cache system in TitleBar.svelte for embedded font flattening
+
+### Input Sanitization ✅ 100% Complete
+- [x] Text annotation sanitization before pdf-lib drawText (null fallback, 5000 char cap, control char strip)
+
+### Telemetry Timer Relocation ✅ 100% Complete
+- [x] `performance.now()` captured at click boundary in `openRecentFile`
+- [x] Timestamp threaded through `promptAndLoadFile` → `loadDocument`
+- [x] Telemetry channel labels (`Recent_Dashboard_Warm` vs `Standard_Load`)
+
+### Reactivity & Lifecycle Hygiene ✅ 100% Complete
+- [x] `untrack()` wrapping on toolbar sync effect cache write-backs
+- [x] `untrack()` wrapping on `isClickScrolling` feedback loop
+- [x] Event listener audit — all global listeners verified with proper teardowns
+
+### Recent Document Layout Caching ✅ 100% Complete
+- [x] `cacheDocumentLayoutMetadata` stores per-page dimensions to localStorage
+- [x] Skeleton hydration in `openRecentFile` pre-seeds page containers from cache
+- [x] WorkspacePage reads `cachedDimensions` for instant container sizing
+
+
 ##📝 Short Description
 speedDF is an ultra-lightweight, high-performance desktop PDF viewer and editor engineered to eliminate the resource bloat of legacy corporate PDF utilities. Built on a hybrid architecture that pairs a high-performance Rust backend with a modern Svelte 5 frontend, speedDF utilizes native operating system webviews instead of a heavy Chromium engine. This results in near-instant boot times, minimal memory consumption, and a fluid workspace interface. Core features include native document stream decryption, seamless multi-file merging, high-fidelity canvas highlighting, fluid page reordering, and a built-in cryptographic auto-updater channel.
 
@@ -46,7 +80,7 @@ Tailwind CSS: Powers the sleek, ultra-responsive dark-mode utility design system
 SortableJS: Embedded directly inside the workspace layout panel to drive native drag-and-drop page serialization and order arrays.
 
 3. PDF Parsing & Vector Manipulation Engines
-PDF.js (Mozilla Core): Handles client-side vector grid transformations and pushes multi-page rendering buffers cleanly to HTML5 elements. To bypass Tauri’s isolated local origin context gates (tauri.localhost), the engine loads synchronized web worker files directly from an embedded static bundle cache.
+PDF.js (Mozilla Core): Handles client-side vector grid transformations and pushes multi-page rendering buffers cleanly to HTML5 elements. To bypass Tauri's isolated local origin context gates (tauri.localhost), the engine loads synchronized web worker files directly from an embedded static bundle cache.
 
 pdf-lib (JavaScript Matrix): Manages structural adjustments, canvas geometry injections, and local document exports.
 

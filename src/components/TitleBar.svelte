@@ -177,7 +177,15 @@
         const yOffset = 10 / zoomMultiplier;
         const textHexColor = s.textColor || s.color || "#000000";
         const resolvedTextColorRgb = hexToRgb(textHexColor);
-        page.drawText(s?.text || "", {
+
+        // Sanitize text input before PDF content stream injection
+        let safeText = s?.text || "";
+        if (safeText.length > 5000) {
+          safeText = safeText.substring(0, 5000);
+        }
+        safeText = safeText.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+
+        page.drawText(safeText, {
           x,
           y: textBaselineY - yOffset,
           size: fontSize,
