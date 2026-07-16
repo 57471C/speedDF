@@ -1,9 +1,7 @@
 # Todo List #
 
 ## Features to add ##
-1. Add snapshot tool.
-2. Add File tabs for multiple documents.
-3. pagesToolbar - change "merge" to be a context menu "merge, insert blank page".
+1. Add File tabs for multiple documents.
 
 ## long term goals (may never do)
 1. Forms entry (NOT XFA Forms!)
@@ -19,8 +17,7 @@ It places a solid background banner matching the page background color directly 
 It puts a standard HTML input text area right on top of it, lets the user type whatever they want, and bakes the final text down as a fresh independent annotation overlay layer upon export.
 
 ## Fixes
-- Ctrl+scroll zooming sometimes rotates the page 180deg sometimes.
-- Images can't Print
+- None
 
 
 ##📝 Short Description
