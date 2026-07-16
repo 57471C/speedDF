@@ -180,13 +180,31 @@
 
         // Sanitize text input before PDF content stream injection
         let safeText = s?.text || "";
+        safeText = safeText.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ""); // Remove control lines
+
+        // Strip out full multi-byte emoji blocks, surrogate pairs, and pictograph ranges cleanly
+        safeText = safeText.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1FA70}-\u{1FAFF}]/gu, "");
+
+        // Continue safeguarding rigid Core 14 fonts against out-of-bounds Latin characters:
+        if (s.fontFamily === 'Helvetica' || s.fontFamily === 'Times-Roman' || s.fontFamily === 'Courier') {
+          safeText = safeText.replace(/[^\x20-\x7E\x80-\xFF\n\r\t]/g, "");
+        }
+
         if (safeText.length > 5000) {
           safeText = safeText.substring(0, 5000);
         }
-        safeText = safeText.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+
+        let drawX = x;
+        const computedTextWidth = pdfFont.widthOfTextAtSize(safeText, fontSize);
+
+        if (s.alignment === 'center') {
+          drawX = x - (computedTextWidth / 2);
+        } else if (s.alignment === 'right') {
+          drawX = x - computedTextWidth;
+        }
 
         page.drawText(safeText, {
-          x,
+          x: drawX,
           y: textBaselineY - yOffset,
           size: fontSize,
           font: pdfFont,
@@ -664,6 +682,92 @@
     }
   }
 
+  async function generateTrueAnnotationThumbnail(pdfBytes: Uint8Array, targetPath: string) {
+    try {
+      // 1. Initialize a standalone background pdf.js worker task from the fresh bytes
+      const loadingTask = pdfjsLib.getDocument({
+        data: pdfBytes.slice(0),
+        cMapUrl: window.location.origin + "/cmaps/",
+        cMapPacked: true,
+        standardFontDataUrl: window.location.origin + "/standard_fonts/",
+        wasmUrl: window.location.origin + "/"
+      });
+      const freshPdfDoc = await loadingTask.promise;
+      
+      // 2. Fetch page 1 containing our newly flattened text/vector marks
+      const firstPage = await freshPdfDoc.getPage(1);
+      
+      // 3. Instantiate a detached, offscreen canvas container element
+      const offscreenCanvas = document.createElement('canvas');
+      const offscreenContext = offscreenCanvas.getContext('2d');
+      const thumbViewport = firstPage.getViewport({ scale: 0.25 }); // Efficient thumbnail scale
+      
+      offscreenCanvas.width = thumbViewport.width;
+      offscreenCanvas.height = thumbViewport.height;
+      
+      if (offscreenContext) {
+        // 4. Render the flattened page layout onto the offscreen canvas context
+        await firstPage.render({ 
+          canvas: offscreenCanvas, 
+          viewport: thumbViewport 
+        }).promise;
+        
+        const freshlyGeneratedDataUrl = offscreenCanvas.toDataURL('image/jpeg', 0.5);
+        
+        // 5. Store the snapshot inside our reactive store map to notify the side navigation panel views
+        activeDoc.pageThumbnailOverrides = { ...activeDoc.pageThumbnailOverrides, 0: freshlyGeneratedDataUrl };
+        
+        // 6. Push the snapshot down to our reactive manager to refresh the dashboard lists immediately
+        if (targetPath) {
+          activeDoc.updateRecentThumbnail(targetPath, freshlyGeneratedDataUrl);
+        }
+        console.log("🚀 True annotation thumbnail successfully broadcasted across app environments.");
+      }
+      
+      // Clean up the background loading task to release system memory heaps
+      loadingTask.destroy();
+    } catch (err) {
+      console.warn("Skipped background thumbnail compilation pass:", err);
+    }
+  }
+
+  function syncLiveThumbnail(targetPath: string, compiledBytes?: Uint8Array | null) {
+    if (!targetPath) return;
+    try {
+      // If we have compiled PDF bytes, use the true annotation thumbnail pipeline
+      if (compiledBytes && compiledBytes.length > 0 && activeDoc.fileType !== 'image') {
+        generateTrueAnnotationThumbnail(compiledBytes, targetPath);
+        return;
+      }
+
+      // Fallback: Locate the master page 1 canvas element context using fallback strategies
+      const pageOneCanvas = document.querySelector('canvas[data-page-index="0"]') || document.querySelector('canvas');
+      
+      if (pageOneCanvas instanceof HTMLCanvasElement) {
+        // Extract a highly compressed lightweight base64 JPEG snapshot frame string
+        const targetThumbnailDataUrl = pageOneCanvas.toDataURL('image/jpeg', 0.4);
+        
+        // Extract existing metadata structures from localStorage
+        const cacheKey = `speeddf_meta_${btoa(targetPath)}`;
+        const currentMetaRaw = localStorage.getItem(cacheKey);
+        if (currentMetaRaw) {
+          try {
+            const parsedMeta = JSON.parse(currentMetaRaw);
+            parsedMeta.thumbnail = targetThumbnailDataUrl;
+            parsedMeta.timestamp = Date.now();
+            localStorage.setItem(cacheKey, JSON.stringify(parsedMeta));
+          } catch (e) {}
+        }
+
+        // Call the central store method to execute a reactive Svelte 5 state update channel instantly
+        activeDoc.updateRecentThumbnail(targetPath, targetThumbnailDataUrl);
+        console.log("🚀 Triggered reactive application store thumbnail mutation pass.");
+      }
+    } catch (thumbSyncError) {
+      console.warn("Skipped dashboard visualization cache stream extraction pass:", thumbSyncError);
+    }
+  }
+
   async function triggerFileSaveAs() {
     if (!activeDoc.rawBytes && !activeDoc.imageUrl) return;
     try {
@@ -716,6 +820,7 @@
         return;
       }
 
+      syncLiveThumbnail(savedPath, compiledBytes);
       await invoke("native_overwrite_file", {
         path: savedPath,
         fileBytes: Array.from(compiledBytes),
@@ -747,6 +852,7 @@
           alert("Failed to compile annotations into Image object stream.");
           return;
         }
+        syncLiveThumbnail(activeDoc.filePath, compiledBytes);
         await invoke("native_overwrite_file", {
           path: activeDoc.filePath,
           fileBytes: Array.from(compiledBytes),
@@ -765,6 +871,7 @@
         alert("Failed to compile annotations into PDF object stream.");
         return;
       }
+      syncLiveThumbnail(activeDoc.filePath, compiledBytes);
       await invoke("native_overwrite_file", {
         path: activeDoc.filePath,
         fileBytes: Array.from(compiledBytes),

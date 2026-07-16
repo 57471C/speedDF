@@ -8,6 +8,16 @@ export interface TextShape {
 	fontFamily: "Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono";
 	color: string;
 	opacity: number;
+	alignment?: 'left' | 'center' | 'right';
+}
+
+export interface RecentFile {
+	name: string;
+	path: string;
+	timestamp: number;
+	thumbnail: string;
+	orientation?: string;
+	lastOpened?: number;
 }
 
 export interface AnnotationShape {
@@ -40,6 +50,7 @@ export interface AnnotationShape {
 	style?: "Normal" | "Bold" | "Italic"; // Font style variant
 	lineStyle?: "solid" | "dashed" | "dotted" | "dash-dot";
 	fontFamily?: "Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono";
+	alignment?: 'left' | 'center' | 'right';
 }
 
 export interface Bookmark {
@@ -110,6 +121,7 @@ export interface SharedDocumentState {
 	activeThickness: number;
 	activeLineStyle: "solid" | "dashed" | "dotted" | "dash-dot";
 	activeFontFamily: "Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono";
+	activeTextAlignment: "left" | "center" | "right";
 	zoomScale: number;
 	defaultFont: string;
 	defaultSize: number;
@@ -124,6 +136,10 @@ export interface SharedDocumentState {
 	openDocuments: DocumentWorkspace[];
 	activeDocumentId: string | null;
 	readonly current: DocumentWorkspace | null;
+	recents: RecentFile[];
+	thumbnailVersion: number;
+	pageThumbnailOverrides: Record<number, string>;
+	updateRecentThumbnail(filePath: string, thumbnailDataUrl: string): void;
 }
 
 export const FONT_MAP: Record<
@@ -206,6 +222,7 @@ let activeColor = $state("#000000");
 let activeThickness = $state(3);
 let activeLineStyle = $state<"solid" | "dashed" | "dotted" | "dash-dot">("solid");
 let activeFontFamily = $state<"Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono">("Helvetica");
+let activeTextAlignment = $state<"left" | "center" | "right">("left");
 let zoomScale = $state(120);
 let defaultFont = $state("Helvetica");
 let defaultSize = $state(12);
@@ -216,6 +233,17 @@ let clientHeight = $state(0);
 let isClickScrolling = $state(false);
 let activeStampDataUrl = $state<string | null>(null);
 let savedSignatureSets = $state<SignatureSet[]>(loadSavedSets());
+
+function loadRecents(): RecentFile[] {
+	try {
+		const stored = localStorage.getItem("speeddf_recents");
+		if (stored) return JSON.parse(stored);
+	} catch (e) {}
+	return [];
+}
+let recents = $state<RecentFile[]>(loadRecents());
+let thumbnailVersion = $state(0);
+let pageThumbnailOverrides = $state<Record<number, string>>({});
 
 export function initializeNewDocument(fileName: string, filePath: string | null) {
 	const existing = openDocuments.find(d => (filePath && d.filePath === filePath) || d.fileName === fileName);
@@ -242,6 +270,7 @@ export function initializeNewDocument(fileName: string, filePath: string | null)
 	};
 	openDocuments.push(newDoc);
 	activeDocumentId = filePath || fileName;
+	pageThumbnailOverrides = {};
 	return newDoc;
 }
 
@@ -403,6 +432,33 @@ export const activeDoc: SharedDocumentState = {
 			}
 		}
 	},
+	get activeTextAlignment() { return activeTextAlignment; },
+	set activeTextAlignment(val) {
+		activeTextAlignment = val;
+		if (selectedShapes.length > 0) {
+			const needsUpdate = selectedShapes.some((s) => {
+				const shape = activeDoc.shapes[s.pageNumber]?.[s.index];
+				return shape && shape.alignment !== val;
+			});
+			if (needsUpdate) {
+				pushHistorySnapshot();
+				selectedShapes.forEach((s) => {
+					const list = [...(activeDoc.shapes[s.pageNumber] || [])];
+					if (list[s.index]) {
+						list[s.index] = {
+							...list[s.index],
+							alignment: val,
+						};
+						activeDoc.shapes = {
+							...activeDoc.shapes,
+							[s.pageNumber]: list,
+						};
+					}
+				});
+				activeDoc.isDirty = true;
+			}
+		}
+	},
 	get zoomScale() { return zoomScale; },
 	set zoomScale(val) { zoomScale = val; },
 	get defaultFont() { return defaultFont; },
@@ -424,12 +480,65 @@ export const activeDoc: SharedDocumentState = {
 	get savedSignatureSets() { return savedSignatureSets; },
 	set savedSignatureSets(val) { savedSignatureSets = val; },
 
+	get recents() { return recents; },
+	set recents(val) { recents = val; },
+
+	get thumbnailVersion() { return thumbnailVersion; },
+	set thumbnailVersion(val) { thumbnailVersion = val; },
+
+	get pageThumbnailOverrides() { return pageThumbnailOverrides; },
+	set pageThumbnailOverrides(val) { pageThumbnailOverrides = val; },
+
+	updateRecentThumbnail(filePath: string, thumbnailDataUrl: string) {
+		try {
+			if (this.recents && Array.isArray(this.recents)) {
+				const targetIndex = this.recents.findIndex((item: any) => item.path === filePath);
+				if (targetIndex !== -1) {
+					// 1. Completely replace the object slot reference with a spread clone copy
+					this.recents[targetIndex] = {
+						...this.recents[targetIndex],
+						thumbnail: thumbnailDataUrl,
+						lastOpened: Date.now(),
+						timestamp: Date.now()
+					};
+					
+					// 2. Force-reassign the array pointer to trigger Svelte 5 template updates instantly
+					this.recents = [...this.recents];
+					
+					// 3. Increment our global version token to tell the side navigation to repaint
+					this.thumbnailVersion++;
+					
+					console.log(`🚀 Reactive store array reassigned. Thumbnail version bumped to: ${this.thumbnailVersion}`);
+				}
+			}
+
+			// Mirror updates cleanly down to localStorage persistence sync
+			const globalRecentsRaw = localStorage.getItem('speeddf_recents');
+			if (globalRecentsRaw) {
+				let recentsList = JSON.parse(globalRecentsRaw);
+				if (Array.isArray(recentsList)) {
+					const dbIndex = recentsList.findIndex((item: any) => item.path === filePath);
+					if (dbIndex !== -1) {
+						recentsList[dbIndex].thumbnail = thumbnailDataUrl;
+						recentsList[dbIndex].lastOpened = Date.now();
+						recentsList[dbIndex].timestamp = Date.now();
+						localStorage.setItem('speeddf_recents', JSON.stringify(recentsList));
+						console.log("🚀 Persistent localStorage dashboard sync verified.");
+					}
+				}
+			}
+		} catch (err) {
+			console.warn("Failed to update central dashboard thumbnail arrays:", err);
+		}
+	},
+
 	flushDocumentState() {
 		if (this.imageUrl) {
 			URL.revokeObjectURL(this.imageUrl);
 		}
 		openDocuments = openDocuments.filter(d => d.filePath !== activeDocumentId && d.fileName !== activeDocumentId);
 		activeDocumentId = openDocuments[0]?.filePath || openDocuments[0]?.fileName || null;
+		pageThumbnailOverrides = {};
 	}
 };
 
@@ -551,3 +660,8 @@ export function updateBookmarkNameAction(pageNum: number, newName: string) {
 		b.pageNum === pageNum ? { ...b, name: newName } : b
 	);
 }
+
+// True global master Wasm worker singleton to survive component unmounts
+export const globalPdfWorkerInstance = {
+	current: null as any
+};

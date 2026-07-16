@@ -11,6 +11,7 @@
     pushHistorySnapshot,
     updateBookmarkNameAction,
     deleteBookmarkAction,
+    globalPdfWorkerInstance,
   } from "../pdfStore.svelte";
 
   let sidebarContainer = $state<HTMLDivElement | null>(null);
@@ -45,12 +46,20 @@
       cachedRawBytes = activeDoc.rawBytes;
       console.log("PageSidebar: New document bytes detected. Instantiating single master worker channel...");
       
+      if (!globalPdfWorkerInstance.current) {
+        console.log("Instantiating true global application master Wasm worker channel...");
+        globalPdfWorkerInstance.current = new pdfjsLib.PDFWorker();
+      } else {
+        console.log("Reusing warm persistent master Wasm worker channel...");
+      }
+
       const loadingTask = pdfjsLib.getDocument({
         data: activeDoc.rawBytes.slice(0),
         cMapUrl: window.location.origin + "/cmaps/",
         cMapPacked: true,
         standardFontDataUrl: window.location.origin + "/standard_fonts/",
-        wasmUrl: window.location.origin + "/"
+        wasmUrl: window.location.origin + "/",
+        worker: globalPdfWorkerInstance.current
       });
       sharedPdfjsDocPromise = loadingTask.promise;
     }
@@ -134,7 +143,7 @@
 
   function renderThumbnail(
     node: HTMLCanvasElement,
-    { pageNum, rotation }: { pageNum: number; rotation: number },
+    { pageNum, rotation, version }: { pageNum: number; rotation: number; version?: number },
   ) {
     if (activeDoc.fileType === "tiff") {
       const pageData = activeDoc.tiffPages[pageNum - 1];
@@ -178,6 +187,25 @@
 
     async function executeRender(pNum: number, rot: number) {
       if (!activeDoc.rawBytes || isRendering) return;
+      
+      // Check if a live override snapshot exists for this page index
+      const liveOverride = activeDoc.pageThumbnailOverrides[pNum - 1];
+      if (liveOverride) {
+        const overrideImg = new Image();
+        overrideImg.src = liveOverride;
+        overrideImg.onload = () => {
+          const ctx = node.getContext('2d');
+          if (ctx) {
+            node.width = overrideImg.width;
+            node.height = overrideImg.height;
+            ctx.clearRect(0, 0, node.width, node.height);
+            ctx.drawImage(overrideImg, 0, 0, node.width, node.height);
+          }
+        };
+        console.log(`⚡ PageSidebar thumbnail for page ${pNum} updated via override map.`);
+        return;
+      }
+
       isRendering = true;
 
       try {
@@ -216,7 +244,7 @@
 
     executeRender(pageNum, rotation);
     return {
-      update(newParams: { pageNum: number; rotation: number }) {
+      update(newParams: { pageNum: number; rotation: number; version?: number }) {
         executeRender(newParams.pageNum, newParams.rotation);
       },
     };
@@ -666,6 +694,7 @@
                 use:renderThumbnail={{
                   pageNum,
                   rotation: activeDoc.rotations[pageNum] ?? 0,
+                  version: activeDoc.thumbnailVersion,
                 }}
                 class="block h-auto max-w-full bg-white filter tracking-tight"
               ></canvas>
@@ -963,6 +992,7 @@
                 use:renderThumbnail={{
                   pageNum,
                   rotation: activeDoc.rotations[pageNum] ?? 0,
+                  version: activeDoc.thumbnailVersion,
                 }}
                 class="block h-auto max-w-full bg-white filter tracking-tight transition-transform"
               ></canvas>

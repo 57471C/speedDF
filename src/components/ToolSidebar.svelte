@@ -83,6 +83,9 @@
           if (shape.fontFamily && doc.activeFontFamily !== shape.fontFamily) {
             doc.activeFontFamily = shape.fontFamily;
           }
+          if (shape.alignment && doc.activeTextAlignment !== shape.alignment) {
+            doc.activeTextAlignment = shape.alignment;
+          }
         });
       }
     }
@@ -270,10 +273,10 @@
         isShapeMenuOpen = false;
         isThicknessMenuOpen = false;
         isMenuOpen = false;
+        isTextMenuOpen = false;
         doc.activeTool = "text";
-        isTextMenuOpen = !isTextMenuOpen;
       }}
-      class="w-8 h-8 flex items-center justify-center rounded transition-all {doc.activeTool === 'text' || isTextMenuOpen
+      class="w-8 h-8 flex items-center justify-center rounded transition-all {doc.activeTool === 'text'
         ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]'
         : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
       title="Text Annotation"
@@ -296,33 +299,6 @@
         /><line x1="12" y1="4" x2="12" y2="20" /></svg
       >
     </button>
-
-    {#if isTextMenuOpen}
-      <div
-        onclick={() => (isTextMenuOpen = false)}
-        class="fixed inset-0 z-40 bg-transparent cursor-default"
-      ></div>
-      <div
-        onclick={(e) => e.stopPropagation()}
-        class="absolute left-10 top-0 flex flex-col gap-3 p-3 bg-slate-950 border border-slate-800 rounded-lg shadow-2xl z-50 pointer-events-auto w-48 backdrop-blur-md"
-        style="color-scheme: dark;"
-      >
-        <span class="text-[8px] font-bold tracking-widest uppercase text-slate-400 block border-b border-slate-800 pb-1.5 px-1 whitespace-nowrap mb-1">Text Style</span>
-        <div class="flex flex-col gap-1 w-full">
-          <label class="text-[10px] text-slate-500 font-mono font-medium tracking-wide uppercase select-none">Font Style</label>
-          <select 
-            bind:value={doc.activeFontFamily}
-            class="w-full h-8 px-2 text-xs bg-slate-900 border border-slate-800 rounded-md text-slate-200 outline-none focus:border-cyan-500 cursor-pointer font-sans appearance-none hover:bg-slate-850 transition-colors"
-          >
-            <option value="Helvetica" style="font-family: Arial, sans-serif;">Standard Sans (Arial)</option>
-            <option value="Times-Roman" style="font-family: 'Times New Roman', serif;">Standard Serif (Times)</option>
-            <option value="Courier" style="font-family: 'Courier New', monospace;">Standard Mono (Courier)</option>
-            <option value="Inter" style="font-family: 'Inter', sans-serif;">Modern Corporate (Inter)</option>
-            <option value="JetBrainsMono" style="font-family: 'JetBrains Mono', monospace;">Technical Grid (JetBrains)</option>
-          </select>
-        </div>
-      </div>
-    {/if}
   </div>
 
   <div class="h-px w-6 bg-slate-800/60 mx-auto my-1 pointer-events-auto"></div>

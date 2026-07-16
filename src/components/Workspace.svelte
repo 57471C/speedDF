@@ -519,6 +519,18 @@
       </div>
 
       <div class="flex items-center gap-1.5 border-l border-slate-800 pl-3">
+        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Align</span>
+        <select 
+          bind:value={activeDoc.activeTextAlignment} 
+          class="bg-slate-800 text-slate-200 text-xs border border-slate-700 rounded px-1.5 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-500 mx-1 font-sans"
+        >
+          <option value="left">≡ Left</option>
+          <option value="center">≢ Center</option>
+          <option value="right">≣ Right</option>
+        </select>
+      </div>
+
+      <div class="flex items-center gap-1.5 border-l border-slate-800 pl-3">
         <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Style</span>
         <select
           value={selectedStyle}

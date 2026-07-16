@@ -241,7 +241,7 @@
     orientation?: string;
   }
 
-  let recentFiles = $state<RecentFile[]>([]);
+  let recentFiles = $derived(activeDoc.recents);
   let fileStatusMap = $state<Record<string, boolean>>({});
 
   // Capture Page 1 from incoming bytes, convert to Base64 data URL, and update storage
@@ -268,7 +268,7 @@
         if (currentList.length > 10) currentList = currentList.slice(0, 10);
 
         localStorage.setItem("speeddf_recents", JSON.stringify(currentList));
-        recentFiles = currentList;
+        activeDoc.recents = currentList;
         return;
       }
 
@@ -314,7 +314,7 @@
         if (currentList.length > 10) currentList = currentList.slice(0, 10);
 
         localStorage.setItem("speeddf_recents", JSON.stringify(currentList));
-        recentFiles = currentList;
+        activeDoc.recents = currentList;
         return;
       }
       const bytes = bytesOrThumbnail as Uint8Array;
@@ -360,7 +360,7 @@
         if (currentList.length > 10) currentList = currentList.slice(0, 10);
 
         localStorage.setItem("speeddf_recents", JSON.stringify(currentList));
-        recentFiles = currentList;
+        activeDoc.recents = currentList;
       }
     } catch (err) {
       console.error(
@@ -638,8 +638,8 @@
   }
 
   function handleClearFromRecents(targetId: string) {
-    recentFiles = recentFiles.filter((f) => f.path !== targetId);
-    localStorage.setItem("speeddf_recents", JSON.stringify(recentFiles));
+    activeDoc.recents = activeDoc.recents.filter((f: any) => f.path !== targetId);
+    localStorage.setItem("speeddf_recents", JSON.stringify(activeDoc.recents));
     showNotification("Removed document from recents list");
   }
 
@@ -974,8 +974,8 @@
     const stored = localStorage.getItem("speeddf_recents");
     if (stored) {
       try {
-        recentFiles = JSON.parse(stored);
-        const paths = recentFiles.map((f) => f.path);
+        activeDoc.recents = JSON.parse(stored);
+        const paths = activeDoc.recents.map((f: any) => f.path);
         if (paths.length > 0) {
           invoke<Record<string, boolean>>("check_files_exist", { paths })
             .then((res) => {

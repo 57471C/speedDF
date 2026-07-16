@@ -353,7 +353,7 @@
     return { w: 0, h: 0 };
   });
 
-  function autofocusAction(node: HTMLInputElement) {
+  function autofocusAction(node: HTMLInputElement | HTMLTextAreaElement) {
     setTimeout(() => {
       node.focus();
     }, 0);
@@ -564,7 +564,10 @@
         activeTextLayer = textLayer;
         await textLayer.render();
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error && error.name === "RenderingCancelledException") {
+        return;
+      }
       console.error(error);
     } finally {
       rendering = false;
@@ -1236,7 +1239,7 @@
       }
     }
   }
-  function finalizeTextEdit(index: number, element: HTMLInputElement) {
+  function finalizeTextEdit(index: number, element: HTMLInputElement | HTMLTextAreaElement) {
     if (!element.isConnected || (activelyEditingIndex !== null && activelyEditingIndex !== index)) return;
     const existing = activeDoc.shapes[pageNumber] || [];
     if (existing[index]) {
@@ -1392,7 +1395,7 @@
            : `width: ${expectedDimensions.width}px; min-height: ${expectedDimensions.height}px; aspect-ratio: ${expectedDimensions.aspectRatio};`}"
 >
   {#if isRendered}
-    <canvas use:canvasLifecycle class="block max-w-full h-auto rounded-sm"
+    <canvas use:canvasLifecycle class="block max-w-full h-auto rounded-sm" data-page-index={pageNumber - 1}
     ></canvas>
     <!-- PDF.js text layer: sits above canvas; spans capture selection, empty areas pass through -->
     <div
@@ -1602,22 +1605,29 @@
       {:else if shape && shape.type === "text"}
         <div
           data-shape-idx={idx}
-          class="absolute pointer-events-auto transform -translate-y-1/2 z-40"
+          class="absolute pointer-events-auto z-40"
           style="left: {display.x}%; top: {display.y}%; color: {shape.textColor || shape.color || '#000000'};"
         >
           {#if activelyEditingIndex === idx && activeDoc.shapes[pageNumber]?.[idx]}
-            <input
-              type="text"
+            <textarea
               bind:value={activeDoc.shapes[pageNumber][idx].text}
               use:autofocusAction
               onmousedown={(e) => e.stopPropagation()}
               onblur={(e) => finalizeTextEdit(idx, e.currentTarget)}
               onkeydown={(e) => {
-                if (e.key === "Enter") finalizeTextEdit(idx, e.currentTarget);
+                if (e.key === "Enter" && (e.shiftKey || e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  finalizeTextEdit(idx, e.currentTarget);
+                } else if (e.key === "Escape") {
+                  finalizeTextEdit(idx, e.currentTarget);
+                }
               }}
-              class="bg-white/95 border border-[#00d2ff] outline-none px-1.5 py-0.5 rounded shadow-xl max-w-[280px]"
-              style="color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
-            />
+              class="bg-transparent text-black border border-slate-300 rounded p-1 text-sm shadow-md focus:outline-none focus:ring-1 focus:ring-cyan-500 font-sans block"
+              class:text-center={shape.alignment === 'center'}
+              class:text-right={shape.alignment === 'right'}
+              class:text-left={!shape.alignment || shape.alignment === 'left'}
+              style="text-align: {shape.alignment || 'left'}; text-align-last: {shape.alignment || 'left'}; direction: ltr; resize: both; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
+            ></textarea>
           {:else}
             <span
               onmousedown={(e) => startTextDrag(e, idx)}
@@ -1625,12 +1635,15 @@
                 e.stopPropagation();
                 activelyEditingIndex = idx;
               }}
-              class="block bg-transparent border border-dashed rounded-xs whitespace-nowrap transition-colors cursor-move p-0.5 {activeDoc
+              class="block bg-transparent border border-dashed rounded-xs whitespace-pre-wrap transition-colors cursor-move p-0.5 {activeDoc
                 .selectedShape?.pageNumber === pageNumber &&
               activeDoc.selectedShape?.index === idx
                 ? 'border-[#00d2ff] bg-cyan-500/5'
                 : 'border-transparent hover:border-slate-400/30'}"
-              style="color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
+              class:text-center={shape.alignment === 'center'}
+              class:text-right={shape.alignment === 'right'}
+              class:text-left={!shape.alignment || shape.alignment === 'left'}
+              style="text-align: {shape.alignment || 'left'}; color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
               >{shape?.text || " "}</span
             >
           {/if}

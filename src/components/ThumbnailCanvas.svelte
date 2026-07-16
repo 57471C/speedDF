@@ -7,11 +7,40 @@
 
   // Automatically redraw the miniature page if document data or individual page rotations change
   $effect(() => {
+    // 1. Establish a reactive dependency boundary link to our global save counter token
+    const currentRenderVersion = activeDoc.thumbnailVersion;
+    
+    // 2. Hook up a live reactive dependency line targeting our page overrides state map
+    const liveOverrideTexture = activeDoc.pageThumbnailOverrides[pageNumber - 1];
+    
     const canvas = canvasElement;
     const rotationAngle = activeDoc.rotations[pageNumber] ?? 0; 
     
+    if (canvas) {
+      const renderingContext2d = canvas.getContext('2d');
+      if (renderingContext2d) {
+        // 3. Wipe any outdated background layers safely
+        renderingContext2d.clearRect(0, 0, canvas.width, canvas.height);
+        
+        if (liveOverrideTexture) {
+          // 4. Draw our fresh annotation snapshot image instantly
+          const liveImage = new Image();
+          liveImage.src = liveOverrideTexture;
+          liveImage.onload = () => {
+            canvas.width = liveImage.width;
+            canvas.height = liveImage.height;
+            renderingContext2d.drawImage(liveImage, 0, 0, canvas.width, canvas.height);
+          };
+          console.log(`⚡ Sidebar thumbnail for page ${pageNumber} updated dynamically via override map.`);
+          return; // Skip normal un-annotated background pdf.js processing blocks cleanly
+        }
+      }
+    }
+    
+    // Existing async fallback pdfPage.render() pipeline continues normally
     if (bytes && canvas) {
       renderMiniThumbnail(bytes, pageNumber, canvas, rotationAngle);
+      console.log(`⚡ Repainting navigation thumbnail for page index due to sync version: ${currentRenderVersion}`);
     }
   });
 
