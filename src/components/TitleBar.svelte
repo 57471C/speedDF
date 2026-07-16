@@ -4,6 +4,7 @@
   import * as pdfjsLib from "pdfjs-dist";
   import { activeDoc, FONT_MAP, undoStack, redoStack } from "../pdfStore.svelte";
   import { PDFDocument, rgb, degrees, BlendMode, LineCapStyle, PDFString, PDFName } from "pdf-lib";
+  import fontkit from "@pdf-lib/fontkit";
 
   let {
     onMinimize,
@@ -132,17 +133,43 @@
           opacity: getHexOpacity(shapeColorHex),
         });
       } else if (s.type === "text") {
-        const fontName = s.font || "Helvetica";
-        const fontStyle = (s.style || "Normal") as "Normal" | "Bold" | "Italic";
-        const fontMapping = FONT_MAP[fontName];
-        const pdfFontKey = fontMapping ? (fontMapping.pdf[fontStyle] || fontMapping.pdf["Normal"]) : "Helvetica";
+        const fontName = s.fontFamily || s.font || "Helvetica";
+        let pdfFont;
 
-        let fontPromise = fontCache.get(pdfFontKey);
-        if (!fontPromise) {
-          fontPromise = destDoc.embedStandardFont(pdfFontKey as any);
-          fontCache.set(pdfFontKey, fontPromise);
+        if (fontName === 'Inter') {
+          let fontPromise = fontCache.get('Inter');
+          if (!fontPromise) {
+            fontPromise = (async () => {
+              const fontResponse = await fetch('/fonts/inter/Inter-Regular.ttf');
+              const fontBuffer = await fontResponse.arrayBuffer();
+              return await destDoc.embedFont(fontBuffer);
+            })();
+            fontCache.set('Inter', fontPromise);
+          }
+          pdfFont = await fontPromise;
+        } else if (fontName === 'JetBrainsMono') {
+          let fontPromise = fontCache.get('JetBrainsMono');
+          if (!fontPromise) {
+            fontPromise = (async () => {
+              const fontResponse = await fetch('/fonts/jetbrains/JetBrainsMono-Regular.ttf');
+              const fontBuffer = await fontResponse.arrayBuffer();
+              return await destDoc.embedFont(fontBuffer);
+            })();
+            fontCache.set('JetBrainsMono', fontPromise);
+          }
+          pdfFont = await fontPromise;
+        } else {
+          const fontStyle = (s.style || "Normal") as "Normal" | "Bold" | "Italic";
+          const fontMapping = FONT_MAP[fontName];
+          const pdfFontKey = fontMapping ? (fontMapping.pdf[fontStyle] || fontMapping.pdf["Normal"]) : "Helvetica";
+
+          let fontPromise = fontCache.get(pdfFontKey);
+          if (!fontPromise) {
+            fontPromise = destDoc.embedStandardFont(pdfFontKey as any);
+            fontCache.set(pdfFontKey, fontPromise);
+          }
+          pdfFont = await fontPromise;
         }
-        const pdfFont = await fontPromise;
 
         const fontSize = s.size || 12;
         const textBaselineY = pageHeight - (s.y / 100) * pageHeight;
@@ -258,6 +285,7 @@
     if (!activeDoc.rawBytes || activeDoc.pageOrder.length === 0) return null;
     try {
       const destDoc = await PDFDocument.create();
+      destDoc.registerFontkit(fontkit);
       const imageCache = new Map<string, any>();
       const fontCache = new Map<string, any>();
       if (activeDoc.fileType === "tiff") {
@@ -554,9 +582,10 @@
         } else if (shape.type === 'text') {
           ctx.fillStyle = shape.textColor || shape.color || '#000000';
           const fontSize = shape.size || 12;
-          const fontName = shape.font || 'Helvetica';
+          const fontName = shape.fontFamily || shape.font || 'Helvetica';
           const fontStyle = shape.style === 'Bold' ? 'bold' : shape.style === 'Italic' ? 'italic' : 'normal';
-          ctx.font = `${fontStyle} ${fontSize}px ${fontName}, sans-serif`;
+          const cssFontFamily = FONT_MAP[fontName]?.css || `${fontName}, sans-serif`;
+          ctx.font = `${fontStyle} ${fontSize}px ${cssFontFamily}`;
           ctx.textBaseline = 'middle';
           ctx.fillText(shape.text || '', x, y);
         } else if (shape.type === 'tick') {

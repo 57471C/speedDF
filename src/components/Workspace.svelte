@@ -126,11 +126,11 @@
   // Sync with selected shape or defaults
   $effect(() => {
     if (activeTextShape) {
-      selectedFont = activeTextShape.font || "Helvetica";
+      selectedFont = activeTextShape.fontFamily || activeTextShape.font || "Helvetica";
       selectedSize = activeTextShape.size || 12;
       selectedStyle = activeTextShape.style || "Normal";
     } else {
-      selectedFont = activeDoc.defaultFont;
+      selectedFont = activeDoc.activeFontFamily || activeDoc.defaultFont || "Helvetica";
       selectedSize = activeDoc.defaultSize;
       selectedStyle = activeDoc.defaultStyle || "Normal";
     }
@@ -139,9 +139,11 @@
   function handleFontChange(e: Event) {
     const val = (e.target as HTMLSelectElement).value;
     selectedFont = val;
+    activeDoc.activeFontFamily = val as any;
     if (activeTextShape) {
       pushHistorySnapshot();
       activeTextShape.font = val;
+      activeTextShape.fontFamily = val as any;
       activeDoc.shapes = { ...activeDoc.shapes };
     } else {
       activeDoc.defaultFont = val;
@@ -460,16 +462,18 @@
         <span>Text Style</span>
       </div>
 
-      <div class="flex items-center gap-1.5">
+      <div class="flex items-center gap-1.5 font-sans">
         <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Font</span>
         <select
           value={selectedFont}
           onchange={handleFontChange}
           class="bg-slate-900 border border-slate-800 text-slate-200 rounded px-2 py-1 text-xs font-medium outline-none focus:border-cyan-500 transition-colors cursor-pointer"
         >
-          <option value="Helvetica">Helvetica</option>
-          <option value="Times New Roman">Times New Roman</option>
-          <option value="Courier">Courier</option>
+          <option value="Helvetica" style="font-family: Arial, sans-serif;">Standard Sans (Arial)</option>
+          <option value="Times-Roman" style="font-family: 'Times New Roman', serif;">Standard Serif (Times)</option>
+          <option value="Courier" style="font-family: 'Courier New', monospace;">Standard Mono (Courier)</option>
+          <option value="Inter" style="font-family: 'Inter', sans-serif;">Modern Corporate (Inter)</option>
+          <option value="JetBrainsMono" style="font-family: 'JetBrains Mono', monospace;">Technical Grid (JetBrains)</option>
         </select>
       </div>
 
