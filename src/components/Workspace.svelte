@@ -299,6 +299,94 @@
       zoomScale = 100;
     }
   }
+
+  let isDrawingMarquee = $state(false);
+  let marqueeStart = $state({ x: 0, y: 0 });
+  let marqueeCurrent = $state({ x: 0, y: 0 });
+
+  let screenStart = $state({ x: 0, y: 0 });
+  let screenCurrent = $state({ x: 0, y: 0 });
+
+  async function handleExecuteCropCapture(e: MouseEvent) {
+    if (!isDrawingMarquee) return;
+    isDrawingMarquee = false;
+    activeDoc.activeTool = 'select'; // Dismiss crosshair tool profile
+
+    // 1. Establish absolute screen bounding limits
+    const clientX1 = Math.min(screenStart.x, screenCurrent.x);
+    const clientY1 = Math.min(screenStart.y, screenCurrent.y);
+    const clientWidth = Math.abs(screenStart.x - screenCurrent.x);
+    const clientHeight = Math.abs(screenStart.y - screenCurrent.y);
+
+    if (clientWidth < 5 || clientHeight < 5) return; // Ignore accidental micro clicks
+
+    // Temporarily hide marquee to find the underlying element
+    const currentTarget = e.currentTarget as HTMLElement;
+    const originalDisplay = currentTarget.style.display;
+    currentTarget.style.display = 'none';
+
+    // Find the element at the midpoint screen position
+    const startScreenX = (screenStart.x + screenCurrent.x) / 2;
+    const startScreenY = (screenStart.y + screenCurrent.y) / 2;
+    
+    const underElement = document.elementFromPoint(startScreenX, startScreenY);
+    currentTarget.style.display = originalDisplay;
+
+    // Locate the closest canvas element
+    let activeCanvas = underElement as HTMLCanvasElement | null;
+    if (activeCanvas && activeCanvas.tagName !== 'CANVAS') {
+      activeCanvas = activeCanvas.closest('canvas') || activeCanvas.querySelector('canvas');
+    }
+    if (!activeCanvas) {
+      activeCanvas = document.querySelector('.workspace-scroll-container canvas') as HTMLCanvasElement;
+    }
+
+    if (!activeCanvas) return;
+
+    // 3. Map screen-to-pixel metrics directly using identical coordinate fields
+    const displayRect = activeCanvas.getBoundingClientRect();
+    
+    // Derive local canvas coordinates directly from raw screen differentials
+    const cropLocalX = clientX1 - displayRect.left;
+    const cropLocalY = clientY1 - displayRect.top;
+
+    // Density scale map linking visible DOM sizing parameters to internal pixel backstores
+    const scaleX = activeCanvas.width / displayRect.width;
+    const scaleY = activeCanvas.height / displayRect.height;
+
+    // 4. Initialize offscreen capture layout
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = clientWidth * scaleX;
+    cropCanvas.height = clientHeight * scaleY;
+    const cropCtx = cropCanvas.getContext('2d');
+
+    if (cropCtx) {
+      // Blit out pixel arrays directly mapping from original source boundaries
+      cropCtx.drawImage(
+        activeCanvas,
+        cropLocalX * scaleX,
+        cropLocalY * scaleY,
+        clientWidth * scaleX,
+        clientHeight * scaleY,
+        0, 0, cropCanvas.width, cropCanvas.height
+      );
+
+      // 5. Package as PNG data payload and send straight to operating system clipboard
+      cropCanvas.toBlob(async (blob) => {
+        if (blob) {
+          try {
+            const clipboardItem = typeof ClipboardItem !== 'undefined'
+              ? new ClipboardItem({ [blob.type]: blob })
+              : new (window as any).ClipboardItem({ [blob.type]: blob });
+            await navigator.clipboard.write([clipboardItem]);
+            console.log('speedDF: Scaled snippet captured cleanly to system clipboard!');
+          } catch (err) {
+            console.error('speedDF: Clipboard write operation encountered an error:', err);
+          }
+        }
+      }, 'image/png');
+    }
+  }
 </script>
 
 <svelte:window onclick={handleWindowClick} onkeydown={handleKeyDown} onkeyup={handleKeyUp} />
@@ -319,6 +407,43 @@
     hover:[&::-webkit-scrollbar-thumb]:bg-slate-700"
   style={(isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : '') + ' touch-action: pan-x pan-y;'}
 >
+  {#if activeDoc.activeTool === 'snapshot'}
+    <div 
+      class="absolute inset-0 bg-black/25 z-[90] cursor-crosshair select-none"
+      onmousedown={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        isDrawingMarquee = true;
+        marqueeStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        marqueeCurrent = { ...marqueeStart };
+        
+        // Lock down global screen origin coordinates
+        screenStart = { x: e.clientX, y: e.clientY };
+        screenCurrent = { x: e.clientX, y: e.clientY };
+      }}
+      onmousemove={(e) => {
+        if (!isDrawingMarquee) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        marqueeCurrent = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        
+        // Continually map current global screen pointers
+        screenCurrent = { x: e.clientX, y: e.clientY };
+      }}
+      onmouseup={handleExecuteCropCapture}
+    >
+      {#if isDrawingMarquee}
+        <div 
+          class="absolute border border-dashed border-cyan-400 bg-cyan-400/15 shadow-[0_0_12px_rgba(34,211,238,0.35)]"
+          style="
+            left: {Math.min(marqueeStart.x, marqueeCurrent.x)}px;
+            top: {Math.min(marqueeStart.y, marqueeCurrent.y)}px;
+            width: {Math.abs(marqueeStart.x - marqueeCurrent.x)}px;
+            height: {Math.abs(marqueeStart.y - marqueeCurrent.y)}px;
+          "
+        ></div>
+      {/if}
+    </div>
+  {/if}
+
   {#if showFloatingMenu}
     <div
       class="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-[#090d16]/95 border border-slate-800/80 px-4 py-2 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.5)] flex items-center gap-3 backdrop-blur-md select-none pointer-events-auto transition-all duration-200"

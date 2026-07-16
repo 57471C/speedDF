@@ -373,6 +373,16 @@
     title="Dash Stamp">—</button
   >
 
+  <button
+    onclick={() => (doc.activeTool = doc.activeTool === "snapshot" ? "select" : "snapshot")}
+    class="w-8 h-8 flex items-center justify-center rounded transition-all {doc.activeTool === 'snapshot'
+      ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]'
+      : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+    title="Take Selection Snapshot (Copy region to clipboard)"
+  >
+    <span class="text-xs">📸</span>
+  </button>
+
   <div class="w-6 h-[1px] bg-slate-800 my-1"></div>
 
   <div class="relative flex flex-col items-center">

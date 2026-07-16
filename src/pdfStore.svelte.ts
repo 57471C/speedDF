@@ -81,6 +81,7 @@ export interface SharedDocumentState {
 		| "round-rect-fill"
 		| "oval-fill"
 		| "pen"
+		| "snapshot"
 		| null;
 	shapes: Record<number, AnnotationShape[]>;
 	selectedShape: { pageNumber: number; index: number } | null;
