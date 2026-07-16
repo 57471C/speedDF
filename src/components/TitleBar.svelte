@@ -421,7 +421,7 @@
     }
   }
 
-  async function flattenWorkspaceToImage(): Promise<Uint8Array | null> {
+  async function flattenWorkspaceToImage(outputPath: string | null = null): Promise<Uint8Array | null> {
     if (!activeDoc.imageUrl) return null;
     try {
       const img = new Image();
@@ -568,7 +568,18 @@
       
       ctx.restore();
 
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+      const lowerPath = (outputPath || activeDoc.filePath || "").toLowerCase();
+      let mimeType = 'image/jpeg';
+      if (lowerPath.endsWith('.png')) {
+        mimeType = 'image/png';
+      } else if (lowerPath.endsWith('.webp')) {
+        mimeType = 'image/webp';
+      }
+
+      const dataUrl = mimeType === 'image/jpeg'
+        ? canvas.toDataURL(mimeType, 0.95)
+        : canvas.toDataURL(mimeType);
+
       const base64Data = dataUrl.split(',')[1];
       const binaryString = atob(base64Data);
       const len = binaryString.length;
@@ -586,26 +597,16 @@
   async function triggerFileSaveAs() {
     if (!activeDoc.rawBytes && !activeDoc.imageUrl) return;
     try {
-      let compiledBytes: Uint8Array | null = null;
       let defaultName = "";
 
       if (activeDoc.fileType === 'image') {
-        console.log("Compiling and flattening image annotations...");
-        compiledBytes = await flattenWorkspaceToImage();
         defaultName = activeDoc.fileName
           ? activeDoc.fileName.replace(/\.(jpg|jpeg|png)$/i, "") + "_revised.jpg"
           : 'Untitled.jpg';
       } else {
-        console.log("Compiling and flattening PDF annotations...");
-        compiledBytes = await flattenWorkspaceToPDF();
         defaultName = activeDoc.fileName
           ? activeDoc.fileName.replace(/\.(pdf|tiff|tif)$/i, "") + "_revised.pdf"
           : 'Untitled.pdf';
-      }
-
-      if (!compiledBytes) {
-        alert("Failed to compile annotations.");
-        return;
       }
 
       // 1. Generate dynamic window filters based on file session mode
@@ -629,18 +630,32 @@
         filters: dialogFilters
       });
 
-      if (savedPath) {
-        await invoke("native_overwrite_file", {
-          path: savedPath,
-          fileBytes: Array.from(compiledBytes),
-        });
-        activeDoc.filePath = savedPath;
-        const parts = savedPath.split(/[\\/]/);
-        activeDoc.fileName = parts[parts.length - 1];
-        activeDoc.isDirty = false;
-        if (typeof onSaveSuccess === 'function') onSaveSuccess("File Saved Successfully");
-        console.log("Document footprint committed cleanly to disk via Save As.");
+      if (!savedPath) return;
+
+      let compiledBytes: Uint8Array | null = null;
+      if (activeDoc.fileType === 'image') {
+        console.log("Compiling and flattening image annotations...");
+        compiledBytes = await flattenWorkspaceToImage(savedPath);
+      } else {
+        console.log("Compiling and flattening PDF annotations...");
+        compiledBytes = await flattenWorkspaceToPDF();
       }
+
+      if (!compiledBytes) {
+        alert("Failed to compile annotations.");
+        return;
+      }
+
+      await invoke("native_overwrite_file", {
+        path: savedPath,
+        fileBytes: Array.from(compiledBytes),
+      });
+      activeDoc.filePath = savedPath;
+      const parts = savedPath.split(/[\\/]/);
+      activeDoc.fileName = parts[parts.length - 1];
+      activeDoc.isDirty = false;
+      if (typeof onSaveSuccess === 'function') onSaveSuccess("File Saved Successfully");
+      console.log("Document footprint committed cleanly to disk via Save As.");
     } catch (err) {
       if (err !== "User cancelled save layout") {
         console.error("File generation layer fault:", err);
@@ -657,7 +672,7 @@
     try {
       if (activeDoc.fileType === 'image') {
         console.log("Compiling and flattening image annotations for silent save...");
-        const compiledBytes = await flattenWorkspaceToImage();
+        const compiledBytes = await flattenWorkspaceToImage(activeDoc.filePath);
         if (!compiledBytes) {
           alert("Failed to compile annotations into Image object stream.");
           return;
