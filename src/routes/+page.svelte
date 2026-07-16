@@ -370,10 +370,35 @@
     }
   }
 
+  /**
+   * Caches high-level document layout dimensions to localStorage for instant
+   * skeleton hydration on subsequent opens from the Recent Documents dashboard.
+   */
+  function cacheDocumentLayoutMetadata(
+    filePath: string,
+    totalPages: number,
+    pageDimensions: { width: number; height: number }[],
+  ) {
+    try {
+      const layoutMeta = {
+        timestamp: Date.now(),
+        totalPages,
+        pageDimensions,
+      };
+      localStorage.setItem(
+        `speeddf_meta_${btoa(filePath)}`,
+        JSON.stringify(layoutMeta),
+      );
+    } catch (err) {
+      console.warn("Failed to write structural layout cache:", err);
+    }
+  }
+
   async function loadDocument(
     rawBytes: Uint8Array,
     fileName: string,
     filePath: string,
+    externalStartTime?: number,
   ) {
     const existing = activeDoc.openDocuments.find(
       (d: any) => (filePath && d.filePath === filePath) || d.fileName === fileName
@@ -385,6 +410,9 @@
 
     initializeNewDocument(fileName, filePath);
 
+    // Use the true click boundary timestamp if provided, otherwise fallback to runtime execution time
+    const telemetryChannel = externalStartTime ? 'Recent_Dashboard_Warm' : 'Standard_Load';
+
     // 1. Instantly trigger state layers and fire the toast notification
     isZippingLoader = true;
     showNotification("FILE OPEN:");
@@ -394,7 +422,7 @@
     await tick();
 
     // 3. Begin the high-resolution hardware benchmarking clock
-    loadStartTime = performance.now();
+    loadStartTime = externalStartTime ?? performance.now();
     renderDurationMs = null;
 
     try {
@@ -515,11 +543,26 @@
         }
 
         await registerRecentFile(fileName, filePath, rawBytes);
+
+        // Cache layout dimensions for instant skeleton hydration on future opens
+        try {
+          const dimPromises = Array.from({ length: pdfDocument.numPages }, (_, i) =>
+            pdfDocument.getPage(i + 1).then((p: any) => {
+              const vp = p.getViewport({ scale: 1 });
+              return { width: vp.width, height: vp.height };
+            })
+          );
+          const pageDims = await Promise.all(dimPromises);
+          cacheDocumentLayoutMetadata(filePath, pdfDocument.numPages, pageDims);
+        } catch (cacheErr) {
+          console.warn("Layout cache extraction failed:", cacheErr);
+        }
       }
 
       // Calculate layout compilation completion speeds down to the millisecond
       const loadEndTime = performance.now();
       renderDurationMs = Math.round(loadEndTime - loadStartTime);
+      console.log(`⏱️ [${telemetryChannel}] Open-to-Render perceived latency: ${(loadEndTime - loadStartTime).toFixed(2)}ms`);
     } catch (err) {
       console.error("Document Ingestion Core Fault: ", err);
       showNotification("Unable to process document stream");
@@ -532,6 +575,7 @@
     filePath: string,
     fileName: string,
     unsavedMessage: string,
+    clickStartTime?: number,
   ) {
     const doLoad = async () => {
       activeDoc.flushDocumentState();
@@ -541,7 +585,7 @@
         });
         if (payload && payload.bytes) {
           const typedBytes = new Uint8Array(payload.bytes);
-          await loadDocument(typedBytes, fileName || payload.name, filePath);
+          await loadDocument(typedBytes, fileName || payload.name, filePath, clickStartTime);
         }
       } catch (err) {
         console.error(`Failed to load document from ${filePath}:`, err);
@@ -561,10 +605,35 @@
   }
 
   async function openRecentFile(name: string, path: string) {
+    // Snapshot the exact user interaction boundary for true perceived-latency telemetry
+    const exactClickTime = performance.now();
+
+    // Instant skeleton hydration: seed placeholder page containers from cached dimensions
+    // so the workspace renders structural bones in <5ms before IPC bytes arrive
+    try {
+      const cacheKey = `speeddf_meta_${btoa(path)}`;
+      const cachedMetaRaw = localStorage.getItem(cacheKey);
+      if (cachedMetaRaw) {
+        const cachedMeta = JSON.parse(cachedMetaRaw);
+        if (cachedMeta.totalPages && cachedMeta.pageDimensions) {
+          const doc = initializeNewDocument(name, path);
+          doc.fileType = "pdf";
+          doc.pageCount = cachedMeta.totalPages;
+          doc.pageOrder = Array.from({ length: cachedMeta.totalPages }, (_, i) => i + 1);
+          doc.cachedDimensions = cachedMeta.pageDimensions;
+          // rawBytes stays null — WorkspacePage will render empty skeleton containers
+          // at the exact cached dimensions until the real bytes arrive and overwrite
+        }
+      }
+    } catch (err) {
+      console.warn("Skeleton hydration cache miss:", err);
+    }
+
     await promptAndLoadFile(
       path,
       name,
       "You have unsaved changes on this layout sheet. Are you sure you want to load this recent file and discard your progress?",
+      exactClickTime,
     );
   }
 

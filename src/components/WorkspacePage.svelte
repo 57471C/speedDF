@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as pdfjsLib from "pdfjs-dist";
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { activeDoc, type AnnotationShape, pushHistorySnapshot, FONT_MAP, updateBookmarkNameAction, deleteBookmarkAction, addOrToggleBookmarkAction } from "../pdfStore.svelte";
 
   let { bytes, pageNumber, zoomScale, isSystemPrinting = false, scrollObserver } = $props<{
@@ -25,9 +25,20 @@
 
   let isPreloaded = $state(false); // Tracks metadata visibility (Wide)
   let isRendered = $state(false);  // Tracks canvas paint visibility (Tight)
-  let basePageWidth = $state<number>(612); // standard letter/A4 default fallback
+
+  // Seed from cached layout dimensions for instant skeleton hydration, fallback to standard letter/A4
+  const cachedDim = $derived.by(() => activeDoc.current?.cachedDimensions?.[pageNumber - 1]);
+  let basePageWidth = $state<number>(612);
   let basePageHeight = $state<number>(792);
   let loadedDimensions = $state(false);
+
+  // Apply cached dimensions on initialization if available
+  $effect(() => {
+    if (cachedDim && !loadedDimensions) {
+      basePageWidth = cachedDim.width;
+      basePageHeight = cachedDim.height;
+    }
+  });
 
   let activeRenderTask: any = null;
   let activePdfPage: any = null;
@@ -305,8 +316,11 @@
     }
 
     // Synchronize caches to track the next interaction loop
-    lastToolbarColor = currentColor;
-    lastToolbarThickness = currentThickness;
+    // Wrapped in untrack to prevent these write-backs from re-triggering this effect
+    untrack(() => {
+      lastToolbarColor = currentColor;
+      lastToolbarThickness = currentThickness;
+    });
   });
 
   let isMouseOverPage = $state(false);
@@ -1351,8 +1365,12 @@
     if (activeDoc.currentPage === pageNumber && pageContainer) {
       if ((activeDoc as any).isClickScrolling) {
         pageContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+        // Break the feedback loop: writing isClickScrolling inside an effect that reads it
+        // would re-schedule this effect infinitely without untrack
         setTimeout(() => {
-          (activeDoc as any).isClickScrolling = false;
+          untrack(() => {
+            (activeDoc as any).isClickScrolling = false;
+          });
         }, 500);
       }
     }
