@@ -16,7 +16,11 @@
     }
   });
 
-  let { zoomScale = $bindable(120), isSystemPrinting = false } = $props<{ zoomScale: number; isSystemPrinting: boolean }>();
+  let { zoomScale = $bindable(120), isSystemPrinting = false, onShowNotification } = $props<{
+    zoomScale: number;
+    isSystemPrinting: boolean;
+    onShowNotification?: (message: string) => void;
+  }>();
   let scrollContainer = $state<HTMLDivElement | null>(null);
   let scrollObserver = $state<IntersectionObserver | null>(null);
 
@@ -380,6 +384,9 @@
               : new (window as any).ClipboardItem({ [blob.type]: blob });
             await navigator.clipboard.write([clipboardItem]);
             console.log('speedDF: Scaled snippet captured cleanly to system clipboard!');
+            if (typeof onShowNotification === 'function') {
+              onShowNotification("image copied to clipboard");
+            }
           } catch (err) {
             console.error('speedDF: Clipboard write operation encountered an error:', err);
           }

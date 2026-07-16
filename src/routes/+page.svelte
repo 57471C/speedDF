@@ -1153,7 +1153,7 @@
       <ToolSidebar bind:zoomScale />
       
       <div class="relative flex-1 h-full min-w-0 flex flex-col">
-        <Workspace {zoomScale} {isSystemPrinting} />
+        <Workspace {zoomScale} {isSystemPrinting} onShowNotification={showNotification} />
 
         {#if showSearchPopup}
           <!-- Floating search popup UI panel -->
