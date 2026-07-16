@@ -750,6 +750,62 @@
     isPrintingProcess = true;
     showNotification("Preparing Document for Printing");
 
+    if (activeDoc.fileType === 'image') {
+      let printWindow = document.getElementById('print-iframe') as HTMLIFrameElement;
+      if (!printWindow) {
+        printWindow = document.createElement('iframe');
+        printWindow.id = 'print-iframe';
+        printWindow.style.position = 'fixed';
+        printWindow.style.right = '0';
+        printWindow.style.bottom = '0';
+        printWindow.style.width = '0';
+        printWindow.style.height = '0';
+        printWindow.style.border = '0';
+        document.body.appendChild(printWindow);
+      }
+
+      const doc = printWindow.contentDocument || printWindow.contentWindow?.document;
+      if (doc) {
+        doc.open();
+        doc.write(`
+          <html>
+            <head>
+              <style>
+                @page { size: auto; margin: 0mm; }
+                body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: white; }
+                img { max-width: 100%; max-height: 100vh; object-fit: contain; page-break-inside: avoid; }
+              </style>
+            </head>
+            <body>
+              <img src="${activeDoc.imageUrl}" />
+            </body>
+          </html>
+        `);
+        doc.close();
+
+        printWindow.contentWindow?.focus();
+        const frameImg = doc.querySelector('img');
+        if (frameImg) {
+          frameImg.onload = () => {
+            printWindow.contentWindow?.print();
+            isPrintingProcess = false;
+            showNotification("Document Sent to Printer Queue");
+          };
+          frameImg.onerror = () => {
+            isPrintingProcess = false;
+            showNotification("Unable to Initialize Print Request");
+          };
+        } else {
+          printWindow.contentWindow?.print();
+          isPrintingProcess = false;
+          showNotification("Document Sent to Printer Queue");
+        }
+      } else {
+        isPrintingProcess = false;
+      }
+      return;
+    }
+
     try {
       const compiledPdfBytes = await (
         activeDoc as any
