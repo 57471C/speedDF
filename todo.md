@@ -8,7 +8,8 @@
 ## long term goals (may never do)
 1. Forms entry (NOT XFA Forms!)
 2. Froms creation (NOT XFA Forms!)
-3. True Structural Text Reflow:
+3. tauri-plugin-tts for Text to Speach
+4. True Structural Text Reflow:
 Instead of writing a full structural reflow engine, intermediate tools use a visual masking mask shortcut:
 
 When the user clicks to edit a text block, the app detects the bounding box area.
@@ -18,7 +19,8 @@ It places a solid background banner matching the page background color directly 
 It puts a standard HTML input text area right on top of it, lets the user type whatever they want, and bakes the final text down as a fresh independent annotation overlay layer upon export.
 
 ## Fixes
-- None
+- Ctrl+scroll zooming sometimes rotates the page 180deg sometimes.
+- Images can't Print
 
 
 ##📝 Short Description

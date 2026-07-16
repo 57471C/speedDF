@@ -29,7 +29,7 @@
 
       const unscaledViewport = page.getViewport({ scale: 1 });
       const targetWidth = 140; 
-      const miniScale = targetWidth / unscaledViewport.width;
+      const miniScale = Math.max(0.1, targetWidth / Math.max(0.1, Math.abs(unscaledViewport.width)));
       
       // Calculate responsive thumbnail boundary rotation boxes
       const viewport = page.getViewport({ 

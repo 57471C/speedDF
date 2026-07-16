@@ -14,14 +14,27 @@
   import PageSidebar from "../components/PageSidebar.svelte";
   import ContextMenu from "../components/ContextMenu.svelte";
   import OcrPanel from "./OcrPanel.svelte";
+  import HelpModal from "../components/HelpModal.svelte";
+  import RecentDashboard from "../components/RecentDashboard.svelte";
   import {
     activeDoc as activeDocStore,
     executeUndoAction,
     executeRedoAction,
     rotatePageAction,
+    initializeNewDocument,
   } from "../pdfStore.svelte";
 
   const activeDoc = activeDocStore as any;
+
+  const TIFF_EXTENSIONS = ["tiff", "tif"];
+  const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "bmp"];
+
+  function determineFileType(fileName: string): "pdf" | "tiff" | "image" {
+    const ext = fileName.toLowerCase().split('.').pop() || "";
+    if (TIFF_EXTENSIONS.includes(ext)) return "tiff";
+    if (IMAGE_EXTENSIONS.includes(ext)) return "image";
+    return "pdf";
+  }
 
   let zoomScale = $state(120);
   let showHelpModal = $state(false);
@@ -235,12 +248,33 @@
   async function registerRecentFile(
     name: string,
     path: string,
-    bytes: Uint8Array,
+    bytesOrThumbnail: Uint8Array | string,
+    fileType?: string,
   ) {
     try {
-      if (activeDoc.fileType === "tiff") {
+      if (fileType === 'image' && typeof bytesOrThumbnail === 'string') {
+        let currentList: RecentFile[] = [];
+        const stored = localStorage.getItem("speeddf_recents");
+        if (stored) currentList = JSON.parse(stored);
+
+        currentList = currentList.filter((f) => f.path !== path);
+        currentList.unshift({
+          name,
+          path,
+          timestamp: Date.now(),
+          thumbnail: bytesOrThumbnail,
+          orientation: 'portrait',
+        });
+        if (currentList.length > 10) currentList = currentList.slice(0, 10);
+
+        localStorage.setItem("speeddf_recents", JSON.stringify(currentList));
+        recentFiles = currentList;
+        return;
+      }
+
+      if (activeDoc.fileType === "tiff" || activeDoc.fileType === "image") {
         console.log(
-          "Recent Tracker: Document type is TIFF. Registering basic file history metadata entry...",
+          `Recent Tracker: Document type is ${activeDoc.fileType.toUpperCase()}. Registering basic file history metadata entry...`,
         );
         let dataUrl = "";
         let orientation = "portrait";
@@ -283,6 +317,7 @@
         recentFiles = currentList;
         return;
       }
+      const bytes = bytesOrThumbnail as Uint8Array;
       const loadingTask = pdfjsLib.getDocument({
         data: bytes.slice(0),
         cMapUrl: window.location.origin + "/cmaps/",
@@ -340,6 +375,16 @@
     fileName: string,
     filePath: string,
   ) {
+    const existing = activeDoc.openDocuments.find(
+      (d: any) => (filePath && d.filePath === filePath) || d.fileName === fileName
+    );
+    if (existing) {
+      activeDoc.activeDocumentId = existing.filePath || existing.fileName;
+      return;
+    }
+
+    initializeNewDocument(fileName, filePath);
+
     // 1. Instantly trigger state layers and fire the toast notification
     isZippingLoader = true;
     showNotification("FILE OPEN:");
@@ -353,12 +398,9 @@
     renderDurationMs = null;
 
     try {
-      // Detect technical drawing file signatures by matching path extensions
-      const isTiff =
-        fileName.toLowerCase().endsWith(".tiff") ||
-        fileName.toLowerCase().endsWith(".tif");
+      const fileCategory = determineFileType(fileName);
 
-      if (isTiff) {
+      if (fileCategory === "tiff") {
         // Direct binary handoff over the IPC bridge to your high-performance Rust extraction crate
         const decodedPages = await invoke<number[][] | Uint8Array[]>(
           "parse_tiff_document",
@@ -378,6 +420,44 @@
           (_, i) => i + 1,
         );
         activeDoc.bookmarks = [];
+      } else if (fileCategory === "image") {
+        // Setup the clean single-page layout structure for standard graphics
+        activeDoc.fileType = "image";
+        activeDoc.tiffPages = [];
+        activeDoc.rawBytes = rawBytes;
+        activeDoc.fileName = fileName;
+        activeDoc.filePath = filePath;
+        activeDoc.pageCount = 1;
+        activeDoc.pageOrder = [1];
+        activeDoc.currentPage = 1;
+        activeDoc.shapes = {};
+        activeDoc.bookmarks = [];
+        activeDoc.imageRotation = 0;
+
+        const ext = fileName.toLowerCase().split('.').pop() || "png";
+        const mimeType = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `image/${ext}`;
+        const blob = new Blob([rawBytes as any], { type: mimeType });
+
+        activeDoc.imageUrl = URL.createObjectURL(blob);
+
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          const targetWidth = 140;
+          const scaleFactor = targetWidth / img.width;
+          canvas.width = targetWidth;
+          canvas.height = img.height * scaleFactor;
+
+          ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const base64Thumbnail = canvas.toDataURL('image/jpeg', 0.6);
+
+          registerRecentFile(fileName, filePath, base64Thumbnail, 'image');
+        };
+        img.src = activeDoc.imageUrl;
+
+        // Skip PDF.js rendering entirely and log it out
+        console.log(`Image Ingestion Setup: Initialized image frame for ${fileName}`);
       } else {
         // Keep your existing standard PDF.js document load configuration completely untouched here
         activeDoc.fileType = "pdf";
@@ -532,42 +612,34 @@
   }
 
   async function createBlankDocument() {
-    if (activeDoc.rawBytes) return;
-    const doCreate = async () => {
-      activeDoc.flushDocumentState();
-      try {
-        const { PDFDocument } = await import("pdf-lib");
-        const doc = await PDFDocument.create();
-        doc.addPage([595.276, 841.89]); // A4 dimensions
-        const bytes = await doc.save();
+    let name = "Untitled.pdf";
+    let count = 1;
+    while (activeDoc.openDocuments.some((d: any) => d.fileName === name)) {
+      name = `Untitled (${count++}).pdf`;
+    }
 
-        activeDoc.fileType = "pdf";
-        activeDoc.rawBytes = bytes;
-        activeDoc.fileName = "Untitled.pdf";
-        activeDoc.filePath = null;
-        activeDoc.pageCount = 1;
-        activeDoc.pageOrder = [1];
-        activeDoc.currentPage = 1;
-        activeDoc.shapes = {};
-        activeDoc.rotations = {};
-        activeDoc.bookmarks = [];
-        activeDoc.isDirty = false;
-        showNotification("Created New Blank A4 Document");
-      } catch (e) {
-        console.error("Failed to create blank document:", e);
-      }
-    };
+    initializeNewDocument(name, null);
 
-    if (activeDoc.isDirty) {
-      unsavedModalMessage =
-        "You have unsaved changes on this layout sheet. Are you sure you want to create a new blank A4 document and discard your progress?";
-      pendingNavigationAction = () => {
-        activeDoc.isDirty = false;
-        setTimeout(doCreate, 50);
-      };
-      showUnsavedModal = true;
-    } else {
-      await doCreate();
+    try {
+      const { PDFDocument } = await import("pdf-lib");
+      const doc = await PDFDocument.create();
+      doc.addPage([595.276, 841.89]); // A4 dimensions
+      const bytes = await doc.save();
+
+      activeDoc.fileType = "pdf";
+      activeDoc.rawBytes = bytes;
+      activeDoc.fileName = name;
+      activeDoc.filePath = null;
+      activeDoc.pageCount = 1;
+      activeDoc.pageOrder = [1];
+      activeDoc.currentPage = 1;
+      activeDoc.shapes = {};
+      activeDoc.rotations = {};
+      activeDoc.bookmarks = [];
+      activeDoc.isDirty = false;
+      showNotification("Created New Blank A4 Document");
+    } catch (e) {
+      console.error("Failed to create blank document:", e);
     }
   }
 
@@ -578,7 +650,7 @@
       filters: [
         {
           name: "Supported Documents",
-          extensions: ["pdf", "tiff", "tif"],
+          extensions: ["pdf", "tiff", "tif", "png", "jpg", "jpeg", "gif", "bmp"],
         },
       ],
     });
@@ -677,6 +749,62 @@
 
     isPrintingProcess = true;
     showNotification("Preparing Document for Printing");
+
+    if (activeDoc.fileType === 'image') {
+      let printWindow = document.getElementById('print-iframe') as HTMLIFrameElement;
+      if (!printWindow) {
+        printWindow = document.createElement('iframe');
+        printWindow.id = 'print-iframe';
+        printWindow.style.position = 'fixed';
+        printWindow.style.right = '0';
+        printWindow.style.bottom = '0';
+        printWindow.style.width = '0';
+        printWindow.style.height = '0';
+        printWindow.style.border = '0';
+        document.body.appendChild(printWindow);
+      }
+
+      const doc = printWindow.contentDocument || printWindow.contentWindow?.document;
+      if (doc) {
+        doc.open();
+        doc.write(`
+          <html>
+            <head>
+              <style>
+                @page { size: auto; margin: 0mm; }
+                body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: white; }
+                img { max-width: 100%; max-height: 100vh; object-fit: contain; page-break-inside: avoid; }
+              </style>
+            </head>
+            <body>
+              <img src="${activeDoc.imageUrl}" />
+            </body>
+          </html>
+        `);
+        doc.close();
+
+        printWindow.contentWindow?.focus();
+        const frameImg = doc.querySelector('img');
+        if (frameImg) {
+          frameImg.onload = () => {
+            printWindow.contentWindow?.print();
+            isPrintingProcess = false;
+            showNotification("Document Sent to Printer Queue");
+          };
+          frameImg.onerror = () => {
+            isPrintingProcess = false;
+            showNotification("Unable to Initialize Print Request");
+          };
+        } else {
+          printWindow.contentWindow?.print();
+          isPrintingProcess = false;
+          showNotification("Document Sent to Printer Queue");
+        }
+      } else {
+        isPrintingProcess = false;
+      }
+      return;
+    }
 
     try {
       const compiledPdfBytes = await (
@@ -1025,7 +1153,7 @@
       <ToolSidebar bind:zoomScale />
       
       <div class="relative flex-1 h-full min-w-0 flex flex-col">
-        <Workspace {zoomScale} {isSystemPrinting} />
+        <Workspace {zoomScale} {isSystemPrinting} onShowNotification={showNotification} />
 
         {#if showSearchPopup}
           <!-- Floating search popup UI panel -->
@@ -1138,482 +1266,18 @@
       {/if}
     </div>
   {:else}
-    <div
-      class="flex-1 w-full flex flex-col justify-center items-center py-8 h-full min-h-[82vh] overflow-hidden bg-[#070a12] text-slate-100 p-12 select-none relative"
-    >
-      <div
-        class="m-auto flex flex-col items-center justify-center text-center max-w-sm pointer-events-none select-none animate-fade-in"
-      >
-        <svg
-          width="192"
-          height="192"
-          viewBox="0 0 512 512"
-          xmlns="http://www.w3.org/2000/svg"
-          style="display: block;"
-          ><defs
-            ><linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%"
-              ><stop offset="0%" stop-color="#0f172a"></stop><stop
-                offset="100%"
-                stop-color="#1a2744"
-              ></stop></linearGradient
-            ><linearGradient id="bolt-grad" x1="0%" y1="0%" x2="100%" y2="100%"
-              ><stop offset="0%" stop-color="#38bdf8"></stop><stop
-                offset="100%"
-                stop-color="#06b6d4"
-              ></stop></linearGradient
-            ><filter id="bolt-glow" x="-40%" y="-40%" width="180%" height="180%"
-              ><feGaussianBlur stdDeviation="8" result="blur"
-              ></feGaussianBlur><feMerge
-                ><feMergeNode in="blur"></feMergeNode><feMergeNode
-                  in="SourceGraphic"
-                ></feMergeNode></feMerge
-              ></filter
-            ><filter id="glow-soft" x="-60%" y="-60%" width="220%" height="220%"
-              ><feGaussianBlur stdDeviation="18" result="blur"
-              ></feGaussianBlur><feMerge
-                ><feMergeNode in="blur"></feMergeNode></feMerge
-              ></filter
-            ><clipPath id="tile-clip"
-              ><rect x="0" y="0" width="512" height="512" rx="108" ry="108"
-              ></rect></clipPath
-            ></defs
-          ><rect
-            x="0"
-            y="0"
-            width="512"
-            height="512"
-            rx="108"
-            ry="108"
-            fill="url(#bg-grad)"
-          ></rect><g opacity="0.28"
-            ><line
-              x1="52"
-              y1="218"
-              x2="128"
-              y2="218"
-              stroke="#06b6d4"
-              stroke-width="6"
-              stroke-linecap="round"
-            ></line><line
-              x1="38"
-              y1="244"
-              x2="118"
-              y2="244"
-              stroke="#06b6d4"
-              stroke-width="5"
-              stroke-linecap="round"
-            ></line><line
-              x1="52"
-              y1="270"
-              x2="108"
-              y2="270"
-              stroke="#06b6d4"
-              stroke-width="4"
-              stroke-linecap="round"
-            ></line></g
-          ><g transform="translate(256, 264) rotate(-4) translate(-256, -264)"
-            ><polygon
-              points="168,118 338,118 338,128 348,138 348,420 168,420"
-              fill="#0a1628"
-              opacity="0.5"
-              transform="translate(8, 8)"
-            ></polygon><polygon
-              points="162,112 322,112 362,152 362,414 162,414"
-              fill="#1e293b"
-            ></polygon><polygon points="322,112 362,112 362,152" fill="#0f172a"
-            ></polygon><polygon points="322,112 362,152 322,152" fill="#334155"
-            ></polygon><line
-              x1="190"
-              y1="195"
-              x2="330"
-              y2="195"
-              stroke="#334155"
-              stroke-width="7"
-              stroke-linecap="round"
-            ></line><line
-              x1="190"
-              y1="218"
-              x2="300"
-              y2="218"
-              stroke="#334155"
-              stroke-width="7"
-              stroke-linecap="round"
-            ></line><line
-              x1="190"
-              y1="241"
-              x2="315"
-              y2="241"
-              stroke="#334155"
-              stroke-width="7"
-              stroke-linecap="round"
-            ></line><line
-              x1="190"
-              y1="315"
-              x2="330"
-              y2="315"
-              stroke="#334155"
-              stroke-width="6"
-              stroke-linecap="round"
-            ></line><line
-              x1="190"
-              y1="336"
-              x2="280"
-              y2="336"
-              stroke="#334155"
-              stroke-width="6"
-              stroke-linecap="round"
-            ></line><line
-              x1="190"
-              y1="357"
-              x2="305"
-              y2="357"
-              stroke="#334155"
-              stroke-width="6"
-              stroke-linecap="round"
-            ></line></g
-          ><ellipse
-            cx="278"
-            cy="264"
-            rx="68"
-            ry="110"
-            fill="#06b6d4"
-            opacity="0.12"
-            filter="url(#glow-soft)"
-          ></ellipse><g filter="url(#bolt-glow)"
-            ><polygon
-              points="306,138 248,276 284,276 206,396 174,396 236,262 200,262 256,138"
-              fill="url(#bolt-grad)"
-            ></polygon></g
-          ><polygon
-            points="296,155 254,264 278,264 220,368 246,368 290,264 266,264 302,168"
-            fill="#bae6fd"
-            opacity="0.35"
-          ></polygon></svg
-        >
-
-        <h1
-          class="text-lg font-bold tracking-tight text-slate-100 mb-2"
-          style="font-family: 'Space Grotesk', sans-serif;"
-        >
-          speed<span class="text-cyan-400">DF</span>
-        </h1>
-        <p class="text-[11px] text-slate-500 font-medium max-w-xs">
-          Drop any PDF document anywhere into this window, or use the menu
-          toolbar above to begin editing your documents.
-        </p>
-      </div>
-
-      {#if recentFiles.length > 0}
-        <div
-          class="w-full border-t border-slate-900/40 pt-5 max-w-5xl animate-fade-in pointer-events-auto mt-auto"
-        >
-          <h2
-            class="text-[9px] font-bold uppercase tracking-widest text-slate-500 pl-4 mb-3 text-left"
-          >
-            Recent Documents
-          </h2>
-
-          <div
-            class="grid grid-cols-5 gap-x-4 gap-y-12 pt-10 pb-6 px-4 w-full overflow-visible justify-items-center"
-          >
-            {#each recentFiles as file}
-              {@const exists = fileStatusMap[file.path] !== false}
-              {@const isLandscape = file.orientation === "landscape"}
-              {@const doc = { ...file, id: file.path }}
-
-              <div class="flex-shrink-0 relative snap-start {isLandscape ? 'w-64 h-40' : 'w-40 h-52'}">
-                <div
-                  onclick={() => exists && openRecentFile(file.name, file.path)}
-                  onkeydown={(e) => e.key === "Enter" && exists && openRecentFile(file.name, file.path)}
-                  role="button"
-                  tabindex="0"
-                  class="recent-card-item w-full h-full relative flex flex-col items-center bg-slate-950 rounded-none cursor-pointer select-none group p-0 border border-slate-900/40 will-change-transform transform-gpu subpixel-antialiased [backface-visibility:hidden] {!exists ? 'opacity-40 cursor-default' : ''}"
-                >
-                  <div class="absolute -top-5 left-0 right-0 text-[10.5px] font-medium text-slate-400 group-hover:text-cyan-400 overflow-hidden whitespace-nowrap px-0.5 pointer-events-none w-full select-none">
-                    {#if file.name.length > 22}
-                      <div class="speeddf-marquee-track inline-flex whitespace-nowrap will-change-transform">
-                        <span class="speeddf-marquee-content pr-8">{file.name}</span>
-                        <span class="speeddf-marquee-content pr-8">{file.name}</span>
-                      </div>
-                    {:else}
-                      <span class="truncate block w-full text-left">{file.name}</span>
-                    {/if}
-                  </div>
-
-                  <div class="w-full h-full flex items-center justify-center bg-[#04060a] relative overflow-hidden transition-all duration-200 {!exists ? 'opacity-25 grayscale brightness-75' : ''}">
-                    {#if file.thumbnail}
-                      <img src={file.thumbnail} alt={file.name} class="w-full h-full object-cover rounded-none" />
-                    {/if}
-                    <div class="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-30"></div>
-                  </div>
-
-                  <div class="bottom-dock-tray absolute bottom-0 left-0 right-0 h-10 bg-[#0f1424]/95 border-t border-slate-800/80 flex items-center justify-around px-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-out z-40">
-                    {#if exists}
-                      <button
-                        onclick={(e) => { e.stopPropagation(); handleCompress(doc); }}
-                        class="p-1.5 text-cyan-400 hover:text-white hover:bg-cyan-500/20 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer hover-cyan"
-                        title="Compress PDF"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M10 14l-7 7"/></svg>
-                      </button>
-                    {/if}
-
-                    <button
-                      onclick={(e) => { e.stopPropagation(); handleClearFromRecents(doc.id); }}
-                      class="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer hover-slate"
-                      title="Remove from Recents"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                    </button>
-
-                    {#if exists}
-                      <button
-                        onclick={(e) => { e.stopPropagation(); handleDeleteFromHDD(doc); }}
-                        class="p-1.5 text-red-400 hover:text-white hover:bg-red-500/20 rounded transition-colors flex items-center justify-center bg-transparent border-none cursor-pointer hover-red"
-                        title="Delete File From Computer"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                      </button>
-                    {/if}
-                  </div>
-
-                  {#if exists}
-                    <div class="absolute top-2.5 left-2.5 h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981] filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" title="File available on local storage disk"></div>
-                  {:else}
-                    <div class="absolute top-2.5 left-2.5 h-2 w-2 rounded-full bg-slate-700 filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" title="File path missing or unreadable"></div>
-                  {/if}
-                </div>
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
-    </div>
+    <RecentDashboard
+      {recentFiles}
+      {fileStatusMap}
+      {openRecentFile}
+      {handleCompress}
+      {handleClearFromRecents}
+      {handleDeleteFromHDD}
+    />
   {/if}
 </div>
 
-{#if showHelpModal}
-  <div
-    onclick={() => (showHelpModal = false)}
-    class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[999] flex items-center justify-center p-6 font-sans select-none"
-  >
-    <div
-      onclick={(e) => e.stopPropagation()}
-      class="bg-[#0b101c] border border-slate-800 w-full max-w-2xl max-h-[85vh] rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-300"
-    >
-      <div
-        class="p-4 border-b border-slate-900/60 flex items-center justify-between bg-[#0e1524]/60"
-      >
-        <div class="flex items-center gap-2">
-          <span
-            class="text-xs font-bold uppercase tracking-widest text-slate-400"
-            >speedDF Engine Configuration & Licensing</span
-          >
-          <span
-            class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v0.9.13</span
-          >
-        </div>
-        <button
-          onclick={() => (showHelpModal = false)}
-          class="text-slate-500 hover:text-white text-sm transition-colors"
-          >✕</button
-        >
-      </div>
-
-      <div class="flex-1 overflow-y-auto p-5 space-y-6 text-xs leading-relaxed">
-        <div>
-          <h4
-            class="text-slate-100 font-bold uppercase tracking-wide text-[11px] mb-2.5 flex items-center gap-1.5 text-emerald-400"
-          >
-            ⌨️ Keyboard Operations Map
-          </h4>
-          <div
-            class="bg-slate-950/50 rounded-lg border border-slate-900 p-3 grid grid-cols-2 gap-2 font-mono text-[11px]"
-          >
-            <div class="flex items-center gap-2">
-              <kbd
-                class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
-                >Ctrl + Z</kbd
-              > <span>Undo Action Transaction</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <kbd
-                class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
-                >Ctrl + Y</kbd
-              > <span>Redo Action Transaction</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <kbd
-                class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
-                >Ctrl + ←</kbd
-              > <span>Counter-Clockwise Rotation</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <kbd
-                class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
-                >Ctrl + →</kbd
-              > <span>Clockwise Page Rotation</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <kbd
-                class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
-                >F1</kbd
-              > <span>Toggle This System Control Panel</span>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <h4
-            class="text-slate-100 font-bold uppercase tracking-wide text-[11px] mb-2.5 flex items-center gap-1.5 text-cyan-400"
-          >
-            🌐 Canvas Navigation
-          </h4>
-          <div
-            class="bg-slate-950/50 rounded-lg border border-slate-900 p-3 grid grid-cols-2 gap-2 font-mono text-[11px]"
-          >
-            <div class="flex items-center gap-2">
-              <span class="flex gap-1">
-                <kbd
-                  class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
-                  >Spacebar</kbd
-                >
-                <span class="text-slate-500 font-sans">+</span>
-                <kbd
-                  class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
-                  >Drag</kbd
-                >
-              </span>
-              <span>Pan Workspace</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="flex gap-1">
-                <kbd
-                  class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
-                  >Ctrl</kbd
-                >
-                <span class="text-slate-500 font-sans">+</span>
-                <kbd
-                  class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
-                  >Wheel</kbd
-                >
-              </span>
-              <span>Dynamic Zoom</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <kbd
-                class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
-                >Ctrl + P</kbd
-              > <span>Print Document</span>
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <h4
-            class="text-slate-100 font-bold uppercase tracking-wide text-[11px] mb-2 flex items-center gap-1.5 text-blue-400"
-          >
-            ⚖️ End-User License Agreement (EULA)
-          </h4>
-          <div
-            class="bg-slate-950/40 rounded-lg border border-slate-900 p-3 h-28 overflow-y-auto text-slate-400 text-[10px] space-y-2 font-mono"
-          >
-            <p class="font-bold text-slate-300">
-              1. LICENSE GRANT & RESTRICTIONS
-            </p>
-            <p>
-              speedDF grants you a personal, non-transferable, free utility
-              license to process local documents. You may not reverse engineer,
-              decompile, or distribute compiled workspace assets commercially
-              without express written consent.
-            </p>
-            <p class="font-bold text-slate-300">2. NO WARRANTY (AS-IS)</p>
-            <p>
-              THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-              EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-              MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-              NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-              HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-              WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-              OUT OF OR IN CONNECTION WITH THE SOFTWARE.
-            </p>
-          </div>
-        </div>
-
-        <div>
-          <h4
-            class="text-slate-100 font-bold uppercase tracking-wide text-[11px] mb-2 flex items-center gap-1.5 text-amber-500"
-          >
-            📜 Open Source Compliance & Legal Notices
-          </h4>
-          <div
-            class="bg-slate-950/40 rounded-lg border border-slate-900 p-3 text-[10px] space-y-3 font-mono text-slate-400"
-          >
-            <p>
-              This software utilizes public open-source libraries. In compliance
-              with active licensing terms, the following copyright notices must
-              remain hardcoded inside binary distributions:
-            </p>
-            <div class="border-l-2 border-slate-800 pl-2.5 space-y-1.5">
-              <p>
-                • <b class="text-slate-300">pdf-lib:</b> Copyright (c) 2019 Andrew
-                Chon. Distributed under the MIT License.
-              </p>
-              <p>
-                • <b class="text-slate-300">lopdf:</b> Copyright (c) 2016-2024 lopdf
-                Developers. Distributed under the MIT License.
-              </p>
-              <p>
-                • <b class="text-slate-300">PDF.js:</b> Copyright (c) Mozilla Foundation.
-                Distributed under the Apache License 2.0.
-              </p>
-              <p>
-                • <b class="text-slate-300">Tauri Engine:</b> Copyright (c) 2019-2024
-                Tauri Programme Collective. Distributed under Apache 2.0 / MIT.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div
-        class="p-3 border-t border-slate-900/60 bg-[#0e1524]/40 flex justify-between items-center"
-      >
-        <button
-          onclick={openCoffeeLink}
-          class="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 font-sans text-[11px] font-bold uppercase tracking-wider text-amber-400 transition-all duration-150 hover:border-amber-500/60 hover:bg-amber-500/20"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M17 8h1a4 4 0 1 1 0 8h-1"></path>
-            <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"></path>
-            <line x1="6" y1="2" x2="6" y2="4"></line>
-            <line x1="10" y1="2" x2="10" y2="4"></line>
-            <line x1="14" y1="2" x2="14" y2="4"></line>
-          </svg>
-          <span>Buy me a coffee</span>
-        </button>
-
-        <button
-          onclick={() => (showHelpModal = false)}
-          class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-[11px] font-bold transition-colors shadow-md"
-        >
-          Acknowledge & Close
-        </button>
-      </div>
-    </div>
-  </div>
-{/if}
+<HelpModal bind:show={showHelpModal} {openCoffeeLink} />
 
 {#if showUnsavedModal}
   <div
@@ -1832,25 +1496,6 @@
 {/if}
 
 <style>
-  /* Local Scoped Recent Card Styles to Bypass Build Chain Hover Bugs */
-  .group:hover .speeddf-marquee-content {
-    color: #22d3ee !important; /* cyan-400 */
-    text-shadow: 0 0 8px rgba(34, 211, 238, 0.4) !important;
-  }
-  .group:hover .speeddf-marquee-track {
-    animation: speeddfMarquee 6s linear infinite;
-    overflow: visible !important;
-    width: max-content !important;
-  }
-  @keyframes speeddfMarquee {
-    0% {
-      transform: translateX(0%);
-    }
-    100% {
-      transform: translateX(-50%);
-    }
-  }
-
   /* Drop-down physics for premium window system feedback */
   .speeddf-toast-animate {
     animation: speeddfToastDrop 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -1883,23 +1528,4 @@
     }
   }
 
-  /* Update your local scoped stylesheet declarations to match the current template element names */
-.recent-card-item {
-  transform: scale(0.9) translateY(0);
-  transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), border-color 240ms ease, box-shadow 240ms ease;
-  position: relative;
-  z-index: 10;
-}
-
-.recent-card-item:hover {
-  transform: scale(1.06) translateY(-10px) !important;
-  z-index: 50 !important;
-  border-color: #22d3ee !important; /* cyan-400 structural highlight */
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85), 0 0 20px rgba(34, 211, 238, 0.2) !important;
-}
-
-/* ✅ FIXED SELECTOR LINK TRACK */
-.recent-card-item:hover .bottom-dock-tray {
-  opacity: 1 !important;
-}
 </style>

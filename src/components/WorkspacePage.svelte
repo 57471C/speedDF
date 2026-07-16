@@ -28,8 +28,10 @@
   // Calculate the current expected width and height (CSS pixels)
   // based on current zoomScale and rotations
   const expectedDimensions = $derived.by(() => {
-    const scale = zoomScale / 100;
-    const rotationAngle = activeDoc.rotations[pageNumber] ?? 0;
+    const scale = Math.max(0.1, zoomScale / 100);
+    const rotationAngle = activeDoc.fileType === "image"
+      ? (activeDoc.imageRotation ?? 0)
+      : (activeDoc.rotations[pageNumber] ?? 0);
     const totalRotation = rotationAngle % 360;
     
     // If rotated by 90 or 270 degrees, swap width and height
@@ -40,13 +42,31 @@
     return {
       width: w * scale,
       height: h * scale,
-      aspectRatio: w / h
+      aspectRatio: Math.max(0.1, w / Math.max(0.1, Math.abs(h)))
     };
   });
+
+  const rotation = $derived(activeDoc.fileType === 'image' ? (activeDoc.imageRotation || 0) : 0);
+  const isRotated90 = $derived(rotation === 90 || rotation === 270);
+  const currentWidth = $derived(isRotated90 ? basePageHeight : basePageWidth);
+  const currentHeight = $derived(isRotated90 ? basePageWidth : basePageHeight);
+  const scaleFactor = $derived(zoomScale / 100);
 
   // Load page dimensions initially to get aspect ratio
   $effect(() => {
     if (bytes && pageNumber && !loadedDimensions) {
+      if (activeDoc.fileType === "image") {
+        if (activeDoc.imageUrl) {
+          const img = new Image();
+          img.onload = () => {
+            basePageWidth = img.naturalWidth || img.width;
+            basePageHeight = img.naturalHeight || img.height;
+            loadedDimensions = true;
+          };
+          img.src = activeDoc.imageUrl;
+        }
+        return;
+      }
       if (activeDoc.fileType === "tiff") {
         const pageData = activeDoc.tiffPages[pageNumber - 1];
         if (pageData) {
@@ -87,6 +107,46 @@
 
   function canvasLifecycle(node: HTMLCanvasElement) {
     canvasElement = node;
+    if (activeDoc.fileType === "image") {
+      const rotation = activeDoc.imageRotation ?? 0;
+      if (activeDoc.imageUrl) {
+        const img = new Image();
+        img.onload = () => {
+          const isRotated90 = rotation === 90 || rotation === 270;
+          const currentWidth = isRotated90 ? basePageHeight : basePageWidth;
+          const currentHeight = isRotated90 ? basePageWidth : basePageHeight;
+          const scaleFactor = zoomScale / 100;
+
+          node.width = currentWidth * scaleFactor;
+          node.height = currentHeight * scaleFactor;
+
+          const ctx = node.getContext("2d");
+          if (ctx) {
+            ctx.clearRect(0, 0, node.width, node.height);
+            ctx.save();
+            
+            // Translate to center of scaled canvas bounding area
+            ctx.translate(node.width / 2, node.height / 2);
+            ctx.rotate((rotation * Math.PI) / 180);
+            
+            // Scale the drawing context once to fit the base dimensions neatly
+            ctx.scale(scaleFactor, scaleFactor);
+            ctx.drawImage(img, -basePageWidth / 2, -basePageHeight / 2, basePageWidth, basePageHeight);
+            ctx.restore();
+          }
+        };
+        img.src = activeDoc.imageUrl;
+      }
+      return {
+        destroy() {
+          if (!isSystemPrinting) {
+            node.width = 0;
+            node.height = 0;
+            canvasElement = null;
+          }
+        }
+      };
+    }
     if (activeDoc.fileType === "tiff") {
       // pageNum typically corresponds to the loop index or active viewport tracker
       const pageNum = pageNumber;
@@ -279,7 +339,9 @@
   }
 
   $effect(() => {
-    const degrees = activeDoc.rotations[pageNumber] ?? 0;
+    const degrees = activeDoc.fileType === "image"
+      ? (activeDoc.imageRotation ?? 0)
+      : (activeDoc.rotations[pageNumber] ?? 0);
     // Read textLayerElement here so the effect re-runs once the overlay mounts
     const textLayer = textLayerElement;
     if (isRendered && bytes && canvasElement && zoomScale) {
@@ -321,6 +383,50 @@
     rotationAngle: number,
     textLayerContainer: HTMLDivElement | null = null,
   ) {
+    if (activeDoc.fileType === "image") {
+      const rotation = activeDoc.imageRotation ?? 0;
+
+      if (activeTextLayer) {
+        try {
+          activeTextLayer.cancel();
+        } catch (e) {}
+          activeTextLayer = null;
+      }
+      if (textLayerContainer) {
+        textLayerContainer.replaceChildren();
+      }
+
+      if (activeDoc.imageUrl) {
+        const img = new Image();
+        img.onload = () => {
+          const rotation = activeDoc.imageRotation || 0;
+          const isRotated90 = rotation === 90 || rotation === 270;
+          const currentWidth = isRotated90 ? basePageHeight : basePageWidth;
+          const currentHeight = isRotated90 ? basePageWidth : basePageHeight;
+          const scaleFactor = zoomScale / 100;
+
+          canvas.width = currentWidth * scaleFactor;
+          canvas.height = currentHeight * scaleFactor;
+
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            
+            // Translate to center of scaled canvas bounding area
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate((rotation * Math.PI) / 180);
+            
+            // Scale the drawing context once to fit the base dimensions neatly
+            ctx.scale(scaleFactor, scaleFactor);
+            ctx.drawImage(img, -basePageWidth / 2, -basePageHeight / 2, basePageWidth, basePageHeight);
+            ctx.restore();
+          }
+        };
+        img.src = activeDoc.imageUrl;
+      }
+      return;
+    }
     if (activeDoc.fileType === "tiff") {
       const pageData = activeDoc.tiffPages[pageNum - 1];
       const rotation = activeDoc.rotations[pageNum] ?? 0;
@@ -392,15 +498,15 @@
       activePdfPage = page;
       
       const dpr = window.devicePixelRatio || 1;
-      const baseScale = scale / 100;
+      const safeScale = Math.max(0.1, scale / 100);
       const rotation = (page.rotate + rotationAngle) % 360;
       const adjustedViewport = page.getViewport({
-        scale: baseScale * dpr,
+        scale: safeScale * dpr,
         rotation,
       });
       // CSS-pixel viewport for the text layer (matches on-screen canvas size)
       const textViewport = page.getViewport({
-        scale: baseScale,
+        scale: safeScale,
         rotation,
       });
 
@@ -424,7 +530,7 @@
         }
         // Always clear prior text runs before re-rendering (zoom / page change)
         textLayerContainer.replaceChildren();
-        textLayerContainer.style.setProperty("--total-scale-factor", String(baseScale));
+        textLayerContainer.style.setProperty("--total-scale-factor", String(safeScale));
         textLayerContainer.style.setProperty("--scale-round-x", "1px");
         textLayerContainer.style.setProperty("--scale-round-y", "1px");
 
@@ -443,6 +549,100 @@
       rendering = false;
       activeRenderTask = null;
     }
+  }
+
+  function normalizeCoordinates(rawX: number, rawY: number): { x: number; y: number } {
+    if (activeDoc.fileType === 'image') {
+      const x_raw = rawX / (zoomScale / 100);
+      const y_raw = rawY / (zoomScale / 100);
+
+      let x_local = x_raw;
+      let y_local = y_raw;
+      const W = basePageWidth; // True Image Width
+      const H = basePageHeight; // True Image Height
+
+      const rotation = activeDoc.imageRotation || 0;
+      if (rotation === 90) {
+        x_local = y_raw;
+        y_local = H - x_raw;
+      } else if (rotation === 180) {
+        x_local = W - x_raw;
+        y_local = H - y_raw;
+      } else if (rotation === 270) {
+        x_local = W - y_raw;
+        y_local = x_raw;
+      }
+
+      return {
+        x: (x_local / Math.max(1, W)) * 100,
+        y: (y_local / Math.max(1, H)) * 100,
+      };
+    }
+
+    if (!pageContainer) return { x: 0, y: 0 };
+    const rect = dragPageRect || pageContainer.getBoundingClientRect();
+    return {
+      x: (rawX / Math.max(1, rect.width)) * 100,
+      y: (rawY / Math.max(1, rect.height)) * 100,
+    };
+  }
+
+  function getDisplayCoords(shape: AnnotationShape): {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } {
+    const x = shape.x;
+    const y = shape.y;
+    const w = shape.width ?? 0;
+    const h = shape.height ?? 0;
+    
+    if (activeDoc.fileType !== 'image') {
+      return { x, y, width: w, height: h };
+    }
+
+    const rotation = activeDoc.imageRotation || 0;
+    if (rotation === 90) {
+      return {
+        x: 100 - (y + h),
+        y: x,
+        width: h,
+        height: w
+      };
+    } else if (rotation === 180) {
+      return {
+        x: 100 - (x + w),
+        y: 100 - (y + h),
+        width: w,
+        height: h
+      };
+    } else if (rotation === 270) {
+      return {
+        x: y,
+        y: 100 - (x + w),
+        width: h,
+        height: w
+      };
+    }
+
+    return { x, y, width: w, height: h };
+  }
+
+  function getDisplayPoints(points: { x: number; y: number }[] | undefined): { x: number; y: number }[] {
+    if (!points) return [];
+    if (activeDoc.fileType !== 'image') return points;
+    const rotation = activeDoc.imageRotation || 0;
+    return points.map(p => {
+      if (rotation === 90) {
+        return { x: 100 - p.y, y: p.x };
+      } else if (rotation === 180) {
+        return { x: 100 - p.x, y: 100 - p.y };
+      } else if (rotation === 270) {
+        return { x: p.y, y: 100 - p.x };
+      }
+      return p;
+    });
   }
 
   function addShapeToPage(shape: AnnotationShape) {
@@ -554,8 +754,9 @@
 
     dragPageRect = pageContainer.getBoundingClientRect();
     const rect = dragPageRect;
-    const mousePctX = ((e.clientX - rect.left) / rect.width) * 100;
-    const mousePctY = ((e.clientY - rect.top) / rect.height) * 100;
+    const rawX = e.clientX - rect.left;
+    const rawY = e.clientY - rect.top;
+    const { x: mousePctX, y: mousePctY } = normalizeCoordinates(rawX, rawY);
 
     if (activeDoc.activeTool === "select") {
       activeDoc.selectedShape = null;
@@ -704,10 +905,10 @@
       moveEvent.preventDefault();
       if (!pageContainer) return;
       const rect = pageContainer.getBoundingClientRect();
-      const deltaX = moveEvent.clientX - dragStartStartX;
-      const deltaY = moveEvent.clientY - dragStartStartY;
-      const deltaPctX = (deltaX / rect.width) * 100;
-      const deltaPctY = (deltaY / rect.height) * 100;
+      const startNorm = normalizeCoordinates(dragStartStartX - rect.left, dragStartStartY - rect.top);
+      const endNorm = normalizeCoordinates(moveEvent.clientX - rect.left, moveEvent.clientY - rect.top);
+      const deltaPctX = endNorm.x - startNorm.x;
+      const deltaPctY = endNorm.y - startNorm.y;
 
       shape.x = Math.max(0, Math.min(100, dragStartInitialX + deltaPctX));
       shape.y = Math.max(0, Math.min(100, dragStartInitialY + deltaPctY));
@@ -749,8 +950,7 @@
     // Case 3: Shape resizing
     else if (draggingHandle && activeDoc.selectedShape && initialShapeState && dragTargetElement) {
       const rect = dragPageRect || pageContainer.getBoundingClientRect();
-      const mousePctX = ((rawCurrentX - rect.left) / rect.width) * 100;
-      const mousePctY = ((rawCurrentY - rect.top) / rect.height) * 100;
+      const { x: mousePctX, y: mousePctY } = normalizeCoordinates(rawCurrentX - rect.left, rawCurrentY - rect.top);
       const initial = initialShapeState;
       
       let x = initial.x;
@@ -799,8 +999,9 @@
   function handleMouseMove(e: MouseEvent) {
     if (!pageContainer) return;
     const rect = dragPageRect || pageContainer.getBoundingClientRect();
-    const mousePctX = ((e.clientX - rect.left) / rect.width) * 100;
-    const mousePctY = ((e.clientY - rect.top) / rect.height) * 100;
+    const rawX = e.clientX - rect.left;
+    const rawY = e.clientY - rect.top;
+    const { x: mousePctX, y: mousePctY } = normalizeCoordinates(rawX, rawY);
     hoverPctX = mousePctX;
     hoverPctY = mousePctY;
 
@@ -860,11 +1061,11 @@
       dragActive = false;
       dragPageRect = null;
 
-      const rect = pageContainer ? pageContainer.getBoundingClientRect() : { width: 1, height: 1 };
-      const deltaX = e.clientX - dragStartMouseX;
-      const deltaY = e.clientY - dragStartMouseY;
-      const deltaPctX = (deltaX / rect.width) * 100;
-      const deltaPctY = (deltaY / rect.height) * 100;
+      const rect = pageContainer ? pageContainer.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
+      const startNorm = normalizeCoordinates(dragStartMouseX - rect.left, dragStartMouseY - rect.top);
+      const endNorm = normalizeCoordinates(e.clientX - rect.left, e.clientY - rect.top);
+      const deltaPctX = endNorm.x - startNorm.x;
+      const deltaPctY = endNorm.y - startNorm.y;
       const shapesList = [...(activeDoc.shapes[pageNumber] || [])];
 
       if (rawGroupInitialPositions.length > 1 && groupDragElements.length > 0) {
@@ -956,12 +1157,14 @@
     const heightPixels = Math.abs(finalCurrentY - startY);
 
     if (widthPixels > 2 && heightPixels > 2) {
+      const startNorm = normalizeCoordinates(startX, startY);
+      const endNorm = normalizeCoordinates(finalCurrentX, finalCurrentY);
       const newShape: AnnotationShape = {
         type: activeDoc.activeTool as any,
-        x: (Math.min(startX, finalCurrentX) / rect.width) * 100,
-        y: (Math.min(startY, finalCurrentY) / rect.height) * 100,
-        width: (widthPixels / rect.width) * 100,
-        height: (heightPixels / rect.height) * 100,
+        x: Math.min(startNorm.x, endNorm.x),
+        y: Math.min(startNorm.y, endNorm.y),
+        width: Math.abs(endNorm.x - startNorm.x),
+        height: Math.abs(endNorm.y - startNorm.y),
         color: activeDoc.activeColor,
         thickness: activeDoc.activeThickness,
       };
@@ -1156,7 +1359,10 @@
   onmouseenter={() => (isMouseOverPage = true)}
   onmouseleave={handleMouseLeave}
   class="bg-white relative rounded-sm mb-12 select-none"
-  style="box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.65); width: {expectedDimensions.width}px; min-height: {expectedDimensions.height}px; aspect-ratio: {expectedDimensions.aspectRatio};"
+  style="box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.65);
+         {activeDoc.fileType === 'image'
+           ? `width: ${currentWidth * scaleFactor}px; height: ${currentHeight * scaleFactor}px;`
+           : `width: ${expectedDimensions.width}px; min-height: ${expectedDimensions.height}px; aspect-ratio: ${expectedDimensions.aspectRatio};`}"
 >
   {#if isRendered}
     <canvas use:canvasLifecycle class="block max-w-full h-auto rounded-sm"
@@ -1206,7 +1412,7 @@
               if (activeDoc.activeTool === "select")
                 activeDoc.selectedShape = { pageNumber, index: idx };
             }}
-            points={shape.points.map((p) => `${p.x},${p.y}`).join(" ")}
+            points={getDisplayPoints(shape.points).map((p) => `${p.x},${p.y}`).join(" ")}
             stroke="#fff200"
             stroke-width="2.0"
             stroke-opacity="0.42"
@@ -1223,7 +1429,7 @@
                 if (activeDoc.activeTool === "select")
                   activeDoc.selectedShape = { pageNumber, index: idx };
               }}
-              points={shape.points.map((p) => `${p.x},${p.y}`).join(" ")}
+              points={getDisplayPoints(shape.points).map((p) => `${p.x},${p.y}`).join(" ")}
               stroke={shape.color || "#ef4444"}
               stroke-width={(shape.thickness || 3) * 0.22}
               stroke-opacity="1"
@@ -1238,7 +1444,7 @@
       {#if liveHighlightPoints.length > 1}
         {#if activeDoc.activeTool === "highlight"}
           <polyline
-            points={liveHighlightPoints.map((p) => `${p.x},${p.y}`).join(" ")}
+            points={getDisplayPoints(liveHighlightPoints).map((p) => `${p.x},${p.y}`).join(" ")}
             stroke="#fff200"
             stroke-width="2.0"
             stroke-opacity="0.48"
@@ -1248,7 +1454,7 @@
           />
         {:else if activeDoc.activeTool === "pen"}
           <polyline
-            points={liveHighlightPoints.map((p) => `${p.x},${p.y}`).join(" ")}
+            points={getDisplayPoints(liveHighlightPoints).map((p) => `${p.x},${p.y}`).join(" ")}
             stroke={activeDoc.activeColor}
             stroke-width={(activeDoc.activeThickness || 3) * 0.22}
             stroke-opacity="1"
@@ -1261,6 +1467,7 @@
     </svg>
 
     {#each activeDoc.shapes[pageNumber] || [] as shape, idx}
+      {@const display = getDisplayCoords(shape)}
       {#if shape && shapeTypesList.includes(shape.type)}
         {#if shape.type === "oval" || shape.type === "oval-fill"}
           <div
@@ -1270,7 +1477,7 @@
               {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
               ? 'shadow-[0_0_12px_rgba(0,210,255,0.35)] ring-1 ring-[#00d2ff]/40'
               : ''}"
-            style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%;"
+            style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%;"
           >
             <svg
               viewBox="0 0 100 100"
@@ -1319,7 +1526,7 @@
               {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
               ? 'shadow-[0_0_12px_rgba(0,210,255,0.35)] ring-1 ring-[#00d2ff]/40'
               : ''}"
-            style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%; 
+            style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; 
                    border: {shape.type.includes('-fill') ? '0px' : (shape.thickness || 3) + 'px'} solid {shape.color || '#000000'}; 
                    background-color: {shape.type.includes('-fill') ? shape.color || '#000000' : 'transparent'};"
           >
@@ -1351,7 +1558,7 @@
         <div
           data-shape-idx={idx}
           class="absolute pointer-events-auto transform -translate-y-1/2 z-40"
-          style="left: {shape.x}%; top: {shape.y}%; color: {shape.textColor || shape.color || '#000000'};"
+          style="left: {display.x}%; top: {display.y}%; color: {shape.textColor || shape.color || '#000000'};"
         >
           {#if activelyEditingIndex === idx && activeDoc.shapes[pageNumber]?.[idx]}
             <input
@@ -1364,7 +1571,7 @@
                 if (e.key === "Enter") finalizeTextEdit(idx, e.currentTarget);
               }}
               class="bg-white/95 border border-[#00d2ff] outline-none px-1.5 py-0.5 rounded shadow-xl max-w-[280px]"
-              style="color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {zoomScale / 100}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
+              style="color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
             />
           {:else}
             <span
@@ -1378,7 +1585,7 @@
               activeDoc.selectedShape?.index === idx
                 ? 'border-[#00d2ff] bg-cyan-500/5'
                 : 'border-transparent hover:border-slate-400/30'}"
-              style="color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {zoomScale / 100}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
+              style="color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
               >{shape?.text || " "}</span
             >
           {/if}
@@ -1388,7 +1595,7 @@
           data-shape-idx={idx}
           onmousedown={(e) => initShapeMove(e, idx)}
           class="absolute pointer-events-auto z-40 flex items-center justify-center p-0.5 border rounded-sm cursor-move transition-[border-color,background-color] duration-100"
-          style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%; border-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
+          style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; border-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? '#00d2ff'
             : 'transparent'}; background-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? '#00d2ff1a'
@@ -1427,7 +1634,7 @@
           data-shape-idx={idx}
           onmousedown={(e) => initShapeMove(e, idx)}
           class="absolute pointer-events-auto z-40 flex items-center justify-center p-0.5 border rounded-sm cursor-move transition-[border-color,background-color] duration-100"
-          style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%; border-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
+          style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; border-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? '#00d2ff'
             : 'transparent'}; background-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? '#00d2ff1a'
@@ -1447,19 +1654,23 @@
           {#if activeDoc.activeTool === "select" && activeDoc.selectedShapes.length === 1 && activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)}
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "tl")}
-              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -top-1 -left-1 cursor-nwse-resize rounded-full"
+              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -left-1.5 cursor-nwse-resize rounded-full shadow-md"
+              style="border-color: {shape.color || '#000000'};"
             ></div>
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "tr")}
-              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -top-1 -right-1 cursor-nesw-resize rounded-full"
+              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -top-1.5 -right-1.5 cursor-nesw-resize rounded-full shadow-md"
+              style="border-color: {shape.color || '#000000'};"
             ></div>
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "bl")}
-              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -bottom-1 -left-1 cursor-nesw-resize rounded-full"
+              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -bottom-1.5 -left-1.5 cursor-nesw-resize rounded-full shadow-md"
+              style="border-color: {shape.color || '#000000'};"
             ></div>
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "br")}
-              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -bottom-1 -right-1 cursor-nwse-resize rounded-full"
+              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -bottom-1.5 -right-1.5 cursor-nwse-resize rounded-full shadow-md"
+              style="border-color: {shape.color || '#000000'};"
             ></div>
           {/if}
         </div>
@@ -1470,7 +1681,7 @@
           class="absolute pointer-events-auto z-40 flex items-center justify-center border rounded-sm cursor-move p-0.5 overflow-hidden mix-blend-multiply bg-transparent transition-[border-color,box-shadow] duration-100 {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? 'border-[#00d2ff] shadow-[0_0_12px_rgba(0,210,255,0.35)]'
             : 'border-transparent hover:border-slate-400/30'}"
-          style="left: {shape.x}%; top: {shape.y}%; width: {shape.width}%; height: {shape.height}%;"
+          style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%;"
         >
           <img
             src={shape.dataUrl}
@@ -1500,10 +1711,11 @@
     {/each}
 
     {#if isMouseOverPage && activeDoc.activeTool && !isDrawing}
+      {@const displayCursor = getDisplayCoords({ x: hoverPctX, y: hoverPctY, width: 0, height: 0 } as any)}
       {#if ["signature", "initial"].includes(activeDoc.activeTool) && activeDoc.activeStampDataUrl}
         <div
           class="absolute pointer-events-none opacity-45 mix-blend-multiply transform -translate-x-1/2 -translate-y-1/2 border border-dashed border-[#00d2ff] bg-cyan-500/5 flex items-center justify-center p-0.5 rounded-xs"
-          style="left: {hoverPctX}%; top: {hoverPctY}%; width: {ghostDimensions.w}%; height: {ghostDimensions.h}%;"
+          style="left: {displayCursor.x}%; top: {displayCursor.y}%; width: {ghostDimensions.w}%; height: {ghostDimensions.h}%;"
         >
           <img
             src={activeDoc.activeStampDataUrl}
@@ -1514,7 +1726,7 @@
       {:else if activeDoc.activeTool === "tick"}
         <div
           class="absolute pointer-events-none opacity-45 transform -translate-x-1/2 -translate-y-1/2 border border-dashed border-[#00d2ff] bg-[#00d2ff1a] flex items-center justify-center p-0.5 rounded-sm"
-          style="left: {hoverPctX}%; top: {hoverPctY}%; width: {ghostDimensions.w}%; height: {ghostDimensions.h}%;"
+          style="left: {displayCursor.x}%; top: {displayCursor.y}%; width: {ghostDimensions.w}%; height: {ghostDimensions.h}%;"
         >
           <svg
             viewBox="0 0 24 24"
@@ -1529,7 +1741,7 @@
       {:else if activeDoc.activeTool === "dash"}
         <div
           class="absolute pointer-events-none opacity-45 transform -translate-x-1/2 -translate-y-1/2 border border-dashed border-[#00d2ff] bg-[#00d2ff1a] flex items-center justify-center p-0.5 rounded-sm"
-          style="left: {hoverPctX}%; top: {hoverPctY}%; width: {ghostDimensions.w}%; height: {ghostDimensions.h}%;"
+          style="left: {displayCursor.x}%; top: {displayCursor.y}%; width: {ghostDimensions.w}%; height: {ghostDimensions.h}%;"
         >
           <svg
             viewBox="0 0 24 24"

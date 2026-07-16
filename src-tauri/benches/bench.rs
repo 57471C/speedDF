@@ -1,4 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 use image::{ImageBuffer, Rgb};
 
 fn original_loop(img: &ImageBuffer<Rgb<u8>, Vec<u8>>, target_w: u32, target_h: u32) -> Vec<f32> {

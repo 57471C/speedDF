@@ -33,6 +33,23 @@ export interface Bookmark {
 	name: string;
 }
 
+export interface DocumentWorkspace {
+	fileType: "pdf" | "tiff" | "image" | null;
+	fileName: string;
+	filePath: string | null;
+	rawBytes: Uint8Array | null;
+	pageCount: number;
+	pageOrder: number[];
+	currentPage: number;
+	shapes: Record<number, AnnotationShape[]>;
+	bookmarks: Bookmark[];
+	imageRotation?: number;
+	imageUrl?: string | null;
+	isDirty: boolean;
+	tiffPages: Uint8Array[];
+	rotations: Record<number, number>;
+}
+
 export interface SignatureSet {
 	id: string;
 	signatureDataUrl: string;
@@ -64,6 +81,7 @@ export interface SharedDocumentState {
 		| "round-rect-fill"
 		| "oval-fill"
 		| "pen"
+		| "snapshot"
 		| null;
 	shapes: Record<number, AnnotationShape[]>;
 	selectedShape: { pageNumber: number; index: number } | null;
@@ -79,11 +97,16 @@ export interface SharedDocumentState {
 	defaultFont: string;
 	defaultSize: number;
 	defaultStyle: "Normal" | "Bold" | "Italic";
-	fileType: "pdf" | "tiff" | null;
+	fileType: "pdf" | "tiff" | "image" | null;
+	imageUrl?: string | null;
+	imageRotation?: number;
 	tiffPages: Uint8Array[];
 	flushDocumentState(): void;
 	isDirty: boolean;
 	bookmarks: Bookmark[];
+	openDocuments: DocumentWorkspace[];
+	activeDocumentId: string | null;
+	readonly current: DocumentWorkspace | null;
 }
 
 export const FONT_MAP: Record<
@@ -132,53 +155,134 @@ export const loadSavedSets = (): SignatureSet[] => {
 	}
 };
 
-export const activeDoc = $state<SharedDocumentState>({
-	rawBytes: null,
-	pageCount: 0,
-	currentPage: 1,
-	scrollTop: 0,
-	scrollHeight: 0,
-	clientHeight: 0,
-	isClickScrolling: false,
-	rotations: {},
-	activeTool: "select",
-	shapes: {},
-	selectedShape: null,
-	selectedShapes: [],
-	savedSignatureSets: loadSavedSets(),
-	activeStampDataUrl: null,
-	pageOrder: [],
-	fileName: null,
-	filePath: null,
-	activeColor: "#000000",
-	activeThickness: 3, // Default stroke width for pens and shape borders
-	zoomScale: 120,
-	defaultFont: "Helvetica",
-	defaultSize: 12,
-	defaultStyle: "Normal",
-	fileType: "pdf",
-	tiffPages: [],
-	isDirty: false,
-	bookmarks: [],
-	flushDocumentState() {
-		this.rawBytes = null;
-		this.fileType = null;
-		this.fileName = "";
-		this.filePath = "";
-		this.pageCount = 0;
-		this.tiffPages = [];
-		this.pageOrder = [];
-		this.rotations = {};
-		this.shapes = {};
-		this.selectedShape = null;
-		this.selectedShapes = [];
-		this.isDirty = false;
-		this.bookmarks = [];
-		console.log(
-			"Global Store: Flushed old document structures. Ready for clean initialization.",
-		);
+let openDocuments = $state<DocumentWorkspace[]>([]);
+let activeDocumentId = $state<string | null>(null);
+
+let activeTool = $state<SharedDocumentState["activeTool"]>("select");
+let selectedShape = $state<SharedDocumentState["selectedShape"]>(null);
+let selectedShapes = $state<SharedDocumentState["selectedShapes"]>([]);
+let activeColor = $state("#000000");
+let activeThickness = $state(3);
+let zoomScale = $state(120);
+let defaultFont = $state("Helvetica");
+let defaultSize = $state(12);
+let defaultStyle = $state<"Normal" | "Bold" | "Italic">("Normal");
+let scrollTop = $state(0);
+let scrollHeight = $state(0);
+let clientHeight = $state(0);
+let isClickScrolling = $state(false);
+let activeStampDataUrl = $state<string | null>(null);
+let savedSignatureSets = $state<SignatureSet[]>(loadSavedSets());
+
+export function initializeNewDocument(fileName: string, filePath: string | null) {
+	const existing = openDocuments.find(d => (filePath && d.filePath === filePath) || d.fileName === fileName);
+	if (existing) {
+		activeDocumentId = existing.filePath || existing.fileName;
+		return existing;
+	}
+
+	const newDoc: DocumentWorkspace = {
+		fileType: null,
+		fileName: fileName,
+		filePath: filePath,
+		rawBytes: null,
+		pageCount: 0,
+		pageOrder: [],
+		currentPage: 1,
+		shapes: {},
+		bookmarks: [],
+		imageRotation: 0,
+		imageUrl: null,
+		isDirty: false,
+		tiffPages: [],
+		rotations: {}
+	};
+	openDocuments.push(newDoc);
+	activeDocumentId = filePath || fileName;
+	return newDoc;
+}
+
+export const activeDoc: SharedDocumentState = {
+	get openDocuments() { return openDocuments; },
+	set openDocuments(val) { openDocuments = val; },
+	get activeDocumentId() { return activeDocumentId; },
+	set activeDocumentId(val) { activeDocumentId = val; },
+
+	// The active pointer target locator
+	get current() {
+		return openDocuments.find(d => d.filePath === activeDocumentId || d.fileName === activeDocumentId) || null;
 	},
-});
+
+	// Proxy all existing properties safely to prevent breaking views
+	get fileType() { return this.current?.fileType || null; },
+	set fileType(val) { if (this.current) this.current.fileType = val; },
+	get fileName() { return this.current?.fileName || ""; },
+	set fileName(val) { if (this.current) this.current.fileName = val; },
+	get filePath() { return this.current?.filePath || null; },
+	set filePath(val) { if (this.current) this.current.filePath = val; },
+	get rawBytes() { return this.current?.rawBytes || null; },
+	set rawBytes(val) { if (this.current) this.current.rawBytes = val; },
+	get pageCount() { return this.current?.pageCount || 0; },
+	set pageCount(val) { if (this.current) this.current.pageCount = val; },
+	get pageOrder() { return this.current?.pageOrder || []; },
+	set pageOrder(val) { if (this.current) this.current.pageOrder = val; },
+	get currentPage() { return this.current?.currentPage || 1; },
+	set currentPage(val) { if (this.current) this.current.currentPage = val; },
+	get shapes() { return this.current?.shapes || {}; },
+	set shapes(val) { if (this.current) this.current.shapes = val; },
+	get bookmarks() { return this.current?.bookmarks || []; },
+	set bookmarks(val) { if (this.current) this.current.bookmarks = val; },
+	get imageRotation() { return this.current?.imageRotation || 0; },
+	set imageRotation(val) { if (this.current) this.current.imageRotation = val; },
+	get imageUrl() { return this.current?.imageUrl || ""; },
+	set imageUrl(val) { if (this.current) this.current.imageUrl = val; },
+	get isDirty() { return this.current?.isDirty || false; },
+	set isDirty(val) { if (this.current) this.current.isDirty = val; },
+	get tiffPages() { return this.current?.tiffPages || []; },
+	set tiffPages(val) { if (this.current) this.current.tiffPages = val; },
+	get rotations() { return this.current?.rotations || {}; },
+	set rotations(val) { if (this.current) this.current.rotations = val; },
+
+	// Global / session-wide properties
+	get activeTool() { return activeTool; },
+	set activeTool(val) { activeTool = val; },
+	get selectedShape() { return selectedShape; },
+	set selectedShape(val) { selectedShape = val; },
+	get selectedShapes() { return selectedShapes; },
+	set selectedShapes(val) { selectedShapes = val; },
+	get activeColor() { return activeColor; },
+	set activeColor(val) { activeColor = val; },
+	get activeThickness() { return activeThickness; },
+	set activeThickness(val) { activeThickness = val; },
+	get zoomScale() { return zoomScale; },
+	set zoomScale(val) { zoomScale = val; },
+	get defaultFont() { return defaultFont; },
+	set defaultFont(val) { defaultFont = val; },
+	get defaultSize() { return defaultSize; },
+	set defaultSize(val) { defaultSize = val; },
+	get defaultStyle() { return defaultStyle; },
+	set defaultStyle(val) { defaultStyle = val; },
+	get scrollTop() { return scrollTop; },
+	set scrollTop(val) { scrollTop = val; },
+	get scrollHeight() { return scrollHeight; },
+	set scrollHeight(val) { scrollHeight = val; },
+	get clientHeight() { return clientHeight; },
+	set clientHeight(val) { clientHeight = val; },
+	get isClickScrolling() { return isClickScrolling; },
+	set isClickScrolling(val) { isClickScrolling = val; },
+	get activeStampDataUrl() { return activeStampDataUrl; },
+	set activeStampDataUrl(val) { activeStampDataUrl = val; },
+	get savedSignatureSets() { return savedSignatureSets; },
+	set savedSignatureSets(val) { savedSignatureSets = val; },
+
+	flushDocumentState() {
+		if (this.imageUrl) {
+			URL.revokeObjectURL(this.imageUrl);
+		}
+		openDocuments = openDocuments.filter(d => d.filePath !== activeDocumentId && d.fileName !== activeDocumentId);
+		activeDocumentId = openDocuments[0]?.filePath || openDocuments[0]?.fileName || null;
+	}
+};
 
 // ⚡ SURGICAL INSERTION: Append this directly below your "export const activeDoc = ..." declaration block
 
@@ -261,6 +365,14 @@ export function rotatePageAction(
 	pageNumber: number,
 	direction: "clockwise" | "counter",
 ) {
+	if (activeDoc.fileType === "image") {
+		const currentRotation = activeDoc.imageRotation ?? 0;
+		const degreeShift = direction === "clockwise" ? 90 : -90;
+		let targetDegree = (currentRotation + degreeShift) % 360;
+		if (targetDegree < 0) targetDegree += 360;
+		activeDoc.imageRotation = targetDegree;
+		return;
+	}
 	const currentRotation = activeDoc.rotations[pageNumber] ?? 0;
 	const degreeShift = direction === "clockwise" ? 90 : -90;
 	let targetDegree = (currentRotation + degreeShift) % 360;

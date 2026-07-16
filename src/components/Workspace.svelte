@@ -16,7 +16,11 @@
     }
   });
 
-  let { zoomScale = $bindable(120), isSystemPrinting = false } = $props<{ zoomScale: number; isSystemPrinting: boolean }>();
+  let { zoomScale = $bindable(120), isSystemPrinting = false, onShowNotification } = $props<{
+    zoomScale: number;
+    isSystemPrinting: boolean;
+    onShowNotification?: (message: string) => void;
+  }>();
   let scrollContainer = $state<HTMLDivElement | null>(null);
   let scrollObserver = $state<IntersectionObserver | null>(null);
 
@@ -88,7 +92,7 @@
 
   // Bind zoomScale to activeDoc.zoomScale
   $effect(() => {
-    activeDoc.zoomScale = zoomScale;
+    activeDoc.zoomScale = Math.max(5, Math.abs(zoomScale));
   });
 
   // Reactively track changes to your annotations database layer
@@ -192,24 +196,26 @@
 
 
 
-  // Ctrl + Mouse Wheel Zooming
-  $effect(() => {
-    if (!scrollContainer) return;
+  function setupWheelZoom(node: HTMLElement) {
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey) {
         e.preventDefault();
-        if (e.deltaY < 0) {
-          zoomScale = Math.min(400, zoomScale + 10);
-        } else if (e.deltaY > 0) {
-          zoomScale = Math.max(5, zoomScale - 10);
-        }
+        e.stopPropagation();
+        const delta = e.deltaY < 0 ? 10 : -10;
+        const nextZoom = activeDoc.zoomScale + delta;
+        activeDoc.zoomScale = Math.max(10, Math.min(500, Math.abs(nextZoom)));
+        zoomScale = activeDoc.zoomScale;
       }
     };
-    scrollContainer.addEventListener("wheel", handleWheel, { passive: false });
-    return () => {
-      scrollContainer?.removeEventListener("wheel", handleWheel);
+
+    node.addEventListener("wheel", handleWheel, { passive: false });
+
+    return {
+      destroy() {
+        node.removeEventListener("wheel", handleWheel);
+      }
     };
-  });
+  }
 
   // Spacebar + Left-Click Drag Panning
   let isSpacePressed = $state(false);
@@ -297,12 +303,104 @@
       zoomScale = 100;
     }
   }
+
+  let isDrawingMarquee = $state(false);
+  let marqueeStart = $state({ x: 0, y: 0 });
+  let marqueeCurrent = $state({ x: 0, y: 0 });
+
+  let screenStart = $state({ x: 0, y: 0 });
+  let screenCurrent = $state({ x: 0, y: 0 });
+
+  async function handleExecuteCropCapture(e: MouseEvent) {
+    if (!isDrawingMarquee) return;
+    isDrawingMarquee = false;
+    activeDoc.activeTool = 'select'; // Dismiss crosshair tool profile
+
+    // 1. Establish absolute screen bounding limits
+    const clientX1 = Math.min(screenStart.x, screenCurrent.x);
+    const clientY1 = Math.min(screenStart.y, screenCurrent.y);
+    const clientWidth = Math.abs(screenStart.x - screenCurrent.x);
+    const clientHeight = Math.abs(screenStart.y - screenCurrent.y);
+
+    if (clientWidth < 5 || clientHeight < 5) return; // Ignore accidental micro clicks
+
+    // Temporarily hide marquee to find the underlying element
+    const currentTarget = e.currentTarget as HTMLElement;
+    const originalDisplay = currentTarget.style.display;
+    currentTarget.style.display = 'none';
+
+    // Find the element at the midpoint screen position
+    const startScreenX = (screenStart.x + screenCurrent.x) / 2;
+    const startScreenY = (screenStart.y + screenCurrent.y) / 2;
+    
+    const underElement = document.elementFromPoint(startScreenX, startScreenY);
+    currentTarget.style.display = originalDisplay;
+
+    // Locate the closest canvas element
+    let activeCanvas = underElement as HTMLCanvasElement | null;
+    if (activeCanvas && activeCanvas.tagName !== 'CANVAS') {
+      activeCanvas = activeCanvas.closest('canvas') || activeCanvas.querySelector('canvas');
+    }
+    if (!activeCanvas) {
+      activeCanvas = document.querySelector('.workspace-scroll-container canvas') as HTMLCanvasElement;
+    }
+
+    if (!activeCanvas) return;
+
+    // 3. Map screen-to-pixel metrics directly using identical coordinate fields
+    const displayRect = activeCanvas.getBoundingClientRect();
+    
+    // Derive local canvas coordinates directly from raw screen differentials
+    const cropLocalX = clientX1 - displayRect.left;
+    const cropLocalY = clientY1 - displayRect.top;
+
+    // Density scale map linking visible DOM sizing parameters to internal pixel backstores
+    const scaleX = activeCanvas.width / displayRect.width;
+    const scaleY = activeCanvas.height / displayRect.height;
+
+    // 4. Initialize offscreen capture layout
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = clientWidth * scaleX;
+    cropCanvas.height = clientHeight * scaleY;
+    const cropCtx = cropCanvas.getContext('2d');
+
+    if (cropCtx) {
+      // Blit out pixel arrays directly mapping from original source boundaries
+      cropCtx.drawImage(
+        activeCanvas,
+        cropLocalX * scaleX,
+        cropLocalY * scaleY,
+        clientWidth * scaleX,
+        clientHeight * scaleY,
+        0, 0, cropCanvas.width, cropCanvas.height
+      );
+
+      // 5. Package as PNG data payload and send straight to operating system clipboard
+      cropCanvas.toBlob(async (blob) => {
+        if (blob) {
+          try {
+            const clipboardItem = typeof ClipboardItem !== 'undefined'
+              ? new ClipboardItem({ [blob.type]: blob })
+              : new (window as any).ClipboardItem({ [blob.type]: blob });
+            await navigator.clipboard.write([clipboardItem]);
+            console.log('speedDF: Scaled snippet captured cleanly to system clipboard!');
+            if (typeof onShowNotification === 'function') {
+              onShowNotification("image copied to clipboard");
+            }
+          } catch (err) {
+            console.error('speedDF: Clipboard write operation encountered an error:', err);
+          }
+        }
+      }, 'image/png');
+    }
+  }
 </script>
 
 <svelte:window onclick={handleWindowClick} onkeydown={handleKeyDown} onkeyup={handleKeyUp} />
 
 <div
   bind:this={scrollContainer}
+  use:setupWheelZoom
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
@@ -314,8 +412,45 @@
     [&::-webkit-scrollbar-thumb]:bg-slate-800/80 
     [&::-webkit-scrollbar-thumb]:rounded-full 
     hover:[&::-webkit-scrollbar-thumb]:bg-slate-700"
-  style={isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : ''}
+  style={(isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : '') + ' touch-action: pan-x pan-y;'}
 >
+  {#if activeDoc.activeTool === 'snapshot'}
+    <div 
+      class="absolute inset-0 bg-black/25 z-[90] cursor-crosshair select-none"
+      onmousedown={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        isDrawingMarquee = true;
+        marqueeStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        marqueeCurrent = { ...marqueeStart };
+        
+        // Lock down global screen origin coordinates
+        screenStart = { x: e.clientX, y: e.clientY };
+        screenCurrent = { x: e.clientX, y: e.clientY };
+      }}
+      onmousemove={(e) => {
+        if (!isDrawingMarquee) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        marqueeCurrent = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        
+        // Continually map current global screen pointers
+        screenCurrent = { x: e.clientX, y: e.clientY };
+      }}
+      onmouseup={handleExecuteCropCapture}
+    >
+      {#if isDrawingMarquee}
+        <div 
+          class="absolute border border-dashed border-cyan-400 bg-cyan-400/15 shadow-[0_0_12px_rgba(34,211,238,0.35)]"
+          style="
+            left: {Math.min(marqueeStart.x, marqueeCurrent.x)}px;
+            top: {Math.min(marqueeStart.y, marqueeCurrent.y)}px;
+            width: {Math.abs(marqueeStart.x - marqueeCurrent.x)}px;
+            height: {Math.abs(marqueeStart.y - marqueeCurrent.y)}px;
+          "
+        ></div>
+      {/if}
+    </div>
+  {/if}
+
   {#if showFloatingMenu}
     <div
       class="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-[#090d16]/95 border border-slate-800/80 px-4 py-2 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.5)] flex items-center gap-3 backdrop-blur-md select-none pointer-events-auto transition-all duration-200"

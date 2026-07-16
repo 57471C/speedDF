@@ -18,6 +18,7 @@
   let appendFileInput = $state<HTMLInputElement | null>(null);
   let insertAfterPageNum = $state<number | null>(null);
   let isGridViewOpen = $state(false);
+  let isPageMenuOpen = $state(false);
   let selectedPages = $state<number[]>([]);
   let activeSidebarTab = $state<'thumbnails' | 'bookmarks' | 'comments'>('thumbnails');
 
@@ -37,7 +38,7 @@
   }));
 
   function getSharedPdfjsDoc() {
-    if (activeDoc.fileType === "tiff" || !activeDoc.rawBytes) return null;
+    if (activeDoc.fileType === "tiff" || activeDoc.fileType === "image" || !activeDoc.rawBytes) return null;
     
     // If the byte array reference changes, re-initialize the single master parsing handle
     if (activeDoc.rawBytes !== cachedRawBytes) {
@@ -195,7 +196,7 @@
         const renderWidth = isVerticalFactor
           ? unrotatedViewport.width
           : unrotatedViewport.height;
-        const calculatedScale = targetWidth / renderWidth;
+        const calculatedScale = Math.max(0.1, targetWidth / Math.max(0.1, Math.abs(renderWidth)));
 
         const viewport = page.getViewport({
           scale: calculatedScale,
@@ -384,6 +385,67 @@
     appendFileInput?.click();
   }
 
+  function handleMergeAction() {
+    insertAfterPageNum = activeDoc.currentPage || activeDoc.pageOrder[activeDoc.pageOrder.length - 1] || 1;
+    appendFileInput?.click();
+  }
+
+  async function handleInsertBlankPage() {
+    if (!activeDoc.rawBytes) return;
+    try {
+      pushHistorySnapshot();
+      
+      const cleanMainBytes = new Uint8Array($state.snapshot(activeDoc.rawBytes));
+      
+      const unprotectedMainRes = await invoke<ArrayBuffer | Uint8Array>("unprotect_pdf", {
+        bytes: cleanMainBytes,
+      });
+
+      const mainDoc = await PDFDocument.load(new Uint8Array(unprotectedMainRes));
+      const mergedDoc = await PDFDocument.create();
+
+      const afterPageNum = activeDoc.currentPage || activeDoc.pageOrder[activeDoc.pageOrder.length - 1] || 1;
+      const targetIndex = activeDoc.pageOrder.indexOf(afterPageNum);
+      const prePagesOrder = activeDoc.pageOrder.slice(0, targetIndex + 1);
+      const postPagesOrder = activeDoc.pageOrder.slice(targetIndex + 1);
+
+      const prePages = await mergedDoc.copyPages(
+        mainDoc,
+        prePagesOrder.map((n) => n - 1),
+      );
+      for (const p of prePages) mergedDoc.addPage(p);
+
+      mergedDoc.addPage([595.276, 841.89]); // A4 Page
+
+      const postPages = await mergedDoc.copyPages(
+        mainDoc,
+        postPagesOrder.map((n) => n - 1),
+      );
+      for (const p of postPages) mergedDoc.addPage(p);
+
+      const newRawBytes = await mergedDoc.save();
+
+      const loadingTask = pdfjsLib.getDocument({
+        data: new Uint8Array(newRawBytes),
+        cMapUrl: window.location.origin + "/cmaps/",
+        cMapPacked: true,
+        standardFontDataUrl: window.location.origin + "/standard_fonts/",
+        wasmUrl: window.location.origin + "/"
+      });
+      const pdfDocument = await loadingTask.promise;
+
+      activeDoc.rawBytes = newRawBytes;
+      activeDoc.pageCount = pdfDocument.numPages;
+      activeDoc.pageOrder = Array.from(
+        { length: pdfDocument.numPages },
+        (_, idx) => idx + 1,
+      );
+    } catch (err) {
+      console.error("Blank page insertion failure:", err);
+      alert("Failed to insert blank page.");
+    }
+  }
+
   function handleGridSortEnd(oldIndex: number | undefined, newIndex: number | undefined) {
     if (oldIndex === undefined || newIndex === undefined || oldIndex === newIndex) return;
 
@@ -428,6 +490,22 @@
       }
     };
   }
+
+  function clickOutside(node: HTMLElement, callback: () => void) {
+    const handleClick = (event: MouseEvent) => {
+      if (node && !node.contains(event.target as Node) && !event.defaultPrevented) {
+        callback();
+      }
+    };
+
+    document.addEventListener("click", handleClick, true);
+
+    return {
+      destroy() {
+        document.removeEventListener("click", handleClick, true);
+      }
+    };
+  }
 </script>
 
 <div
@@ -448,22 +526,24 @@
         </svg>
       </button>
 
-      <button 
-        onclick={toggleGridView}
-        class="flex justify-center p-1.5 rounded transition-all hover:text-white {isGridViewOpen ? 'text-amber-400 bg-slate-800/50' : 'text-slate-500'}"
-        title="Expand Workspace Grid View">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="4" height="4" rx="0.5" />
-          <rect x="11" y="3" width="4" height="4" rx="0.5" />
-          <rect x="19" y="3" width="4" height="4" rx="0.5" />
-          <rect x="3" y="11" width="4" height="4" rx="0.5" />
-          <rect x="11" y="11" width="4" height="4" rx="0.5" />
-          <rect x="19" y="11" width="4" height="4" rx="0.5" />
-          <rect x="3" y="19" width="4" height="4" rx="0.5" />
-          <rect x="11" y="19" width="4" height="4" rx="0.5" />
-          <rect x="19" y="19" width="4" height="4" rx="0.5" />
-        </svg>
-      </button>
+      {#if activeDoc.fileType !== 'image'}
+        <button 
+          onclick={toggleGridView}
+          class="flex justify-center p-1.5 rounded transition-all hover:text-white {isGridViewOpen ? 'text-amber-400 bg-slate-800/50' : 'text-slate-500'}"
+          title="Expand Workspace Grid View">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="4" height="4" rx="0.5" />
+            <rect x="11" y="3" width="4" height="4" rx="0.5" />
+            <rect x="19" y="3" width="4" height="4" rx="0.5" />
+            <rect x="3" y="11" width="4" height="4" rx="0.5" />
+            <rect x="11" y="11" width="4" height="4" rx="0.5" />
+            <rect x="19" y="11" width="4" height="4" rx="0.5" />
+            <rect x="3" y="19" width="4" height="4" rx="0.5" />
+            <rect x="11" y="19" width="4" height="4" rx="0.5" />
+            <rect x="19" y="19" width="4" height="4" rx="0.5" />
+          </svg>
+        </button>
+      {/if}
 
       <button 
         onclick={() => activeSidebarTab = 'bookmarks'}
@@ -504,18 +584,62 @@
     style="color-scheme: dark;"
   >
     <div class="relative w-full flex flex-col gap-3">
-      {#if hasUserScrolled && activeDoc.pageOrder.length > 0 && activeDoc.scrollHeight > 0}
-        <div 
-          class="absolute left-2 right-2 pointer-events-none border-2 border-red-500 bg-red-500/10 rounded z-30 shadow-[0_0_15px_rgba(239,68,68,0.25)] transition-none"
-          style="transform: translateY({globalRedBoxTop}px); height: {globalRedBoxHeight}px; top: 0;"
-        ></div>
+      {#if activeDoc.openDocuments && activeDoc.openDocuments.length > 1}
+        <div class="w-full flex flex-col gap-2 p-3 border-b border-slate-800 bg-slate-950/40">
+          <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider px-1">
+            Open Sessions
+          </div>
+          <div class="flex flex-col gap-1.5 max-h-[220px] overflow-y-auto pr-1">
+            {#each activeDoc.openDocuments as doc}
+              <div 
+                class="flex items-center justify-between group px-2.5 py-2 rounded border transition-all cursor-pointer text-sm
+                  {activeDoc.activeDocumentId === (doc.filePath || doc.fileName) 
+                    ? 'bg-cyan-950/30 border-cyan-500/40 text-cyan-400' 
+                    : 'bg-slate-900/40 border-slate-800/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'}"
+                onclick={() => {
+                  activeDoc.activeDocumentId = doc.filePath || doc.fileName;
+                }}
+              >
+                <div class="flex items-center gap-2 overflow-hidden w-full">
+                  <span class="text-xs opacity-60">
+                    {doc.fileType === 'image' ? '🖼️' : '📄'}
+                  </span>
+                  <span class="truncate font-medium text-xs">
+                    {doc.fileName}
+                  </span>
+                </div>
+
+                <button 
+                  class="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-500 hover:bg-slate-800 hover:text-red-400 transition-all ml-1"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    activeDoc.activeDocumentId = doc.filePath || doc.fileName;
+                    activeDoc.flushDocumentState();
+                  }}
+                  title="Close Document"
+                >
+                  ✕
+                </button>
+              </div>
+            {/each}
+          </div>
+        </div>
       {/if}
+
+
+      {#if !(activeDoc.fileType === 'image' && activeDoc.openDocuments && activeDoc.openDocuments.length > 1)}
+        {#if hasUserScrolled && activeDoc.pageOrder.length > 0 && activeDoc.scrollHeight > 0}
+          <div 
+            class="absolute left-2 right-2 pointer-events-none border-2 border-red-500 bg-red-500/10 rounded z-30 shadow-[0_0_15px_rgba(239,68,68,0.25)] transition-none"
+            style="transform: translateY({globalRedBoxTop}px); height: {globalRedBoxHeight}px; top: 0;"
+          ></div>
+        {/if}
 
       {#each activeDoc.pageOrder as pageNum, index (pageNum)}
         <div
           bind:this={thumbnailElements[pageNum]}
           onclick={() => jumpToTargetPage(pageNum)}
-          class="group relative flex flex-col items-center bg-[#111827]/40 border rounded-lg p-2 transition-all cursor-pointer select-none z-20
+          class="group flex flex-col items-center bg-[#111827]/40 border rounded-lg p-2 transition-all cursor-pointer select-none {isPageMenuOpen && insertAfterPageNum === pageNum ? 'relative z-[60] isolate' : 'relative z-10'}
           {activeDoc.currentPage === pageNum
             ? 'border-slate-600 bg-[#161b22]'
             : 'border-slate-800 hover:border-slate-700'}"
@@ -526,20 +650,31 @@
             #{index + 1}
           </span>
 
-          <div
-            class="w-[84px] min-h-[60px] bg-white/5 rounded border border-slate-900/40 overflow-hidden flex items-center justify-center mt-3 shadow-inner relative thumbnail-footprint"
-          >
-            <canvas
-              use:renderThumbnail={{
-                pageNum,
-                rotation: activeDoc.rotations[pageNum] ?? 0,
-              }}
-              class="block h-auto max-w-full bg-white filter tracking-tight"
-            ></canvas>
-          </div>
+          {#if activeDoc.fileType === 'image'}
+            <div class="w-full aspect-[3/4] bg-slate-950 border border-cyan-500/30 rounded flex items-center justify-center overflow-hidden p-1 p-2">
+              <img 
+                src={activeDoc.imageUrl} 
+                alt="Image Thumbnail" 
+                class="w-full h-full object-cover rounded-sm opacity-80"
+              />
+            </div>
+          {:else}
+            <div
+              class="w-[84px] min-h-[60px] bg-white/5 rounded border border-slate-900/40 overflow-hidden flex items-center justify-center mt-3 shadow-inner relative thumbnail-footprint"
+            >
+              <canvas
+                use:renderThumbnail={{
+                  pageNum,
+                  rotation: activeDoc.rotations[pageNum] ?? 0,
+                }}
+                class="block h-auto max-w-full bg-white filter tracking-tight"
+              ></canvas>
+            </div>
+          {/if}
 
           <div
-            class="flex items-center justify-center gap-1 mt-2.5 w-full opacity-40 group-hover:opacity-100 transition-opacity"
+            class="flex items-center justify-center gap-1 mt-2.5 w-full transition-opacity
+            {isPageMenuOpen && insertAfterPageNum === pageNum ? 'opacity-100' : 'opacity-40 group-hover:opacity-100'}"
           >
             <button
               onclick={(e) => {
@@ -566,56 +701,102 @@
               </svg>
             </button>
 
-            <button
-              onclick={(e) => {
-                e.stopPropagation();
-                insertAfterPageNum = pageNum;
-                appendFileInput?.click();
-              }}
-              class="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-              title="Insert PDF After This Page"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
+            <div class="relative z-[60] isolate font-sans text-left">
+              <button
+                disabled={activeDoc.fileType === 'image'}
+                onclick={(e) => {
+                  e.stopPropagation();
+                  insertAfterPageNum = pageNum;
+                  isPageMenuOpen = !isPageMenuOpen;
+                }}
+                class="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors {activeDoc.fileType === 'image' ? 'opacity-30 pointer-events-none' : ''}"
+                title={activeDoc.fileType === 'image' ? "Structural merging and page injection require a PDF layout document." : "Page Options"}
               >
-                <line x1="12" y1="5" x2="12" y2="19"></line><line
-                  x1="5"
-                  y1="12"
-                  x2="19"
-                  y2="12"
-                ></line>
-              </svg>
-            </button>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19"></line><line
+                    x1="5"
+                    y1="12"
+                    x2="19"
+                    y2="12"
+                  ></line>
+                </svg>
+              </button>
 
-            <button
-              onclick={(e) => dropTargetPageElement(e, pageNum)}
-              class="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/20 transition-colors"
-              title="Delete Page"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="11"
-                height="11"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
+              {#if isPageMenuOpen && insertAfterPageNum === pageNum && activeDoc.fileType !== 'image'}
+                <div 
+                  class="absolute bottom-full left-0 mb-2 z-[100] bg-slate-950 opacity-100 text-slate-200 border border-slate-800 p-1.5 rounded flex flex-col gap-0.5 min-w-[125px] shadow-[0_15px_30px_rgba(0,0,0,0.95)] pointer-events-auto"
+                  style="z-index: 99999 !important; background-color: #020617 !important; opacity: 1 !important;"
+                  use:clickOutside={() => isPageMenuOpen = false}
+                >
+                  <button
+                    class="w-full text-left px-2 py-1 rounded text-[10px] text-slate-300 hover:bg-cyan-950/40 hover:text-cyan-400 font-medium transition-all"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      isPageMenuOpen = false;
+                      handleMergeAction(); 
+                    }}
+                  >
+                    Add/Merge...
+                  </button>
+                  
+                  <button
+                    class="w-full text-left px-2 py-1 rounded text-[10px] text-slate-300 hover:bg-cyan-950/40 hover:text-cyan-400 font-medium transition-all"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      isPageMenuOpen = false;
+                      handleInsertBlankPage(); 
+                    }}
+                  >
+                    Insert Blank
+                  </button>
+                </div>
+              {/if}
+            </div>
+
+            {#if activeDoc.fileType !== 'image'}
+              <button
+                type="button"
+                disabled={activeDoc.pageOrder.length <= 1}
+                class="p-1 rounded transition-all 
+                  {activeDoc.pageOrder.length <= 1 
+                    ? 'opacity-20 cursor-not-allowed pointer-events-none text-slate-600' 
+                    : 'text-slate-400 hover:bg-slate-800 hover:text-red-400'}"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  if (activeDoc.pageOrder.length <= 1) return;
+                  dropTargetPageElement(e, pageNum);
+                }}
+                title={activeDoc.pageOrder.length <= 1 ? "Cannot delete the sole sheet of a document" : "Delete Page"}
               >
-                <path d="M3 6h18" /><path
-                  d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"
-                /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-              </svg>
-            </button>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="11"
+                  height="11"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M3 6h18" /><path
+                    d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"
+                  /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                </svg>
+              </button>
+            {/if}
 
             <button
               onclick={(e) => {
@@ -644,6 +825,7 @@
           </div>
         </div>
       {/each}
+      {/if}
 
       <input
         type="file"
