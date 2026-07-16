@@ -1,3 +1,15 @@
+export interface TextShape {
+	id: string;
+	type: "text";
+	text: string;
+	x: number;
+	y: number;
+	fontSize: number;
+	fontFamily: "Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono";
+	color: string;
+	opacity: number;
+}
+
 export interface AnnotationShape {
 	type:
 		| "rect"
@@ -27,6 +39,7 @@ export interface AnnotationShape {
 	size?: number; // Custom font size in points
 	style?: "Normal" | "Bold" | "Italic"; // Font style variant
 	lineStyle?: "solid" | "dashed" | "dotted" | "dash-dot";
+	fontFamily?: "Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono";
 }
 
 export interface Bookmark {
@@ -95,6 +108,7 @@ export interface SharedDocumentState {
 	activeColor: string;
 	activeThickness: number;
 	activeLineStyle: "solid" | "dashed" | "dotted" | "dash-dot";
+	activeFontFamily: "Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono";
 	zoomScale: number;
 	defaultFont: string;
 	defaultSize: number;
@@ -138,12 +152,36 @@ export const FONT_MAP: Record<
 			Italic: "Times-Italic",
 		},
 	},
+	"Times-Roman": {
+		css: "'Times New Roman', Times, serif",
+		pdf: {
+			Normal: "Times-Roman",
+			Bold: "Times-Bold",
+			Italic: "Times-Italic",
+		},
+	},
 	Courier: {
 		css: "'Courier New', Courier, monospace",
 		pdf: {
 			Normal: "Courier",
 			Bold: "Courier-Bold",
 			Italic: "Courier-Oblique",
+		},
+	},
+	Inter: {
+		css: "Inter, sans-serif",
+		pdf: {
+			Normal: "Inter-Regular",
+			Bold: "Inter-Bold",
+			Italic: "Inter-Italic",
+		},
+	},
+	JetBrainsMono: {
+		css: "'JetBrains Mono', monospace",
+		pdf: {
+			Normal: "JetBrainsMono-Regular",
+			Bold: "JetBrainsMono-Bold",
+			Italic: "JetBrainsMono-Italic",
 		},
 	},
 };
@@ -166,6 +204,7 @@ let selectedShapes = $state<SharedDocumentState["selectedShapes"]>([]);
 let activeColor = $state("#000000");
 let activeThickness = $state(3);
 let activeLineStyle = $state<"solid" | "dashed" | "dotted" | "dash-dot">("solid");
+let activeFontFamily = $state<"Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono">("Helvetica");
 let zoomScale = $state(120);
 let defaultFont = $state("Helvetica");
 let defaultSize = $state(12);
@@ -324,6 +363,34 @@ export const activeDoc: SharedDocumentState = {
 						list[s.index] = {
 							...list[s.index],
 							lineStyle: val,
+						};
+						activeDoc.shapes = {
+							...activeDoc.shapes,
+							[s.pageNumber]: list,
+						};
+					}
+				});
+				activeDoc.isDirty = true;
+			}
+		}
+	},
+	get activeFontFamily() { return activeFontFamily; },
+	set activeFontFamily(val) {
+		activeFontFamily = val;
+		if (selectedShapes.length > 0) {
+			const needsUpdate = selectedShapes.some((s) => {
+				const shape = activeDoc.shapes[s.pageNumber]?.[s.index];
+				return shape && shape.fontFamily !== val;
+			});
+			if (needsUpdate) {
+				pushHistorySnapshot();
+				selectedShapes.forEach((s) => {
+					const list = [...(activeDoc.shapes[s.pageNumber] || [])];
+					if (list[s.index]) {
+						list[s.index] = {
+							...list[s.index],
+							fontFamily: val,
+							font: val, // Keep in sync for compatibility
 						};
 						activeDoc.shapes = {
 							...activeDoc.shapes,
