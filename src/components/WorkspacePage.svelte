@@ -16,6 +16,13 @@
   let activeTextLayer: InstanceType<typeof pdfjsLib.TextLayer> | null = null;
   let rendering = false;
 
+  const strokeDasharrays = {
+    solid: "none",
+    dashed: "6,6",
+    dotted: "2,4",
+    "dash-dot": "6,3,2,3"
+  };
+
   let isPreloaded = $state(false); // Tracks metadata visibility (Wide)
   let isRendered = $state(false);  // Tracks canvas paint visibility (Tight)
   let basePageWidth = $state<number>(612); // standard letter/A4 default fallback
@@ -1042,7 +1049,7 @@
           x: liveHighlightPoints[0].x,
           y: liveHighlightPoints[0].y,
           points: [...liveHighlightPoints],
-          color: currentTool === "pen" ? activeDoc.activeColor : "#fff200",
+          color: activeDoc.activeColor,
           thickness: activeDoc.activeThickness
         };
         const existing = activeDoc.shapes[pageNumber] || [];
@@ -1167,6 +1174,7 @@
         height: Math.abs(endNorm.y - startNorm.y),
         color: activeDoc.activeColor,
         thickness: activeDoc.activeThickness,
+        lineStyle: activeDoc.activeLineStyle,
       };
       const existing = activeDoc.shapes[pageNumber] || [];
       activeDoc.shapes = {
@@ -1413,9 +1421,8 @@
                 activeDoc.selectedShape = { pageNumber, index: idx };
             }}
             points={getDisplayPoints(shape.points).map((p) => `${p.x},${p.y}`).join(" ")}
-            stroke="#fff200"
-            stroke-width="2.0"
-            stroke-opacity="0.42"
+            stroke={shape.color || "#fff200"}
+            stroke-opacity={shape.color && shape.color.length === 9 ? undefined : "0.42"}
             fill="none"
             stroke-linecap="round"
             stroke-linejoin="round"
@@ -1445,9 +1452,9 @@
         {#if activeDoc.activeTool === "highlight"}
           <polyline
             points={getDisplayPoints(liveHighlightPoints).map((p) => `${p.x},${p.y}`).join(" ")}
-            stroke="#fff200"
+            stroke={activeDoc.activeColor || "#fff200"}
             stroke-width="2.0"
-            stroke-opacity="0.48"
+            stroke-opacity={activeDoc.activeColor && activeDoc.activeColor.length === 9 ? undefined : "0.48"}
             fill="none"
             stroke-linecap="round"
             stroke-linejoin="round"
@@ -1477,20 +1484,22 @@
               {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
               ? 'shadow-[0_0_12px_rgba(0,210,255,0.35)] ring-1 ring-[#00d2ff]/40'
               : ''}"
-            style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%;"
+            style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; overflow: visible;"
           >
             <svg
               viewBox="0 0 100 100"
               preserveAspectRatio="none"
-              class="w-full h-full"
+              class="w-full h-full overflow-visible pointer-events-none"
             >
               <ellipse
                 cx="50"
                 cy="50"
-                rx="48"
-                ry="48"
+                rx="47"
+                ry="47"
                 stroke={shape.color || "#000000"}
                 stroke-width={shape.type === "oval" ? (shape.thickness || 3) : "0"}
+                stroke-dasharray={shape.type === "oval" && shape.lineStyle ? strokeDasharrays[shape.lineStyle] : "none"}
+                vector-effect="non-scaling-stroke"
                 fill={shape.type === "oval-fill" ? shape.color || "#000000" : "none"}
               />
             </svg>
@@ -1526,10 +1535,27 @@
               {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
               ? 'shadow-[0_0_12px_rgba(0,210,255,0.35)] ring-1 ring-[#00d2ff]/40'
               : ''}"
-            style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; 
-                   border: {shape.type.includes('-fill') ? '0px' : (shape.thickness || 3) + 'px'} solid {shape.color || '#000000'}; 
-                   background-color: {shape.type.includes('-fill') ? shape.color || '#000000' : 'transparent'};"
+            style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; overflow: visible;"
           >
+            <svg
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              class="w-full h-full overflow-visible pointer-events-none absolute inset-0"
+            >
+              <rect
+                x="1.5"
+                y="1.5"
+                width="97"
+                height="97"
+                rx={shape.type.includes('round') ? 8 : 0}
+                ry={shape.type.includes('round') ? 8 : 0}
+                stroke={shape.type.includes('-fill') ? 'none' : (shape.color || "#000000")}
+                stroke-width={shape.type.includes('-fill') ? 0 : (shape.thickness || 3)}
+                stroke-dasharray={!shape.type.includes('-fill') && shape.lineStyle ? strokeDasharrays[shape.lineStyle] : "none"}
+                vector-effect="non-scaling-stroke"
+                fill={shape.type.includes('-fill') ? shape.color || "#000000" : "none"}
+              />
+            </svg>
             {#if activeDoc.activeTool === "select" && activeDoc.selectedShapes.length === 1 && activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)}
               <div
                 onmousedown={(e) => initHandleDrag(e, idx, "tl")}
@@ -1773,36 +1799,52 @@
           <svg
             viewBox="0 0 100 100"
             preserveAspectRatio="none"
-            class="w-full h-full"
+            class="w-full h-full overflow-visible"
           >
             <ellipse
               cx="50"
               cy="50"
-              rx="48"
-              ry="48"
+              rx="47"
+              ry="47"
               stroke={activeDoc.activeColor}
-              stroke-width={activeDoc.activeTool === "oval" ? "4" : "0"}
-              stroke-dasharray={activeDoc.activeTool === "oval" ? "6,4" : "none"}
+              stroke-width={activeDoc.activeTool === "oval" ? (activeDoc.activeThickness || 3) : "0"}
+              stroke-dasharray={activeDoc.activeTool === "oval" && activeDoc.activeLineStyle ? strokeDasharrays[activeDoc.activeLineStyle] : "none"}
+              vector-effect="non-scaling-stroke"
               fill={activeDoc.activeTool === "oval-fill" ? activeDoc.activeColor : activeDoc.activeColor + '12'}
             />
           </svg>
         </div>
       {:else}
         <div
-          class="absolute border-2 border-dashed"
+          class="absolute"
           style="left: {Math.min(startX, currentX)}px; top: {Math.min(
             startY,
             currentY,
           )}px; 
                  width: {Math.abs(currentX - startX)}px; height: {Math.abs(
             currentY - startY,
-          )}px;
-                 border-color: {activeDoc.activeColor};
-                 border-radius: {activeDoc.activeTool?.includes('round') ? '8px' : '0px'};
-                 background-color: {activeDoc.activeTool?.includes('-fill')
-            ? activeDoc.activeColor
-            : activeDoc.activeColor + '12'};"
-        ></div>
+          )}px;"
+        >
+          <svg
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            class="w-full h-full overflow-visible pointer-events-none absolute inset-0"
+          >
+            <rect
+              x="1.5"
+              y="1.5"
+              width="97"
+              height="97"
+              rx={activeDoc.activeTool?.includes('round') ? 8 : 0}
+              ry={activeDoc.activeTool?.includes('round') ? 8 : 0}
+              stroke={activeDoc.activeTool?.includes('-fill') ? 'none' : activeDoc.activeColor}
+              stroke-width={activeDoc.activeTool?.includes('-fill') ? 0 : (activeDoc.activeThickness || 3)}
+              stroke-dasharray={!activeDoc.activeTool?.includes('-fill') && activeDoc.activeLineStyle ? strokeDasharrays[activeDoc.activeLineStyle] : "none"}
+              vector-effect="non-scaling-stroke"
+              fill={activeDoc.activeTool?.includes('-fill') ? activeDoc.activeColor : activeDoc.activeColor + '12'}
+            />
+          </svg>
+        </div>
       {/if}
     {/if}
   </div>

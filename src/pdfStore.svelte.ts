@@ -26,6 +26,7 @@ export interface AnnotationShape {
 	font?: string; // Custom font family name
 	size?: number; // Custom font size in points
 	style?: "Normal" | "Bold" | "Italic"; // Font style variant
+	lineStyle?: "solid" | "dashed" | "dotted" | "dash-dot";
 }
 
 export interface Bookmark {
@@ -93,6 +94,7 @@ export interface SharedDocumentState {
 	filePath: string | null;
 	activeColor: string;
 	activeThickness: number;
+	activeLineStyle: "solid" | "dashed" | "dotted" | "dash-dot";
 	zoomScale: number;
 	defaultFont: string;
 	defaultSize: number;
@@ -163,6 +165,7 @@ let selectedShape = $state<SharedDocumentState["selectedShape"]>(null);
 let selectedShapes = $state<SharedDocumentState["selectedShapes"]>([]);
 let activeColor = $state("#000000");
 let activeThickness = $state(3);
+let activeLineStyle = $state<"solid" | "dashed" | "dotted" | "dash-dot">("solid");
 let zoomScale = $state(120);
 let defaultFont = $state("Helvetica");
 let defaultSize = $state(12);
@@ -251,9 +254,87 @@ export const activeDoc: SharedDocumentState = {
 	get selectedShapes() { return selectedShapes; },
 	set selectedShapes(val) { selectedShapes = val; },
 	get activeColor() { return activeColor; },
-	set activeColor(val) { activeColor = val; },
+	set activeColor(val) {
+		activeColor = val;
+		if (selectedShapes.length > 0) {
+			const needsUpdate = selectedShapes.some((s) => {
+				const shape = activeDoc.shapes[s.pageNumber]?.[s.index];
+				return shape && shape.color !== val;
+			});
+			if (needsUpdate) {
+				pushHistorySnapshot();
+				selectedShapes.forEach((s) => {
+					const list = [...(activeDoc.shapes[s.pageNumber] || [])];
+					if (list[s.index]) {
+						list[s.index] = {
+							...list[s.index],
+							color: val,
+							textColor: val,
+						};
+						activeDoc.shapes = {
+							...activeDoc.shapes,
+							[s.pageNumber]: list,
+						};
+					}
+				});
+				activeDoc.isDirty = true;
+			}
+		}
+	},
 	get activeThickness() { return activeThickness; },
-	set activeThickness(val) { activeThickness = val; },
+	set activeThickness(val) {
+		activeThickness = val;
+		if (selectedShapes.length > 0) {
+			const needsUpdate = selectedShapes.some((s) => {
+				const shape = activeDoc.shapes[s.pageNumber]?.[s.index];
+				return shape && shape.thickness !== val;
+			});
+			if (needsUpdate) {
+				pushHistorySnapshot();
+				selectedShapes.forEach((s) => {
+					const list = [...(activeDoc.shapes[s.pageNumber] || [])];
+					if (list[s.index]) {
+						list[s.index] = {
+							...list[s.index],
+							thickness: val,
+						};
+						activeDoc.shapes = {
+							...activeDoc.shapes,
+							[s.pageNumber]: list,
+						};
+					}
+				});
+				activeDoc.isDirty = true;
+			}
+		}
+	},
+	get activeLineStyle() { return activeLineStyle; },
+	set activeLineStyle(val) {
+		activeLineStyle = val;
+		if (selectedShapes.length > 0) {
+			const needsUpdate = selectedShapes.some((s) => {
+				const shape = activeDoc.shapes[s.pageNumber]?.[s.index];
+				return shape && shape.lineStyle !== val;
+			});
+			if (needsUpdate) {
+				pushHistorySnapshot();
+				selectedShapes.forEach((s) => {
+					const list = [...(activeDoc.shapes[s.pageNumber] || [])];
+					if (list[s.index]) {
+						list[s.index] = {
+							...list[s.index],
+							lineStyle: val,
+						};
+						activeDoc.shapes = {
+							...activeDoc.shapes,
+							[s.pageNumber]: list,
+						};
+					}
+				});
+				activeDoc.isDirty = true;
+			}
+		}
+	},
 	get zoomScale() { return zoomScale; },
 	set zoomScale(val) { zoomScale = val; },
 	get defaultFont() { return defaultFont; },

@@ -53,6 +53,22 @@
     return rgb(r, g, b);
   }
 
+  function getHexOpacity(hexString: string): number {
+    const hex = hexString.replace("#", "");
+    if (hex.length === 8) {
+      return parseInt(hex.substring(6, 8), 16) / 255;
+    }
+    return 1.0;
+  }
+
+  function getDashArray(lineStyle?: string): number[] | undefined {
+    if (!lineStyle || lineStyle === "solid") return undefined;
+    if (lineStyle === "dashed") return [6, 6];
+    if (lineStyle === "dotted") return [2, 3];
+    if (lineStyle === "dash-dot") return [6, 3, 2, 3];
+    return undefined;
+  }
+
   async function drawAnnotationsOnPage(
     destDoc: PDFDocument,
     page: any,
@@ -83,6 +99,8 @@
           height: h,
           borderColor: resolvedColorRgb,
           borderWidth: 2,
+          opacity: getHexOpacity(shapeColorHex),
+          borderDashArray: getDashArray(s.lineStyle),
         });
       } else if (s.type === "rect-fill") {
         page.drawRectangle({
@@ -91,6 +109,7 @@
           width: w,
           height: h,
           color: resolvedColorRgb,
+          opacity: getHexOpacity(shapeColorHex),
         });
       } else if (s.type === "oval") {
         page.drawEllipse({
@@ -100,6 +119,8 @@
           yScale: h / 2,
           borderColor: resolvedColorRgb,
           borderWidth: 2,
+          opacity: getHexOpacity(shapeColorHex),
+          borderDashArray: getDashArray(s.lineStyle),
         });
       } else if (s.type === "oval-fill") {
         page.drawEllipse({
@@ -108,6 +129,7 @@
           xScale: w / 2,
           yScale: h / 2,
           color: resolvedColorRgb,
+          opacity: getHexOpacity(shapeColorHex),
         });
       } else if (s.type === "text") {
         const fontName = s.font || "Helvetica";
@@ -126,12 +148,15 @@
         const textBaselineY = pageHeight - (s.y / 100) * pageHeight;
         const zoomMultiplier = (activeDoc.zoomScale || 120) / 100;
         const yOffset = 10 / zoomMultiplier;
+        const textHexColor = s.textColor || s.color || "#000000";
+        const resolvedTextColorRgb = hexToRgb(textHexColor);
         page.drawText(s?.text || "", {
           x,
           y: textBaselineY - yOffset,
           size: fontSize,
           font: pdfFont,
-          color: rgb(0.05, 0.09, 0.16),
+          color: resolvedTextColorRgb,
+          opacity: getHexOpacity(textHexColor),
         });
       } else if (s.type === "tick") {
         const startPt = { x: x + w * 0.167, y: y + h * 0.5 };
@@ -143,6 +168,7 @@
           color: resolvedColorRgb,
           thickness: 3.5,
           lineCap: LineCapStyle.Round,
+          opacity: getHexOpacity(shapeColorHex),
         });
         page.drawLine({
           start: vertexPt,
@@ -150,6 +176,7 @@
           color: resolvedColorRgb,
           thickness: 3.5,
           lineCap: LineCapStyle.Round,
+          opacity: getHexOpacity(shapeColorHex),
         });
       } else if (s.type === "dash") {
         page.drawLine({
@@ -158,6 +185,7 @@
           color: resolvedColorRgb,
           thickness: 3.5,
           lineCap: LineCapStyle.Round,
+          opacity: getHexOpacity(shapeColorHex),
         });
       } else if (
         (s.type === "signature" || s.type === "initial") &&
@@ -192,9 +220,9 @@
               x: (p2.x / 100) * pageWidth,
               y: pageHeight - (p2.y / 100) * pageHeight,
             },
-            color: rgb(1.0, 1.0, 0.0),
-            thickness: (2.0 / 100) * pageWidth,
-            opacity: 0.40,
+            color: resolvedColorRgb,
+            thickness: s.thickness || (2.0 / 100) * pageWidth,
+            opacity: shapeColorHex.replace('#', '').length === 8 ? getHexOpacity(shapeColorHex) : 0.40,
             blendMode: BlendMode.Multiply,
             lineCap: LineCapStyle.Round,
           });
@@ -218,7 +246,7 @@
             },
             color: resolvedColorRgb,
             thickness: s.thickness || 3,
-            opacity: 1.0,
+            opacity: getHexOpacity(shapeColorHex),
             lineCap: LineCapStyle.Round,
           });
         }
@@ -489,6 +517,11 @@
         ctx.lineWidth = shape.thickness || 3;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
+        
+        const dashPattern = getDashArray(shape.lineStyle);
+        if (dashPattern) {
+          ctx.setLineDash(dashPattern);
+        }
         
         if (shape.type === 'rect') {
           ctx.strokeRect(x, y, w, h);

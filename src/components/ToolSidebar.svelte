@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { activeDoc, saveSignatureSetAction } from "../pdfStore.svelte";
 
   // ⚡ FIXED: This explicitly sets up the missing property mapping for line 118 in +page.svelte
@@ -20,6 +21,68 @@
   let initDrawing = false;
   let lastX = 0;
   let lastY = 0;
+
+  let customColor = $state('#22d3ee'); // Default cyan accent
+  let globalOpacity = $state(100);    // Default 100% solid
+
+  $effect(() => {
+    const activeColor = doc.activeColor || '#000000';
+    untrack(() => {
+      const hex = activeColor.startsWith('#') ? activeColor : `#${activeColor}`;
+      if (hex.length === 9) { // #RRGGBBAA is 9 characters (including #)
+        const colorPart = hex.substring(0, 7);
+        const alphaPart = hex.substring(7, 9);
+        if (customColor !== colorPart) {
+          customColor = colorPart;
+        }
+        const opacityVal = Math.round((parseInt(alphaPart, 16) / 255) * 100);
+        if (globalOpacity !== opacityVal) {
+          globalOpacity = opacityVal;
+        }
+      } else if (hex.length === 7) {
+        if (customColor !== hex) {
+          customColor = hex;
+        }
+        if (globalOpacity !== 100) {
+          globalOpacity = 100;
+        }
+      }
+    });
+  });
+
+  $effect(() => {
+    const colorHex = customColor;
+    const opacityVal = globalOpacity;
+    untrack(() => {
+      const alphaInt = Math.round((opacityVal / 100) * 255);
+      const alphaHex = alphaInt.toString(16).padStart(2, '0');
+      const hexPrefix = colorHex.startsWith('#') ? colorHex : `#${colorHex}`;
+      const targetColor = `${hexPrefix}${alphaHex}`.toLowerCase();
+      if ((doc.activeColor || '').toLowerCase() !== targetColor) {
+        doc.activeColor = targetColor;
+      }
+    });
+  });
+
+  $effect(() => {
+    const sel = doc.selectedShape;
+    if (sel) {
+      const shape = doc.shapes[sel.pageNumber]?.[sel.index];
+      if (shape) {
+        untrack(() => {
+          if (shape.color && doc.activeColor !== shape.color) {
+            doc.activeColor = shape.color;
+          }
+          if (shape.thickness && doc.activeThickness !== shape.thickness) {
+            doc.activeThickness = shape.thickness;
+          }
+          if (shape.lineStyle && doc.activeLineStyle !== shape.lineStyle) {
+            doc.activeLineStyle = shape.lineStyle;
+          }
+        });
+      }
+    }
+  });
 
   const colorPalette = [
     { name: "Black", hex: "#000000" },
@@ -286,10 +349,10 @@
       ></div>
       <div
         onclick={(e) => e.stopPropagation()}
-        class="absolute left-14 top-0 w-44 bg-[#090d16] border border-slate-900 rounded-lg shadow-2xl p-2 flex flex-col gap-1 z-50 text-left"
+        class="absolute left-14 top-0 w-44 bg-slate-950 border border-slate-800 rounded-lg shadow-2xl p-2 flex flex-col gap-1 z-50 text-left backdrop-blur-md"
       >
         <span
-          class="text-[8px] font-bold tracking-widest uppercase text-slate-500 block border-b border-slate-900/40 pb-1.5 px-1"
+          class="text-[8px] font-bold tracking-widest uppercase text-slate-400 block border-b border-slate-800 pb-1.5 px-1"
           >Shape Tools</span
         >
         {#each shapeVariants as shape}
@@ -510,14 +573,14 @@
         isThicknessMenuOpen = false;
         isColorMenuOpen = !isColorMenuOpen;
       }}
-      class="w-[18px] h-[18px] rounded-full border transition-all duration-150 cursor-pointer shadow-md flex items-center justify-center relative hover:scale-105 active:scale-95 {doc.activeColor ===
+      class="w-[18px] h-[18px] rounded-full border transition-all duration-150 cursor-pointer shadow-md flex items-center justify-center relative hover:scale-105 active:scale-95 {(doc.activeColor || '').substring(0, 7) ===
       '#000000'
         ? 'border-slate-700/80 bg-black'
         : 'border-white/20'}"
       style="background-color: {doc.activeColor};"
       title="Ink Profile: Click to change color"
     >
-      {#if doc.activeColor === "#000000"}<div
+      {#if (doc.activeColor || '').substring(0, 7) === "#000000"}<div
           class="absolute inset-0 rounded-full border border-slate-800 pointer-events-none"
         ></div>{/if}
     </button>
@@ -528,20 +591,21 @@
       ></div>
       <div
         onclick={(e) => e.stopPropagation()}
-        class="absolute left-10 top-0 bg-[#090d16] border border-slate-900 rounded-lg shadow-2xl p-2 flex flex-col gap-2 z-50 text-center pointer-events-auto select-none"
+        class="absolute z-[100] mt-2 p-3 bg-slate-950 border border-slate-800 rounded-lg shadow-2xl text-slate-200 w-72 backdrop-blur-md left-10 top-0 text-left pointer-events-auto select-none"
+        style="color-scheme: dark;"
       >
         <span
-          class="text-[8px] font-bold tracking-widest uppercase text-slate-500 block border-b border-slate-900/40 pb-1 px-1 whitespace-nowrap"
+          class="text-[8px] font-bold tracking-widest uppercase text-slate-400 block border-b border-slate-800 pb-1.5 px-1 whitespace-nowrap mb-2"
           >Ink Color</span
         >
-        <div class="flex flex-col gap-1.5 items-center px-1">
+        <div class="flex items-center gap-1.5 px-1">
           {#each colorPalette as color}
             <button
               onclick={() => {
                 doc.activeColor = color.hex;
                 isColorMenuOpen = false;
               }}
-              class="w-4 h-4 rounded-full border transition-all duration-150 cursor-pointer relative shadow-inner {doc.activeColor ===
+              class="w-4 h-4 rounded-full border transition-all duration-150 cursor-pointer relative shadow-inner {(doc.activeColor || '').substring(0, 7) ===
               color.hex
                 ? 'ring-2 ring-slate-400 scale-110 border-white'
                 : 'border-slate-900/80 hover:scale-110'}"
@@ -553,6 +617,48 @@
                 ></div>{/if}
             </button>
           {/each}
+
+          <div class="flex items-center gap-3 pl-2 border-l border-slate-800 ml-1">
+            <div 
+              class="relative w-6 h-6 rounded-full border border-slate-700 shadow-md group hover:scale-105 transition-transform cursor-pointer"
+              style="background-color: {customColor};"
+              title="Choose Custom Color"
+            >
+              <input 
+                type="color" 
+                bind:value={customColor}
+                oninput={() => {
+                  const alphaInt = Math.round((globalOpacity / 100) * 255);
+                  const alphaHex = alphaInt.toString(16).padStart(2, '0');
+                  const colorHex = customColor.startsWith('#') ? customColor : `#${customColor}`;
+                  doc.activeColor = `${colorHex}${alphaHex}`.toLowerCase();
+                }}
+                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                style="color-scheme: dark;"
+              />
+            </div>
+
+            <div class="flex flex-col gap-0.5 w-24">
+              <div class="flex justify-between items-center text-[10px] text-slate-500 font-mono select-none">
+                <span>Opacity</span>
+                <span class="text-slate-400">{globalOpacity}%</span>
+              </div>
+              <input 
+                type="range" 
+                min="10" 
+                max="100" 
+                step="5"
+                bind:value={globalOpacity}
+                oninput={() => {
+                  const alphaInt = Math.round((globalOpacity / 100) * 255);
+                  const alphaHex = alphaInt.toString(16).padStart(2, '0');
+                  const colorHex = customColor.startsWith('#') ? customColor : `#${customColor}`;
+                  doc.activeColor = `${colorHex}${alphaHex}`.toLowerCase();
+                }}
+                class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500 transition-all hover:bg-slate-750"
+              />
+            </div>
+          </div>
         </div>
       </div>
     {/if}
@@ -570,7 +676,20 @@
       class="w-6 h-6 flex items-center justify-center transition-all bg-transparent pointer-events-auto relative overflow-hidden group/thickness hover:scale-110 active:scale-95"
       title="Line Thickness"
     >
-      <div class="w-4 rounded-full bg-slate-400 group-hover/thickness:bg-white transition-colors" style="height: {doc.activeThickness}px;"></div>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-linecap="round"
+        class="text-slate-400 group-hover/thickness:text-white transition-colors"
+      >
+        <line x1="3" y1="6" x2="21" y2="6" stroke-width="1.5" />
+        <line x1="3" y1="12" x2="21" y2="12" stroke-width="3" />
+        <line x1="3" y1="18" x2="21" y2="18" stroke-width="5.5" />
+      </svg>
     </button>
 
     {#if isThicknessMenuOpen}
@@ -580,21 +699,62 @@
       ></div>
       <div
         onclick={(e) => e.stopPropagation()}
-        class="absolute left-10 top-0 flex flex-col gap-3 p-3 bg-[#090d16] border border-slate-900 rounded-lg shadow-2xl z-50 pointer-events-auto min-w-[48px]"
+        class="absolute left-10 top-0 flex gap-4 p-3 bg-slate-950 border border-slate-800 rounded-lg shadow-2xl z-50 pointer-events-auto backdrop-blur-md select-none"
+        style="color-scheme: dark;"
       >
-        {#each thicknessOptions as thick}
-          <button
-            onclick={(e) => {
-              e.stopPropagation();
-              doc.activeThickness = thick;
-              isThicknessMenuOpen = false;
-            }}
-            class="w-full flex items-center justify-center py-2 cursor-pointer hover:bg-slate-800/50 rounded transition-colors {doc.activeThickness === thick ? 'bg-slate-800/80' : ''}"
-            title="{thick}px"
-          >
-            <div class="w-8 rounded-full transition-colors {doc.activeThickness === thick ? 'bg-cyan-400' : 'bg-slate-400'}" style="height: {thick}px;"></div>
-          </button>
-        {/each}
+        <!-- Column 1: Thickness -->
+        <div class="flex flex-col gap-2 min-w-[48px]">
+          <span class="text-[8px] font-bold uppercase text-slate-400 tracking-wider text-center border-b border-slate-800 pb-1">Size</span>
+          {#each thicknessOptions as thick}
+            <button
+              onclick={(e) => {
+                e.stopPropagation();
+                doc.activeThickness = thick;
+              }}
+              class="w-full flex items-center justify-center py-2 cursor-pointer hover:bg-slate-800/50 rounded transition-colors {doc.activeThickness === thick ? 'bg-slate-850/80 text-cyan-400' : 'text-slate-400'}"
+              title="{thick}px"
+            >
+              <div class="w-8 rounded-full transition-colors {doc.activeThickness === thick ? 'bg-cyan-400' : 'bg-slate-400'}" style="height: {thick}px;"></div>
+            </button>
+          {/each}
+        </div>
+
+        <!-- Vertical Divider -->
+        <div class="w-[1px] bg-slate-800"></div>
+
+        <!-- Column 2: Line Style -->
+        <div class="flex flex-col gap-2 min-w-[80px]">
+          <span class="text-[8px] font-bold uppercase text-slate-400 tracking-wider text-center border-b border-slate-800 pb-1">Style</span>
+          {#each [
+            { id: "solid", name: "Solid", dash: "none" },
+            { id: "dashed", name: "Dashed", dash: "6,6" },
+            { id: "dotted", name: "Dotted", dash: "2,4" },
+            { id: "dash-dot", name: "Dash-Dot", dash: "6,3,2,3" }
+          ] as style}
+            <button
+              onclick={(e) => {
+                e.stopPropagation();
+                doc.activeLineStyle = style.id;
+              }}
+              class="w-full flex flex-col items-center justify-center py-1.5 px-2 cursor-pointer hover:bg-slate-800/50 rounded transition-colors {doc.activeLineStyle === style.id ? 'bg-slate-850/80 text-cyan-400' : 'text-slate-400'}"
+              title={style.name}
+            >
+              <span class="text-[8px] font-medium tracking-wide mb-1 font-sans">{style.name}</span>
+              <svg width="48" height="6" class="overflow-visible">
+                <line 
+                  x1="0" 
+                  y1="3" 
+                  x2="48" 
+                  y2="3" 
+                  stroke={doc.activeLineStyle === style.id ? '#22d3ee' : '#64748b'} 
+                  stroke-width="2.5" 
+                  stroke-linecap="round"
+                  stroke-dasharray={style.dash} 
+                />
+              </svg>
+            </button>
+          {/each}
+        </div>
       </div>
     {/if}
   </div>
