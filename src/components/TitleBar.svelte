@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { save } from "@tauri-apps/plugin-dialog";
   import * as pdfjsLib from "pdfjs-dist";
   import { activeDoc, FONT_MAP, undoStack, redoStack } from "../pdfStore.svelte";
   import { PDFDocument, rgb, degrees, BlendMode, LineCapStyle, PDFString, PDFName } from "pdf-lib";
@@ -420,31 +421,226 @@
     }
   }
 
-  async function triggerFileSaveAs() {
-    if (!activeDoc.rawBytes) return;
+  async function flattenWorkspaceToImage(): Promise<Uint8Array | null> {
+    if (!activeDoc.imageUrl) return null;
     try {
-      console.log("Compiling and flattening PDF annotations...");
-      const compiledBytes = await flattenWorkspaceToPDF();
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = (err) => reject(err);
+        img.src = activeDoc.imageUrl || "";
+      });
+
+      const basePageWidth = img.naturalWidth || img.width;
+      const basePageHeight = img.naturalHeight || img.height;
+
+      const shapes = activeDoc.shapes[1] || [];
+      const imgElements: { [key: number]: HTMLImageElement } = {};
+      for (let i = 0; i < shapes.length; i++) {
+        const shape = shapes[i];
+        if (shape && (shape.type === 'signature' || shape.type === 'initial') && shape.dataUrl) {
+          try {
+            const sigImg = new Image();
+            await new Promise<void>((resolve, reject) => {
+              sigImg.onload = () => resolve();
+              sigImg.onerror = (err) => reject(err);
+              sigImg.src = shape.dataUrl || "";
+            });
+            imgElements[i] = sigImg;
+          } catch (e) {
+            console.error("Failed to preload signature image:", e);
+          }
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      const rotation = activeDoc.imageRotation || 0;
+      const isRotated90 = rotation === 90 || rotation === 270;
+      
+      const W = basePageWidth;
+      const H = basePageHeight;
+      
+      canvas.width = isRotated90 ? H : W;
+      canvas.height = isRotated90 ? W : H;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate((rotation * Math.PI) / 180);
+      ctx.drawImage(img, -W / 2, -H / 2, W, H);
+      
+      for (let i = 0; i < shapes.length; i++) {
+        const shape = shapes[i];
+        if (!shape) continue;
+        
+        const x = -W / 2 + (shape.x / 100) * W;
+        const y = -H / 2 + (shape.y / 100) * H;
+        const w = (shape.width ?? 0) / 100 * W;
+        const h = (shape.height ?? 0) / 100 * H;
+        
+        ctx.save();
+        ctx.strokeStyle = shape.color || '#000000';
+        ctx.fillStyle = shape.color || '#000000';
+        ctx.lineWidth = shape.thickness || 3;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        if (shape.type === 'rect') {
+          ctx.strokeRect(x, y, w, h);
+        } else if (shape.type === 'rect-fill') {
+          ctx.fillRect(x, y, w, h);
+        } else if (shape.type === 'round-rect') {
+          ctx.beginPath();
+          if (typeof (ctx as any).roundRect === 'function') {
+            (ctx as any).roundRect(x, y, w, h, 8);
+          } else {
+            ctx.rect(x, y, w, h);
+          }
+          ctx.stroke();
+        } else if (shape.type === 'round-rect-fill') {
+          ctx.beginPath();
+          if (typeof (ctx as any).roundRect === 'function') {
+            (ctx as any).roundRect(x, y, w, h, 8);
+          } else {
+            ctx.rect(x, y, w, h);
+          }
+          ctx.fill();
+        } else if (shape.type === 'oval') {
+          ctx.beginPath();
+          ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, 2 * Math.PI);
+          ctx.stroke();
+        } else if (shape.type === 'oval-fill') {
+          ctx.beginPath();
+          ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, 2 * Math.PI);
+          ctx.fill();
+        } else if (shape.type === 'text') {
+          ctx.fillStyle = shape.textColor || shape.color || '#000000';
+          const fontSize = shape.size || 12;
+          const fontName = shape.font || 'Helvetica';
+          const fontStyle = shape.style === 'Bold' ? 'bold' : shape.style === 'Italic' ? 'italic' : 'normal';
+          ctx.font = `${fontStyle} ${fontSize}px ${fontName}, sans-serif`;
+          ctx.textBaseline = 'middle';
+          ctx.fillText(shape.text || '', x, y);
+        } else if (shape.type === 'tick') {
+          ctx.beginPath();
+          ctx.moveTo(x + (20/24)*w, y + (6/24)*h);
+          ctx.lineTo(x + (9/24)*w, y + (17/24)*h);
+          ctx.lineTo(x + (4/24)*w, y + (12/24)*h);
+          ctx.stroke();
+        } else if (shape.type === 'dash') {
+          ctx.beginPath();
+          ctx.moveTo(x + (2/24)*w, y + (12/24)*h);
+          ctx.lineTo(x + (22/24)*w, y + (12/24)*h);
+          ctx.stroke();
+        } else if (shape.type === 'signature' || shape.type === 'initial') {
+          const sigImg = imgElements[i];
+          if (sigImg) {
+            ctx.drawImage(sigImg, x, y, w, h);
+          }
+        } else if ((shape.type === 'pen' || shape.type === 'highlight') && shape.points) {
+          if (shape.points.length > 0) {
+            ctx.beginPath();
+            const firstPt = shape.points[0];
+            const fx = -W / 2 + (firstPt.x / 100) * W;
+            const fy = -H / 2 + (firstPt.y / 100) * H;
+            ctx.moveTo(fx, fy);
+            for (let j = 1; j < shape.points.length; j++) {
+              const pt = shape.points[j];
+              const px = -W / 2 + (pt.x / 100) * W;
+              const py = -H / 2 + (pt.y / 100) * H;
+              ctx.lineTo(px, py);
+            }
+            if (shape.type === 'highlight') {
+              ctx.strokeStyle = '#fff200';
+              ctx.lineWidth = (2.0 / 100) * W;
+              ctx.globalAlpha = 0.42;
+            }
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+      
+      ctx.restore();
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+      const base64Data = dataUrl.split(',')[1];
+      const binaryString = atob(base64Data);
+      const len = binaryString.length;
+      const resultBytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        resultBytes[i] = binaryString.charCodeAt(i);
+      }
+      return resultBytes;
+    } catch (err) {
+      console.error("Failed to compile image annotations:", err);
+      return null;
+    }
+  }
+
+  async function triggerFileSaveAs() {
+    if (!activeDoc.rawBytes && !activeDoc.imageUrl) return;
+    try {
+      let compiledBytes: Uint8Array | null = null;
+      let defaultName = "";
+
+      if (activeDoc.fileType === 'image') {
+        console.log("Compiling and flattening image annotations...");
+        compiledBytes = await flattenWorkspaceToImage();
+        defaultName = activeDoc.fileName
+          ? activeDoc.fileName.replace(/\.(jpg|jpeg|png)$/i, "") + "_revised.jpg"
+          : 'Untitled.jpg';
+      } else {
+        console.log("Compiling and flattening PDF annotations...");
+        compiledBytes = await flattenWorkspaceToPDF();
+        defaultName = activeDoc.fileName
+          ? activeDoc.fileName.replace(/\.(pdf|tiff|tif)$/i, "") + "_revised.pdf"
+          : 'Untitled.pdf';
+      }
+
       if (!compiledBytes) {
-        alert("Failed to compile annotations into PDF object stream.");
+        alert("Failed to compile annotations.");
         return;
       }
-      const defaultName = activeDoc.fileName
-        ?
-          activeDoc.fileName.replace(/\.(pdf|tiff|tif)$/i, "") + "_revised.pdf"
-        : 'Untitled.pdf';
-      const savedPath = await invoke<string>("native_save_as_file", {
-        fileBytes: Array.from(compiledBytes),
-        defaultPath: defaultName
+
+      // 1. Generate dynamic window filters based on file session mode
+      const dialogFilters = activeDoc.fileType === 'image'
+        ? [
+            {
+              name: 'Images',
+              extensions: ['jpg', 'jpeg', 'png']
+            }
+          ]
+        : [
+            {
+              name: 'PDF',
+              extensions: ['pdf']
+            }
+          ];
+
+      // 2. Pass these filters down into the native Tauri save picker launch options
+      const savedPath = await save({
+        defaultPath: defaultName,
+        filters: dialogFilters
       });
-      activeDoc.filePath = savedPath;
+
       if (savedPath) {
+        await invoke("native_overwrite_file", {
+          path: savedPath,
+          fileBytes: Array.from(compiledBytes),
+        });
+        activeDoc.filePath = savedPath;
         const parts = savedPath.split(/[\\/]/);
         activeDoc.fileName = parts[parts.length - 1];
         activeDoc.isDirty = false;
         if (typeof onSaveSuccess === 'function') onSaveSuccess("File Saved Successfully");
+        console.log("Document footprint committed cleanly to disk via Save As.");
       }
-      console.log("Document footprint committed cleanly to disk via Save As.");
     } catch (err) {
       if (err !== "User cancelled save layout") {
         console.error("File generation layer fault:", err);
@@ -453,12 +649,29 @@
   }
 
   async function triggerFileSave() {
-    if (!activeDoc.rawBytes) return;
+    if (!activeDoc.rawBytes && !activeDoc.imageUrl) return;
     if (!activeDoc.filePath) {
       await triggerFileSaveAs();
       return;
     }
     try {
+      if (activeDoc.fileType === 'image') {
+        console.log("Compiling and flattening image annotations for silent save...");
+        const compiledBytes = await flattenWorkspaceToImage();
+        if (!compiledBytes) {
+          alert("Failed to compile annotations into Image object stream.");
+          return;
+        }
+        await invoke("native_overwrite_file", {
+          path: activeDoc.filePath,
+          fileBytes: Array.from(compiledBytes),
+        });
+        activeDoc.isDirty = false;
+        console.log("Document footprint committed silently to disk.");
+        if (typeof onSaveSuccess === 'function') onSaveSuccess("File Saved Successfully");
+        return;
+      }
+
       console.log(
         "Compiling and flattening PDF annotations for silent save...",
       );
