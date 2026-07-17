@@ -88,11 +88,19 @@ Page restructuring utilises strict immutable list reconciliation tracking loops 
 * **Adaptive Sidebar Geometry:** Toggling the text-heavy Bookmarks tab triggers a smooth width transition resizing the sidebar container from `w-36` to `w-56`, preventing layout truncation while preserving vertical grid space for traditional thumbnail cards.
 * **Low-Level Catalog Serialization:** High-fidelity persistence layer that reads native outline chains on ingestion and programmatically maps new instances straight into the document's binary `/Outlines` directory structure, rendering your custom bookmarks cross-compatible with external engines like Adobe Acrobat.
 
+### 9. Image support ###
+* **Image Editing:** speedDF also opens common image formats (PNG, JPG, TIFF, WebP, BMP) for annotation and export, not only PDFs.
+
+### 10. Real text annotations ###
+* **Real text annotations:** Text annotations in speedDF are stored as real PDF text objects (not flattened drawings), so they remain selectable and editable after export.
+
 ---
 
 ## Core Capabilities & Advanced Engineering Architecture
 
-The following 11 systems were shipped during the v1.0.0 stabilization sprint passes, representing the full production-ready feature matrix:
+
+
+The following 13 systems were shipped during the v1.0.0 stabilization sprint passes, representing the full production-ready feature matrix:
 
 ### 1. Recent Documents Performance Dashboard
 High-contrast layout matrices featuring custom alpha-opacity channel parameters and native document action docking layouts. Structural layout metadata is cached to localStorage on successful renders, enabling instant skeleton hydration of page containers in <5ms on subsequent opens — before IPC bytes even arrive from the Rust backend.

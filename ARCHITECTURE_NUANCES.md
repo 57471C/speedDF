@@ -1,13 +1,13 @@
 # Architecture Nuances Ledger
 
-This document serves as the permanent engineering log for hidden project quirks and critical workarounds in the SpeedDF project.
+This document serves as the permanent engineering log for hidden project quirks and critical workarounds in the speedDF project.
 
 ---
 
 ## Section A: PDF.js Web Worker Security Workaround
 
 ### How the Worker is Embedded
-The PDF.js web worker is served as a static asset in this repository. 
+The PDF.js web worker is served as a static asset in this repository.
 - Files:
   - `static/pdf.worker.mjs`
   - `static/pdf.worker.min.mjs`
@@ -24,74 +24,68 @@ The PDF.js web worker is served as a static asset in this repository.
 
 ### Why Standard Methods Fail (Tauri Local Origin Isolation)
 - **Tauri Secure Origin Policy (`tauri.localhost`):** Tauri applications serve local assets from a custom secure origin (`tauri.localhost` or `http://tauri.localhost`).
-- **CDN Blocking:** Standard live CDNs (like cdnjs or unpkg) cannot be used directly in strict, offline, or firewalled client environments. Additionally, cross-origin web worker restrictions block loading workers from external domains unless complex CORS headers or wrapper blobs are constructed.
-- **Vite Bundling Limits:** Standard dynamic Vite URLs (e.g., `new Worker(new URL(..., import.meta.url))`) often fail or introduce bundling complexity inside Tauri's asset containerization, sometimes yielding path resolution errors at runtime.
-- **Solution:** Manually copying the worker scripts directly into the `static/` directory allows them to be served from the same `tauri.localhost` domain origin, cleanly satisfying all security policies.
+- **CDN Blocking:** Standard live CDNs cannot be used directly in strict offline environments. Cross-origin worker restrictions also block external domains unless complex CORS/blob wrappers are used.
+- **Vite Bundling Limits:** Dynamic Vite worker URLs often fail or resolve incorrectly inside Tauri’s asset container.
+- **Solution:** Manually copy worker scripts into `static/` so they are served from the same origin as the app.
 
 ### Upgrade Protocol
-Whenever `pdfjs-dist` is upgraded in `package.json`:
-1. Run `npm install` to update the package in `node_modules`.
-2. Manually copy the updated worker assets from `node_modules/pdfjs-dist/build/` to the `static/` folder:
+Whenever `pdfjs-dist` is upgraded:
+1. Run `npm install`
+2. Copy updated worker assets from `node_modules/pdfjs-dist/build/` to `static/`:
    ```powershell
    Copy-Item -Path "node_modules/pdfjs-dist/build/pdf.worker.mjs" -Destination "static/pdf.worker.mjs"
    Copy-Item -Path "node_modules/pdfjs-dist/build/pdf.worker.min.mjs" -Destination "static/pdf.worker.min.mjs"
    Copy-Item -Path "node_modules/pdfjs-dist/build/pdf.worker.mjs.map" -Destination "static/pdf.worker.mjs.map"
    ```
-3. Verify that the version string inside the static assets matches the updated main thread library package version.
+3. Confirm the static asset version matches the installed package.
 
 ---
 
 ## Section B: Custom Printing Mechanism Workaround
 
-### The Problem: WebView2 / Tauri Native Printing Constraints
-- **Exclusive File Lock Crash:** WebView2 (Windows) and Tauri hold an exclusive file lock on the user profile directory. Spawning external background browser processes (like trying to execute standard CLI PDF printing or external engine calls) leads to **Chromium Exit Code 21**, causing severe rendering window crashes (turning the application into black boxes).
-- **Native Browser Print Deficit:** Direct calls to `window.print()` print the active window layout (containing the editor, toolbars, sidebar, etc.) rather than the clean compiled PDF document.
+### The Problem
+- WebView2/Tauri hold an exclusive lock on the user profile directory. Spawning external Chromium/PDF processes can cause **Exit Code 21** and black GPU windows.
+- `window.print()` prints the whole editor UI, not the clean document.
 
-### The Solution: The Hidden iframe Pipeline
-To print the document cleanly and prevent crashes, a custom hidden iframe pipeline isolates the canvas print tree safely inside webview memory.
+### The Solution: Hidden iframe Pipeline
+1. Intercept `Ctrl+P` and route to a custom print flow.
+2. Flatten the document to PDF bytes.
+3. Create a Blob URL and load it in a hidden off-screen `<iframe>`.
+4. Call `iframe.contentWindow.print()`, then clean up the iframe and object URL.
 
-#### Implementation Pattern (`src/routes/+page.svelte`):
-1. **Intercepting Native Print Shortcuts:** A capturing phase listener blocks default browser print dialogs (`Ctrl + P`) and routes them to our custom printing flow:
-   ```typescript
-   const trapBrowserPrintShortcut = (e: KeyboardEvent) => {
-     if (e.ctrlKey && e.key.toLowerCase() === 'p') {
-       e.preventDefault();
-       e.stopPropagation();
-       triggerHeadlessPrintSpool();
-     }
-   };
-   window.addEventListener('keydown', trapBrowserPrintShortcut, { capture: true });
-   ```
-2. **Spooling Content Headlessly:**
-   - Compile annotations and text markups into raw PDF bytes (`compileAndFlattenDocumentBytes`).
-   - Wrap the PDF bytes into a local Blob URL:
-     ```typescript
-     const blob = new Blob([compiledPdfBytes], { type: 'application/pdf' });
-     const blobUrl = URL.createObjectURL(blob);
-     ```
-   - Spawn a hidden `<iframe>` positioned completely off-screen:
-     ```typescript
-     const iframe = document.createElement('iframe');
-     iframe.style.position = 'fixed';
-     iframe.style.top = '-10000px';
-     iframe.style.left = '-10000px';
-     iframe.style.width = '0';
-     iframe.style.height = '0';
-     iframe.style.border = 'none';
-     iframe.src = blobUrl;
-     document.body.appendChild(iframe);
-     ```
-   - On frame load, target its `contentWindow` to focus and trigger print:
-     ```typescript
-     iframe.onload = () => {
-       setTimeout(() => {
-         iframe.contentWindow?.focus();
-         iframe.contentWindow?.print();
-         // Cleanup resources after spooling is complete
-         setTimeout(() => {
-           if (iframe.parentNode) document.body.removeChild(iframe);
-           URL.revokeObjectURL(blobUrl);
-         }, 30000);
-       }, 500);
-     };
-     ```
+Do **not** re-implement native Win32/msedge process spooling for printing.
+
+---
+
+## Section C: Startup File Open (Double-click / Open with)
+
+### The Problem
+Frontend `invoke('check_startup_file')` was blocked by CSP when the app was launched via file association. The enforced policy was missing `http://ipc.localhost`, so the Rust command never ran.
+
+### The Solution
+Handle startup files in **Rust setup**, not via frontend IPC:
+
+1. On setup, read `std::env::args()`.
+2. If a supported file is present, load it into a `FilePayload`.
+3. Emit the event **`startup-file-loaded`** (with short retries so the frontend listener is ready).
+4. Frontend listens for that event and calls the normal `loadDocument(...)` path.
+
+`check_startup_file` remains as a fallback only. Do not make double-click / Open with depend on it again.
+
+Supported extensions: `.pdf`, `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.webp`, `.bmp`
+
+---
+
+## Section D: Content Security Policy (CSP) Notes
+
+Tauri v2 can apply CSP from `tauri.conf.json` and/or capabilities. If the running app still enforces a restrictive `connect-src` (e.g. only `'self' tauri://localhost ipc:`), IPC calls to `http://ipc.localhost` will fail and fall back to postMessage.
+
+When changing CSP:
+- Prefer a full clean rebuild after config changes.
+- Confirm the **enforced** policy in the running app console, not only the config file.
+- Capabilities can override or interact with `app.security.csp`.
+
+---
+
+**Last Updated:** July 2026 (post v1.0.1)
+```

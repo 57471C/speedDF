@@ -13,11 +13,11 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/components/Workspace.svelte`**: The primary layout container that maps and orchestrates the scrollable sequence of `WorkspacePage` components.
 * **`src/components/ToolSidebar.svelte`**: The left-hand navigation panel providing UI buttons to toggle active annotation tools, colors, styles, and document properties.
 * **`src/components/PageSidebar.svelte`**: The right-hand navigation panel managing page ordering, thumbnail routing, deletion loops, and outline/bookmark rendering.
-* **`src/routes/+page.svelte`**: The application's root entry point linking the sidebars, workspace, and titlebar into a unified Single Page Application view.
+* **`src/routes/+page.svelte`**: The application's root entry point linking the sidebars, workspace, and titlebar into a unified Single Page Application view. Also listens for the `startup-file-loaded` event.
 * **`src/routes/OcrPanel.svelte`**: The dedicated overlay component for interacting with the local AI OCR extraction processes.
 
 ### Backend System (Rust / Tauri)
-* **`src-tauri/src/lib.rs`**: The primary backend command registry and application builder, handling filesystem access validations, TIFF multi-page parsing, and native OS integrations.
+* **`src-tauri/src/lib.rs`**: The primary backend command registry and application builder. Handles filesystem access validations, TIFF multi-page parsing, native OS integrations, and **startup file detection** (reads `std::env::args()`, loads supported files, emits `startup-file-loaded`).
 * **`src-tauri/src/commands.rs`**: The dedicated module housing the high-performance local ONNX OCR processing pipeline (DBNet detection + CRNN recognition) utilizing the `tract-onnx` crate.
 * **`src-tauri/src/main.rs`**: The minimal binary entry point initializing the Tauri v2 builder application.
 
@@ -27,7 +27,7 @@ This document serves as a standardized reference guide for understanding the arc
 
 ### Central Workspace Variables (`activeDoc`)
 Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary state keys:
-* **`openDocuments`**: An array of `DocumentWorkspace` objects tracking all currently loaded files.
+* **`openDocuments`**: An array of `DocumentWorkspace` objects tracking all currently loaded files (PDF and image types).
 * **`activeDocumentId`**: The string identifier (file path or name) of the currently viewed document.
 * **`currentPage`**: The active page number actively in view.
 * **`pageOrder`**: An array of page numbers defining the logical structural flow and exclusions (for page deletion).
@@ -51,3 +51,30 @@ Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary
 * **`flattenWorkspaceToImage()`** (`TitleBar.svelte`): Iterates over the `activeDoc` shape states, drawing them onto a standard HTML Canvas to export `.jpg` or `.png` binary buffers.
 * **`parse_tiff_document()`** (`lib.rs`): A Tauri background task that reads a raw TIFF binary stream and unpacks its layered images into an array of optimized PNG Web Buffers.
 * **`run_local_ocr()`** (`commands.rs`): A heavy background inference task that executes DBNet boundary detection and CRNN character recognition over an image using local `tract-onnx` models.
+* **`check_startup_file()`** (`lib.rs`): Fallback command that reads CLI args and returns a `FilePayload`. Primary startup path no longer depends on this.
+
+---
+
+## 3. Startup File / File Association Path (Important)
+
+**Primary path (v1.0.1+):**
+1. On app setup, Rust reads `std::env::args()`.
+2. If a supported file is found (`.pdf`, `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.webp`, `.bmp`), it is loaded into a `FilePayload`.
+3. Rust emits the Tauri event **`startup-file-loaded`** with that payload (with short retries so the frontend listener is ready).
+4. Frontend (`+page.svelte`) listens for `startup-file-loaded` and calls the same `loadDocument(...)` path used elsewhere.
+
+**Do not** reintroduce a startup dependency on `invoke('check_startup_file')` for double-click / Open with. That path was blocked by CSP and is only kept as a fallback.
+
+**Supported extensions:** `.pdf`, `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.webp`, `.bmp`
+
+---
+
+## 4. Security Notes
+
+* Path-taking commands should go through consistent validation (e.g. `secure_verify_path` or equivalent) to prevent directory traversal.
+* Startup file loading only accepts existing regular files with supported extensions.
+* Prefer shared validation helpers over one-off checks in each command.
+
+---
+
+**Last Updated:** July 2026 (post v1.0.1)
