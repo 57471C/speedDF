@@ -28,7 +28,9 @@ export function bindHistoryDocument(doc: HistoryDocument) {
 
 function doc(): HistoryDocument {
 	if (!historyDoc) {
-		throw new Error("History document not bound. Call bindHistoryDocument(activeDoc) first.");
+		throw new Error(
+			"History document not bound. Call bindHistoryDocument(activeDoc) first.",
+		);
 	}
 	return historyDoc;
 }

@@ -2,7 +2,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { save } from "@tauri-apps/plugin-dialog";
   import * as pdfjsLib from "pdfjs-dist";
-  import { activeDoc, FONT_MAP, undoStack, redoStack } from "../pdfStore.svelte";
+  import { activeDoc, FONT_MAP, undoStack, redoStack, applyLiveThumbnail, updateRecentThumbnail } from "../pdfStore.svelte";
   import { PDFDocument, rgb, degrees, BlendMode, LineCapStyle, PDFString, PDFName } from "pdf-lib";
   import fontkit from "@pdf-lib/fontkit";
 
@@ -714,13 +714,8 @@
         
         const freshlyGeneratedDataUrl = offscreenCanvas.toDataURL('image/jpeg', 0.5);
         
-        // 5. Store the snapshot inside our reactive store map to notify the side navigation panel views
-        activeDoc.pageThumbnailOverrides = { ...activeDoc.pageThumbnailOverrides, 0: freshlyGeneratedDataUrl };
-        
-        // 6. Push the snapshot down to our reactive manager to refresh the dashboard lists immediately
-        if (targetPath) {
-          activeDoc.updateRecentThumbnail(targetPath, freshlyGeneratedDataUrl);
-        }
+        // 5–6. Store override map + bump version + refresh recents (module-level $state writes)
+        applyLiveThumbnail(freshlyGeneratedDataUrl, targetPath, 0);
         console.log("🚀 True annotation thumbnail successfully broadcasted across app environments.");
       }
       
@@ -731,23 +726,95 @@
     }
   }
 
+  function mimeTypeForImagePath(path: string): string {
+    const lower = path.toLowerCase();
+    if (lower.endsWith(".png")) return "image/png";
+    if (lower.endsWith(".webp")) return "image/webp";
+    if (lower.endsWith(".gif")) return "image/gif";
+    if (lower.endsWith(".bmp")) return "image/bmp";
+    return "image/jpeg";
+  }
+
+  /**
+   * IMAGE pipeline (mirrors PDF): load flattened annotated bytes → downscale offscreen
+   * → JPEG data URL → applyLiveThumbnail (overrides + recents + version).
+   * Does not capture live DOM workspace canvas.
+   */
+  async function generateImageAnnotationThumbnail(
+    imageBytes: Uint8Array,
+    targetPath: string,
+  ) {
+    try {
+      const mimeType = mimeTypeForImagePath(targetPath);
+      // Copy into a fresh ArrayBuffer-backed view — Blob rejects SharedArrayBuffer views.
+      const safeBytes = Uint8Array.from(imageBytes);
+      const blob = new Blob([safeBytes], { type: mimeType });
+      const objectUrl = URL.createObjectURL(blob);
+
+      try {
+        const img = new Image();
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error("Failed to decode flattened image bytes"));
+          img.src = objectUrl;
+        });
+
+        const maxEdge = 200;
+        const scale = Math.min(1, maxEdge / Math.max(img.naturalWidth, img.naturalHeight, 1));
+        const w = Math.max(1, Math.round(img.naturalWidth * scale));
+        const h = Math.max(1, Math.round(img.naturalHeight * scale));
+
+        const offscreenCanvas = document.createElement("canvas");
+        offscreenCanvas.width = w;
+        offscreenCanvas.height = h;
+        const ctx = offscreenCanvas.getContext("2d");
+        if (!ctx) return;
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+
+        const freshlyGeneratedDataUrl = offscreenCanvas.toDataURL("image/jpeg", 0.5);
+        if (!freshlyGeneratedDataUrl || freshlyGeneratedDataUrl.length < 32) {
+          console.warn("Image thumbnail data URL empty after flatten; skipping broadcast.");
+          return;
+        }
+
+        applyLiveThumbnail(freshlyGeneratedDataUrl, targetPath, 0);
+        console.log(
+          "🚀 Image annotation thumbnail broadcasted (overrides + recents + version).",
+        );
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    } catch (err) {
+      console.warn("Skipped image thumbnail compilation pass:", err);
+    }
+  }
+
   function syncLiveThumbnail(targetPath: string, compiledBytes?: Uint8Array | null) {
     if (!targetPath) return;
     try {
-      // If we have compiled PDF bytes, use the true annotation thumbnail pipeline
-      if (compiledBytes && compiledBytes.length > 0 && activeDoc.fileType !== 'image') {
+      // PDF: offscreen pdf.js render of flattened bytes → applyLiveThumbnail
+      if (compiledBytes && compiledBytes.length > 0 && activeDoc.fileType !== "image") {
         generateTrueAnnotationThumbnail(compiledBytes, targetPath);
         return;
       }
 
-      // Fallback: Locate the master page 1 canvas element context using fallback strategies
-      const pageOneCanvas = document.querySelector('canvas[data-page-index="0"]') || document.querySelector('canvas');
-      
+      // IMAGE: offscreen downscale of flattened annotated bytes → applyLiveThumbnail
+      if (compiledBytes && compiledBytes.length > 0 && activeDoc.fileType === "image") {
+        void generateImageAnnotationThumbnail(compiledBytes, targetPath);
+        return;
+      }
+
+      // Last-resort fallback: live workspace canvas (should rarely run)
+      const pageOneCanvas =
+        document.querySelector('canvas[data-page-index="0"]') ||
+        document.querySelector("canvas");
+
       if (pageOneCanvas instanceof HTMLCanvasElement) {
-        // Extract a highly compressed lightweight base64 JPEG snapshot frame string
-        const targetThumbnailDataUrl = pageOneCanvas.toDataURL('image/jpeg', 0.4);
-        
-        // Extract existing metadata structures from localStorage
+        const targetThumbnailDataUrl = pageOneCanvas.toDataURL("image/jpeg", 0.4);
+
         const cacheKey = `speeddf_meta_${btoa(targetPath)}`;
         const currentMetaRaw = localStorage.getItem(cacheKey);
         if (currentMetaRaw) {
@@ -759,8 +826,7 @@
           } catch (e) {}
         }
 
-        // Call the central store method to execute a reactive Svelte 5 state update channel instantly
-        activeDoc.updateRecentThumbnail(targetPath, targetThumbnailDataUrl);
+        updateRecentThumbnail(targetPath, targetThumbnailDataUrl);
         console.log("🚀 Triggered reactive application store thumbnail mutation pass.");
       }
     } catch (thumbSyncError) {

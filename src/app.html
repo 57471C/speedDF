@@ -10,11 +10,13 @@
       #shortcut-print-notice { display: none; }
       @media print {
         /* Hide the entire application layer if native printing is bypassed */
-        body > *:not(#shortcut-print-notice) { 
-          display: none !important; 
+        body > *:not(#shortcut-print-notice) {
+          /* biome-ignore lint/complexity/noImportantStyles: print stylesheet must override app layout */
+          display: none !important;
         }
         /* Display a professional fallback notification box instead of a blank page */
         #shortcut-print-notice {
+          /* biome-ignore lint/complexity/noImportantStyles: print stylesheet must override app layout */
           display: block !important;
           font-family: system-ui, -apple-system, sans-serif;
           text-align: center;

@@ -1,39 +1,39 @@
+import type { PDFWorker } from "pdfjs-dist";
+import {
+	patchSelectedShapes,
+	selectionNeedsPropertyUpdate,
+} from "./lib/annotation/shapeHelpers";
 import {
 	bindHistoryDocument,
-	pushHistorySnapshot,
-	executeUndoAction,
 	executeRedoAction,
-	undoStack,
+	executeUndoAction,
+	pushHistorySnapshot,
 	redoStack,
+	undoStack,
 } from "./lib/stores/history.svelte";
 import {
-	getActiveTool,
-	setActiveTool,
-	getActiveColor,
-	setActiveColor,
-	getActiveThickness,
-	setActiveThickness,
-	getActiveLineStyle,
-	setActiveLineStyle,
-	type ActiveTool,
 	type ActiveLineStyle,
+	type ActiveTool,
+	getActiveColor,
+	getActiveLineStyle,
+	getActiveThickness,
+	getActiveTool,
+	setActiveColor,
+	setActiveLineStyle,
+	setActiveThickness,
+	setActiveTool,
 } from "./lib/stores/tools.svelte";
-import {
-	selectionNeedsPropertyUpdate,
-	patchSelectedShapes,
-} from "./lib/annotation/shapeHelpers";
-
-// Re-export history API so existing `from "../pdfStore.svelte"` imports keep working.
-export {
-	pushHistorySnapshot,
-	executeUndoAction,
-	executeRedoAction,
-	undoStack,
-	redoStack,
-};
 
 // Re-export tool types for consumers that want them without deep imports.
-export type { ActiveTool, ActiveLineStyle };
+export type { ActiveLineStyle, ActiveTool };
+// Re-export history API so existing `from "../pdfStore.svelte"` imports keep working.
+export {
+	executeRedoAction,
+	executeUndoAction,
+	pushHistorySnapshot,
+	redoStack,
+	undoStack,
+};
 
 export interface TextShape {
 	id: string;
@@ -42,10 +42,15 @@ export interface TextShape {
 	x: number;
 	y: number;
 	fontSize: number;
-	fontFamily: "Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono";
+	fontFamily:
+		| "Helvetica"
+		| "Times-Roman"
+		| "Courier"
+		| "Inter"
+		| "JetBrainsMono";
 	color: string;
 	opacity: number;
-	alignment?: 'left' | 'center' | 'right';
+	alignment?: "left" | "center" | "right";
 }
 
 export interface RecentFile {
@@ -86,8 +91,13 @@ export interface AnnotationShape {
 	size?: number; // Custom font size in points
 	style?: "Normal" | "Bold" | "Italic"; // Font style variant
 	lineStyle?: "solid" | "dashed" | "dotted" | "dash-dot";
-	fontFamily?: "Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono";
-	alignment?: 'left' | 'center' | 'right';
+	fontFamily?:
+		| "Helvetica"
+		| "Times-Roman"
+		| "Courier"
+		| "Inter"
+		| "JetBrainsMono";
+	alignment?: "left" | "center" | "right";
 }
 
 export interface Bookmark {
@@ -140,7 +150,12 @@ export interface SharedDocumentState {
 	activeColor: string;
 	activeThickness: number;
 	activeLineStyle: ActiveLineStyle;
-	activeFontFamily: "Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono";
+	activeFontFamily:
+		| "Helvetica"
+		| "Times-Roman"
+		| "Courier"
+		| "Inter"
+		| "JetBrainsMono";
 	activeTextAlignment: "left" | "center" | "right";
 	zoomScale: number;
 	defaultFont: string;
@@ -237,7 +252,9 @@ let activeDocumentId = $state<string | null>(null);
 
 let selectedShape = $state<SharedDocumentState["selectedShape"]>(null);
 let selectedShapes = $state<SharedDocumentState["selectedShapes"]>([]);
-let activeFontFamily = $state<"Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono">("Helvetica");
+let activeFontFamily = $state<
+	"Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono"
+>("Helvetica");
 let activeTextAlignment = $state<"left" | "center" | "right">("left");
 let zoomScale = $state(120);
 let defaultFont = $state("Helvetica");
@@ -254,15 +271,112 @@ function loadRecents(): RecentFile[] {
 	try {
 		const stored = localStorage.getItem("speeddf_recents");
 		if (stored) return JSON.parse(stored);
-	} catch (e) {}
+	} catch {
+		/* ignore corrupt recents JSON */
+	}
 	return [];
 }
 let recents = $state<RecentFile[]>(loadRecents());
 let thumbnailVersion = $state(0);
 let pageThumbnailOverrides = $state<Record<number, string>>({});
 
-export function initializeNewDocument(fileName: string, filePath: string | null) {
-	const existing = openDocuments.find(d => (filePath && d.filePath === filePath) || d.fileName === fileName);
+/**
+ * Post-save thumbnail broadcast:
+ * 1) write page-0 override map (sidebar canvases read this)
+ * 2) bump thumbnailVersion so `use:renderThumbnail` / $effect re-run
+ * 3) Svelte 5-safe recents array reassignment for Recent Documents cards
+ *
+ * Writes module-level $state directly (not via activeDoc getters) so reactivity
+ * is reliable after the pdfStore split into multiple .svelte.ts modules.
+ */
+export function applyLiveThumbnail(
+	thumbnailDataUrl: string,
+	filePath?: string | null,
+	pageIndex = 0,
+) {
+	pageThumbnailOverrides = {
+		...pageThumbnailOverrides,
+		[pageIndex]: thumbnailDataUrl,
+	};
+	if (filePath) {
+		// Bumps thumbnailVersion + updates recents/localStorage
+		updateRecentThumbnail(filePath, thumbnailDataUrl);
+	} else {
+		// No recents path — still invalidate sidebar canvases
+		thumbnailVersion += 1;
+	}
+}
+
+/**
+ * Update Recent Documents entry + localStorage. Always bumps thumbnailVersion
+ * so PageSidebar redraws even when the path is not (yet) in the recents list.
+ */
+export function updateRecentThumbnail(
+	filePath: string,
+	thumbnailDataUrl: string,
+) {
+	try {
+		// Invalidate navigation thumbnails (renderThumbnail action + ThumbnailCanvas $effect)
+		thumbnailVersion += 1;
+
+		if (Array.isArray(recents)) {
+			const targetIndex = recents.findIndex(
+				(item: RecentFile) =>
+					item.path === filePath ||
+					(item.path &&
+						filePath &&
+						item.path.toLowerCase() === filePath.toLowerCase()),
+			);
+			if (targetIndex !== -1) {
+				// 1. Replace the slot with a new object reference
+				// 2. Reassign the array pointer for Svelte 5 list reactivity
+				const next = [...recents];
+				next[targetIndex] = {
+					...next[targetIndex],
+					thumbnail: thumbnailDataUrl,
+					lastOpened: Date.now(),
+					timestamp: Date.now(),
+				};
+				recents = next;
+				console.log(
+					`🚀 Reactive store array reassigned. Thumbnail version bumped to: ${thumbnailVersion}`,
+				);
+			}
+		}
+
+		// Mirror updates cleanly down to localStorage persistence sync
+		const globalRecentsRaw = localStorage.getItem("speeddf_recents");
+		if (globalRecentsRaw) {
+			let recentsList = JSON.parse(globalRecentsRaw);
+			if (Array.isArray(recentsList)) {
+				const dbIndex = recentsList.findIndex(
+					(item: RecentFile) =>
+						item.path === filePath ||
+						(item.path &&
+							filePath &&
+							item.path.toLowerCase() === filePath.toLowerCase()),
+				);
+				if (dbIndex !== -1) {
+					recentsList[dbIndex].thumbnail = thumbnailDataUrl;
+					recentsList[dbIndex].lastOpened = Date.now();
+					recentsList[dbIndex].timestamp = Date.now();
+					localStorage.setItem("speeddf_recents", JSON.stringify(recentsList));
+					console.log("🚀 Persistent localStorage dashboard sync verified.");
+				}
+			}
+		}
+	} catch (err) {
+		console.warn("Failed to update central dashboard thumbnail arrays:", err);
+	}
+}
+
+export function initializeNewDocument(
+	fileName: string,
+	filePath: string | null,
+) {
+	const existing = openDocuments.find(
+		(d) => (filePath && d.filePath === filePath) || d.fileName === fileName,
+	);
 	if (existing) {
 		activeDocumentId = existing.filePath || existing.fileName;
 		return existing;
@@ -282,7 +396,7 @@ export function initializeNewDocument(fileName: string, filePath: string | null)
 		imageUrl: null,
 		isDirty: false,
 		tiffPages: [],
-		rotations: {}
+		rotations: {},
 	};
 	openDocuments.push(newDoc);
 	activeDocumentId = filePath || fileName;
@@ -291,59 +405,147 @@ export function initializeNewDocument(fileName: string, filePath: string | null)
 }
 
 export const activeDoc: SharedDocumentState = {
-	get openDocuments() { return openDocuments; },
-	set openDocuments(val) { openDocuments = val; },
-	get activeDocumentId() { return activeDocumentId; },
-	set activeDocumentId(val) { activeDocumentId = val; },
+	get openDocuments() {
+		return openDocuments;
+	},
+	set openDocuments(val) {
+		openDocuments = val;
+	},
+	get activeDocumentId() {
+		return activeDocumentId;
+	},
+	set activeDocumentId(val) {
+		activeDocumentId = val;
+	},
 
 	// The active pointer target locator
 	get current() {
-		return openDocuments.find(d => d.filePath === activeDocumentId || d.fileName === activeDocumentId) || null;
+		return (
+			openDocuments.find(
+				(d) =>
+					d.filePath === activeDocumentId || d.fileName === activeDocumentId,
+			) || null
+		);
 	},
 
 	// Proxy all existing properties safely to prevent breaking views
-	get fileType() { return this.current?.fileType || null; },
-	set fileType(val) { if (this.current) this.current.fileType = val; },
-	get fileName() { return this.current?.fileName || ""; },
-	set fileName(val) { if (this.current) this.current.fileName = val; },
-	get filePath() { return this.current?.filePath || null; },
-	set filePath(val) { if (this.current) this.current.filePath = val; },
-	get rawBytes() { return this.current?.rawBytes || null; },
-	set rawBytes(val) { if (this.current) this.current.rawBytes = val; },
-	get pageCount() { return this.current?.pageCount || 0; },
-	set pageCount(val) { if (this.current) this.current.pageCount = val; },
-	get pageOrder() { return this.current?.pageOrder || []; },
-	set pageOrder(val) { if (this.current) this.current.pageOrder = val; },
-	get currentPage() { return this.current?.currentPage || 1; },
-	set currentPage(val) { if (this.current) this.current.currentPage = val; },
-	get shapes() { return this.current?.shapes || {}; },
-	set shapes(val) { if (this.current) this.current.shapes = val; },
-	get bookmarks() { return this.current?.bookmarks || []; },
-	set bookmarks(val) { if (this.current) this.current.bookmarks = val; },
-	get imageRotation() { return this.current?.imageRotation || 0; },
-	set imageRotation(val) { if (this.current) this.current.imageRotation = val; },
-	get imageUrl() { return this.current?.imageUrl || ""; },
-	set imageUrl(val) { if (this.current) this.current.imageUrl = val; },
-	get isDirty() { return this.current?.isDirty || false; },
-	set isDirty(val) { if (this.current) this.current.isDirty = val; },
-	get tiffPages() { return this.current?.tiffPages || []; },
-	set tiffPages(val) { if (this.current) this.current.tiffPages = val; },
-	get rotations() { return this.current?.rotations || {}; },
-	set rotations(val) { if (this.current) this.current.rotations = val; },
+	get fileType() {
+		return this.current?.fileType || null;
+	},
+	set fileType(val) {
+		if (this.current) this.current.fileType = val;
+	},
+	get fileName() {
+		return this.current?.fileName || "";
+	},
+	set fileName(val) {
+		if (this.current) this.current.fileName = val;
+	},
+	get filePath() {
+		return this.current?.filePath || null;
+	},
+	set filePath(val) {
+		if (this.current) this.current.filePath = val;
+	},
+	get rawBytes() {
+		return this.current?.rawBytes || null;
+	},
+	set rawBytes(val) {
+		if (this.current) this.current.rawBytes = val;
+	},
+	get pageCount() {
+		return this.current?.pageCount || 0;
+	},
+	set pageCount(val) {
+		if (this.current) this.current.pageCount = val;
+	},
+	get pageOrder() {
+		return this.current?.pageOrder || [];
+	},
+	set pageOrder(val) {
+		if (this.current) this.current.pageOrder = val;
+	},
+	get currentPage() {
+		return this.current?.currentPage || 1;
+	},
+	set currentPage(val) {
+		if (this.current) this.current.currentPage = val;
+	},
+	get shapes() {
+		return this.current?.shapes || {};
+	},
+	set shapes(val) {
+		if (this.current) this.current.shapes = val;
+	},
+	get bookmarks() {
+		return this.current?.bookmarks || [];
+	},
+	set bookmarks(val) {
+		if (this.current) this.current.bookmarks = val;
+	},
+	get imageRotation() {
+		return this.current?.imageRotation || 0;
+	},
+	set imageRotation(val) {
+		if (this.current) this.current.imageRotation = val;
+	},
+	get imageUrl() {
+		return this.current?.imageUrl || "";
+	},
+	set imageUrl(val) {
+		if (this.current) this.current.imageUrl = val;
+	},
+	get isDirty() {
+		return this.current?.isDirty || false;
+	},
+	set isDirty(val) {
+		if (this.current) this.current.isDirty = val;
+	},
+	get tiffPages() {
+		return this.current?.tiffPages || [];
+	},
+	set tiffPages(val) {
+		if (this.current) this.current.tiffPages = val;
+	},
+	get rotations() {
+		return this.current?.rotations || {};
+	},
+	set rotations(val) {
+		if (this.current) this.current.rotations = val;
+	},
 
 	// Global / session-wide tool + stroke style (lib/stores/tools.svelte.ts)
-	get activeTool() { return getActiveTool(); },
-	set activeTool(val) { setActiveTool(val); },
-	get selectedShape() { return selectedShape; },
-	set selectedShape(val) { selectedShape = val; },
-	get selectedShapes() { return selectedShapes; },
-	set selectedShapes(val) { selectedShapes = val; },
-	get activeColor() { return getActiveColor(); },
+	get activeTool() {
+		return getActiveTool();
+	},
+	set activeTool(val) {
+		setActiveTool(val);
+	},
+	get selectedShape() {
+		return selectedShape;
+	},
+	set selectedShape(val) {
+		selectedShape = val;
+	},
+	get selectedShapes() {
+		return selectedShapes;
+	},
+	set selectedShapes(val) {
+		selectedShapes = val;
+	},
+	get activeColor() {
+		return getActiveColor();
+	},
 	set activeColor(val) {
 		setActiveColor(val);
 		if (
 			selectedShapes.length > 0 &&
-			selectionNeedsPropertyUpdate(activeDoc.shapes, selectedShapes, "color", val)
+			selectionNeedsPropertyUpdate(
+				activeDoc.shapes,
+				selectedShapes,
+				"color",
+				val,
+			)
 		) {
 			pushHistorySnapshot();
 			activeDoc.shapes = patchSelectedShapes(activeDoc.shapes, selectedShapes, {
@@ -353,12 +555,19 @@ export const activeDoc: SharedDocumentState = {
 			activeDoc.isDirty = true;
 		}
 	},
-	get activeThickness() { return getActiveThickness(); },
+	get activeThickness() {
+		return getActiveThickness();
+	},
 	set activeThickness(val) {
 		setActiveThickness(val);
 		if (
 			selectedShapes.length > 0 &&
-			selectionNeedsPropertyUpdate(activeDoc.shapes, selectedShapes, "thickness", val)
+			selectionNeedsPropertyUpdate(
+				activeDoc.shapes,
+				selectedShapes,
+				"thickness",
+				val,
+			)
 		) {
 			pushHistorySnapshot();
 			activeDoc.shapes = patchSelectedShapes(activeDoc.shapes, selectedShapes, {
@@ -367,12 +576,19 @@ export const activeDoc: SharedDocumentState = {
 			activeDoc.isDirty = true;
 		}
 	},
-	get activeLineStyle() { return getActiveLineStyle(); },
+	get activeLineStyle() {
+		return getActiveLineStyle();
+	},
 	set activeLineStyle(val) {
 		setActiveLineStyle(val);
 		if (
 			selectedShapes.length > 0 &&
-			selectionNeedsPropertyUpdate(activeDoc.shapes, selectedShapes, "lineStyle", val)
+			selectionNeedsPropertyUpdate(
+				activeDoc.shapes,
+				selectedShapes,
+				"lineStyle",
+				val,
+			)
 		) {
 			pushHistorySnapshot();
 			activeDoc.shapes = patchSelectedShapes(activeDoc.shapes, selectedShapes, {
@@ -381,12 +597,19 @@ export const activeDoc: SharedDocumentState = {
 			activeDoc.isDirty = true;
 		}
 	},
-	get activeFontFamily() { return activeFontFamily; },
+	get activeFontFamily() {
+		return activeFontFamily;
+	},
 	set activeFontFamily(val) {
 		activeFontFamily = val;
 		if (
 			selectedShapes.length > 0 &&
-			selectionNeedsPropertyUpdate(activeDoc.shapes, selectedShapes, "fontFamily", val)
+			selectionNeedsPropertyUpdate(
+				activeDoc.shapes,
+				selectedShapes,
+				"fontFamily",
+				val,
+			)
 		) {
 			pushHistorySnapshot();
 			// Keep font in sync for compatibility
@@ -397,12 +620,19 @@ export const activeDoc: SharedDocumentState = {
 			activeDoc.isDirty = true;
 		}
 	},
-	get activeTextAlignment() { return activeTextAlignment; },
+	get activeTextAlignment() {
+		return activeTextAlignment;
+	},
 	set activeTextAlignment(val) {
 		activeTextAlignment = val;
 		if (
 			selectedShapes.length > 0 &&
-			selectionNeedsPropertyUpdate(activeDoc.shapes, selectedShapes, "alignment", val)
+			selectionNeedsPropertyUpdate(
+				activeDoc.shapes,
+				selectedShapes,
+				"alignment",
+				val,
+			)
 		) {
 			pushHistorySnapshot();
 			activeDoc.shapes = patchSelectedShapes(activeDoc.shapes, selectedShapes, {
@@ -411,87 +641,104 @@ export const activeDoc: SharedDocumentState = {
 			activeDoc.isDirty = true;
 		}
 	},
-	get zoomScale() { return zoomScale; },
-	set zoomScale(val) { zoomScale = val; },
-	get defaultFont() { return defaultFont; },
-	set defaultFont(val) { defaultFont = val; },
-	get defaultSize() { return defaultSize; },
-	set defaultSize(val) { defaultSize = val; },
-	get defaultStyle() { return defaultStyle; },
-	set defaultStyle(val) { defaultStyle = val; },
-	get scrollTop() { return scrollTop; },
-	set scrollTop(val) { scrollTop = val; },
-	get scrollHeight() { return scrollHeight; },
-	set scrollHeight(val) { scrollHeight = val; },
-	get clientHeight() { return clientHeight; },
-	set clientHeight(val) { clientHeight = val; },
-	get isClickScrolling() { return isClickScrolling; },
-	set isClickScrolling(val) { isClickScrolling = val; },
-	get activeStampDataUrl() { return activeStampDataUrl; },
-	set activeStampDataUrl(val) { activeStampDataUrl = val; },
-	get savedSignatureSets() { return savedSignatureSets; },
-	set savedSignatureSets(val) { savedSignatureSets = val; },
+	get zoomScale() {
+		return zoomScale;
+	},
+	set zoomScale(val) {
+		zoomScale = val;
+	},
+	get defaultFont() {
+		return defaultFont;
+	},
+	set defaultFont(val) {
+		defaultFont = val;
+	},
+	get defaultSize() {
+		return defaultSize;
+	},
+	set defaultSize(val) {
+		defaultSize = val;
+	},
+	get defaultStyle() {
+		return defaultStyle;
+	},
+	set defaultStyle(val) {
+		defaultStyle = val;
+	},
+	get scrollTop() {
+		return scrollTop;
+	},
+	set scrollTop(val) {
+		scrollTop = val;
+	},
+	get scrollHeight() {
+		return scrollHeight;
+	},
+	set scrollHeight(val) {
+		scrollHeight = val;
+	},
+	get clientHeight() {
+		return clientHeight;
+	},
+	set clientHeight(val) {
+		clientHeight = val;
+	},
+	get isClickScrolling() {
+		return isClickScrolling;
+	},
+	set isClickScrolling(val) {
+		isClickScrolling = val;
+	},
+	get activeStampDataUrl() {
+		return activeStampDataUrl;
+	},
+	set activeStampDataUrl(val) {
+		activeStampDataUrl = val;
+	},
+	get savedSignatureSets() {
+		return savedSignatureSets;
+	},
+	set savedSignatureSets(val) {
+		savedSignatureSets = val;
+	},
 
-	get recents() { return recents; },
-	set recents(val) { recents = val; },
+	get recents() {
+		return recents;
+	},
+	set recents(val) {
+		recents = val;
+	},
 
-	get thumbnailVersion() { return thumbnailVersion; },
-	set thumbnailVersion(val) { thumbnailVersion = val; },
+	get thumbnailVersion() {
+		return thumbnailVersion;
+	},
+	set thumbnailVersion(val) {
+		thumbnailVersion = val;
+	},
 
-	get pageThumbnailOverrides() { return pageThumbnailOverrides; },
-	set pageThumbnailOverrides(val) { pageThumbnailOverrides = val; },
+	get pageThumbnailOverrides() {
+		return pageThumbnailOverrides;
+	},
+	set pageThumbnailOverrides(val) {
+		pageThumbnailOverrides = val;
+	},
 
 	updateRecentThumbnail(filePath: string, thumbnailDataUrl: string) {
-		try {
-			if (this.recents && Array.isArray(this.recents)) {
-				const targetIndex = this.recents.findIndex((item: any) => item.path === filePath);
-				if (targetIndex !== -1) {
-					// 1. Completely replace the object slot reference with a spread clone copy
-					this.recents[targetIndex] = {
-						...this.recents[targetIndex],
-						thumbnail: thumbnailDataUrl,
-						lastOpened: Date.now(),
-						timestamp: Date.now()
-					};
-					
-					// 2. Force-reassign the array pointer to trigger Svelte 5 template updates instantly
-					this.recents = [...this.recents];
-					
-					// 3. Increment our global version token to tell the side navigation to repaint
-					this.thumbnailVersion++;
-					
-					console.log(`🚀 Reactive store array reassigned. Thumbnail version bumped to: ${this.thumbnailVersion}`);
-				}
-			}
-
-			// Mirror updates cleanly down to localStorage persistence sync
-			const globalRecentsRaw = localStorage.getItem('speeddf_recents');
-			if (globalRecentsRaw) {
-				let recentsList = JSON.parse(globalRecentsRaw);
-				if (Array.isArray(recentsList)) {
-					const dbIndex = recentsList.findIndex((item: any) => item.path === filePath);
-					if (dbIndex !== -1) {
-						recentsList[dbIndex].thumbnail = thumbnailDataUrl;
-						recentsList[dbIndex].lastOpened = Date.now();
-						recentsList[dbIndex].timestamp = Date.now();
-						localStorage.setItem('speeddf_recents', JSON.stringify(recentsList));
-						console.log("🚀 Persistent localStorage dashboard sync verified.");
-					}
-				}
-			}
-		} catch (err) {
-			console.warn("Failed to update central dashboard thumbnail arrays:", err);
-		}
+		// Delegate to module-level helper so $state writes are never lost via `this` binding.
+		updateRecentThumbnail(filePath, thumbnailDataUrl);
 	},
 
 	flushDocumentState() {
 		if (this.imageUrl) {
 			URL.revokeObjectURL(this.imageUrl);
 		}
-		openDocuments = openDocuments.filter(d => d.filePath !== activeDocumentId && d.fileName !== activeDocumentId);
-		activeDocumentId = openDocuments[0]?.filePath || openDocuments[0]?.fileName || null;
+		openDocuments = openDocuments.filter(
+			(d) => d.filePath !== activeDocumentId && d.fileName !== activeDocumentId,
+		);
+		activeDocumentId =
+			openDocuments[0]?.filePath || openDocuments[0]?.fileName || null;
 		pageThumbnailOverrides = {};
-	}
+	},
 };
 
 // Bind undo/redo to the active document facade (must run after activeDoc exists).
@@ -529,25 +776,29 @@ export function rotatePageAction(
 }
 
 export function addOrToggleBookmarkAction(pageNum: number) {
-	const index = activeDoc.bookmarks.findIndex(b => b.pageNum === pageNum);
+	const index = activeDoc.bookmarks.findIndex((b) => b.pageNum === pageNum);
 	if (index !== -1) {
-		activeDoc.bookmarks = activeDoc.bookmarks.filter(b => b.pageNum !== pageNum);
+		activeDoc.bookmarks = activeDoc.bookmarks.filter(
+			(b) => b.pageNum !== pageNum,
+		);
 	} else {
 		activeDoc.bookmarks = [...activeDoc.bookmarks, { pageNum, name: "" }];
 	}
 }
 
 export function deleteBookmarkAction(pageNum: number) {
-	activeDoc.bookmarks = activeDoc.bookmarks.filter(b => b.pageNum !== pageNum);
+	activeDoc.bookmarks = activeDoc.bookmarks.filter(
+		(b) => b.pageNum !== pageNum,
+	);
 }
 
 export function updateBookmarkNameAction(pageNum: number, newName: string) {
-	activeDoc.bookmarks = activeDoc.bookmarks.map(b =>
-		b.pageNum === pageNum ? { ...b, name: newName } : b
+	activeDoc.bookmarks = activeDoc.bookmarks.map((b) =>
+		b.pageNum === pageNum ? { ...b, name: newName } : b,
 	);
 }
 
 // True global master Wasm worker singleton to survive component unmounts
-export const globalPdfWorkerInstance = {
-	current: null as any
+export const globalPdfWorkerInstance: { current: PDFWorker | null } = {
+	current: null,
 };

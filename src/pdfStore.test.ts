@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	type AnnotationShape,
 	activeDoc,
+	addOrToggleBookmarkAction,
+	deleteBookmarkAction,
 	executeRedoAction,
 	executeUndoAction,
 	initializeNewDocument,
@@ -8,12 +11,19 @@ import {
 	pushHistorySnapshot,
 	redoStack,
 	rotatePageAction,
-	addOrToggleBookmarkAction,
-	deleteBookmarkAction,
-	updateBookmarkNameAction,
-	undoStack,
 	saveSignatureSetAction,
+	undoStack,
+	updateBookmarkNameAction,
 } from "./pdfStore.svelte.ts";
+
+/** Minimal shape fixture for history tests. */
+function shapeStub(
+	type: AnnotationShape["type"],
+	x: number,
+	y: number,
+): AnnotationShape {
+	return { type, x, y };
+}
 
 /** Ensure multi-document facade has a current workspace (setters no-op without one). */
 function openTestDocument(name = "test.pdf") {
@@ -145,14 +155,14 @@ describe("pushHistorySnapshot", () => {
 	});
 
 	it("should push a deep clone of shapes and pageOrder to the undo stack", () => {
-		activeDoc.shapes = { 1: [{ type: "rect", x: 10, y: 10 }] as any };
+		activeDoc.shapes = { 1: [shapeStub("rect", 10, 10)] };
 		activeDoc.pageOrder = [1, 2];
 
 		pushHistorySnapshot();
 
 		expect(undoStack.length).toBe(1);
 		expect(undoStack[0].shapes).toEqual({
-			1: [{ type: "rect", x: 10, y: 10 }],
+			1: [shapeStub("rect", 10, 10)],
 		});
 		expect(undoStack[0].pageOrder).toEqual([1, 2]);
 
@@ -162,7 +172,7 @@ describe("pushHistorySnapshot", () => {
 
 		// Verify it restored to the unmutated state (deep cloned)
 		expect(undoStack[0].shapes).toEqual({
-			1: [{ type: "rect", x: 10, y: 10 }],
+			1: [shapeStub("rect", 10, 10)],
 		});
 		expect(undoStack[0].pageOrder).toEqual([1, 2]);
 	});
@@ -173,7 +183,7 @@ describe("pushHistorySnapshot", () => {
 
 		pushHistorySnapshot(); // Snapshot 1
 
-		activeDoc.shapes = { 1: [{ type: "rect", x: 10, y: 10 }] as any };
+		activeDoc.shapes = { 1: [shapeStub("rect", 10, 10)] };
 		activeDoc.pageOrder = [1, 2];
 
 		pushHistorySnapshot(); // Snapshot 2
@@ -183,7 +193,7 @@ describe("pushHistorySnapshot", () => {
 		expect(redoStack.length).toBe(1);
 
 		// Push new snapshot to clear redo stack
-		activeDoc.shapes = { 1: [{ type: "text", x: 5, y: 5 }] as any };
+		activeDoc.shapes = { 1: [shapeStub("text", 5, 5)] };
 		pushHistorySnapshot();
 
 		expect(redoStack.length).toBe(0);
@@ -225,7 +235,7 @@ describe("executeUndoAction", () => {
 		pushHistorySnapshot();
 
 		// 2. Modify State -> State B
-		activeDoc.shapes = { 1: [{ type: "rect", x: 10, y: 10 }] };
+		activeDoc.shapes = { 1: [shapeStub("rect", 10, 10)] };
 		activeDoc.pageOrder = [1, 2];
 		activeDoc.selectedShape = { pageNumber: 1, index: 0 };
 
@@ -376,18 +386,16 @@ describe("addOrToggleBookmarkAction", () => {
 		addOrToggleBookmarkAction(2);
 		expect(activeDoc.bookmarks).toEqual([
 			{ pageNum: 1, name: "Test 1" },
-			{ pageNum: 2, name: "" }
+			{ pageNum: 2, name: "" },
 		]);
 	});
 
 	it("should remove the correct bookmark when multiple exist", () => {
 		activeDoc.bookmarks = [
 			{ pageNum: 1, name: "Test 1" },
-			{ pageNum: 2, name: "Test 2" }
+			{ pageNum: 2, name: "Test 2" },
 		];
 		addOrToggleBookmarkAction(1);
-		expect(activeDoc.bookmarks).toEqual([
-			{ pageNum: 2, name: "Test 2" }
-		]);
+		expect(activeDoc.bookmarks).toEqual([{ pageNum: 2, name: "Test 2" }]);
 	});
 });

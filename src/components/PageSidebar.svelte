@@ -680,11 +680,14 @@
 
           {#if activeDoc.fileType === 'image'}
             <div class="w-full aspect-[3/4] bg-slate-950 border border-cyan-500/30 rounded flex items-center justify-center overflow-hidden p-1 p-2">
-              <img 
-                src={activeDoc.imageUrl} 
-                alt="Image Thumbnail" 
-                class="w-full h-full object-cover rounded-sm opacity-80"
-              />
+              <!-- Prefer post-save flattened override (annotations baked in); fall back to live imageUrl -->
+              {#key activeDoc.thumbnailVersion}
+                <img
+                  src={activeDoc.pageThumbnailOverrides[0] || activeDoc.imageUrl}
+                  alt="Image Thumbnail"
+                  class="w-full h-full object-cover rounded-sm opacity-80"
+                />
+              {/key}
             </div>
           {:else}
             <div

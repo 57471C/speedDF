@@ -14,7 +14,6 @@ export type ShapeLike = {
 	fontFamily?: string;
 	font?: string;
 	alignment?: string;
-	[key: string]: unknown;
 };
 
 /**
