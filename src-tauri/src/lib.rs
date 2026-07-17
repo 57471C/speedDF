@@ -1,15 +1,29 @@
 use std::fs::File;
 
 use std::io::{Read, Write};
-use std::path::{Path, Component};
+use std::path::{Component, Path};
 use tiff::decoder::{Decoder, DecodingResult};
 mod commands;
 use commands::run_local_ocr;
 
 /// Validates that an incoming frontend path string does not contain parent directory
 /// traversal sequences (`..`) and resolves to a legitimate absolute location.
+///
+/// Desktop document apps intentionally allow any *absolute* user file path (dialogs,
+/// recents, open-with). Protection targets relative paths, `..` components, and
+/// null-byte injection — not a directory sandbox.
+///
 /// Returns a sanitized PathBuf on success, or a security error string on violation.
 fn secure_verify_path(input_path: &str) -> Result<std::path::PathBuf, String> {
+    if input_path.is_empty() {
+        return Err("Security Violation: Empty path is not permitted.".to_string());
+    }
+
+    // Null bytes can truncate C-style path handling on some platforms / FFI boundaries.
+    if input_path.contains('\0') {
+        return Err("Security Violation: Null byte in path is not permitted.".to_string());
+    }
+
     let path = Path::new(input_path);
 
     // Catch explicit directory traversal attacks targeting systemic directory boundaries
@@ -26,6 +40,21 @@ fn secure_verify_path(input_path: &str) -> Result<std::path::PathBuf, String> {
     Ok(path.to_path_buf())
 }
 
+/// Extract a single path segment suitable for use as a file name (no directories).
+/// Rejects empty names, `.`, and `..`.
+fn secure_file_name(input: &str) -> Result<std::ffi::OsString, String> {
+    if input.is_empty() || input.contains('\0') {
+        return Err("Security Violation: Invalid file name provided.".to_string());
+    }
+    let name = Path::new(input)
+        .file_name()
+        .ok_or_else(|| "Security Violation: Invalid file name provided.".to_string())?;
+    if name.is_empty() || name == "." || name == ".." {
+        return Err("Security Violation: Invalid file name provided.".to_string());
+    }
+    Ok(name.to_os_string())
+}
+
 // ⚡ NEW: Shared payload structure to wrap both the byte array and filename together
 #[derive(serde::Serialize)]
 pub struct FilePayload {
@@ -34,31 +63,52 @@ pub struct FilePayload {
     path: String,
 }
 
-#[tauri::command]
-async fn check_startup_file() -> Option<FilePayload> {
-    // Loop through command line parameters skipping index 0 (the executable location itself)
+/// Extensions accepted for file-association / CLI startup launches.
+fn is_supported_startup_extension(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    lower.ends_with(".pdf")
+        || lower.ends_with(".png")
+        || lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".tiff")
+        || lower.ends_with(".tif")
+        || lower.ends_with(".webp")
+        || lower.ends_with(".bmp")
+}
+
+/// Scan process arguments for a supported document and load it into a FilePayload.
+/// Used for double-click / "Open with" launches and CLI path arguments.
+fn load_startup_file_from_args() -> Option<FilePayload> {
     for arg in std::env::args().skip(1) {
-        if arg.to_lowercase().ends_with(".pdf") {
-            let path = std::path::Path::new(&arg);
-            if path.exists() && path.is_file() {
-                if let Some(file_name) = path.file_name() {
-                    let name = file_name.to_string_lossy().into_owned();
-                    let path_str = path.to_string_lossy().into_owned();
-                    if let Ok(mut file) = File::open(path) {
-                        let mut buffer = Vec::new();
-                        if file.read_to_end(&mut buffer).is_ok() {
-                            return Some(FilePayload {
-                                bytes: buffer,
-                                name,
-                                path: path_str,
-                            });
-                        }
+        if !is_supported_startup_extension(&arg) {
+            continue;
+        }
+        let path = std::path::Path::new(&arg);
+        if path.exists() && path.is_file() {
+            if let Some(file_name) = path.file_name() {
+                let name = file_name.to_string_lossy().into_owned();
+                let path_str = path.to_string_lossy().into_owned();
+                if let Ok(mut file) = File::open(path) {
+                    let mut buffer = Vec::new();
+                    if file.read_to_end(&mut buffer).is_ok() {
+                        return Some(FilePayload {
+                            bytes: buffer,
+                            name,
+                            path: path_str,
+                        });
                     }
                 }
             }
         }
     }
     None
+}
+
+#[tauri::command]
+async fn check_startup_file() -> Option<FilePayload> {
+    // Kept for compatibility; primary launch path is setup + `startup-file-loaded` event.
+    // Args come from the OS (file association / CLI), not the untrusted frontend.
+    load_startup_file_from_args()
 }
 
 // 1. NATIVE WINDOWS FILE OPEN DIALOG
@@ -118,7 +168,14 @@ async fn native_save_as_file(
     file_bytes: Vec<u8>,
     default_path: Option<String>,
 ) -> Result<String, String> {
-    let file_name = default_path.unwrap_or_else(|| "edited_document.pdf".to_string());
+    // `default_path` is only a suggested dialog file name — never open/write it directly.
+    // Strip any directory components so a hostile string cannot influence the dialog seed.
+    let file_name = match default_path {
+        Some(raw) => secure_file_name(&raw)
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| "edited_document.pdf".to_string()),
+        None => "edited_document.pdf".to_string(),
+    };
     let file_path = rfd::AsyncFileDialog::new()
         .add_filter("PDF Document", &["pdf"])
         .set_file_name(&file_name)
@@ -127,6 +184,7 @@ async fn native_save_as_file(
 
     match file_path {
         Some(handle) => {
+            // Path comes from the native save dialog (user-confirmed), not raw frontend input.
             let path = handle.path();
             let path_str = path.to_string_lossy().into_owned();
             let mut file = File::create(path).map_err(|e| e.to_string())?;
@@ -161,9 +219,7 @@ fn unprotect_pdf(bytes: Vec<u8>) -> Result<tauri::ipc::Response, String> {
 
 #[tauri::command]
 async fn write_temp_file(bytes: Vec<u8>, file_name: String) -> Result<String, String> {
-    let safe_file_name = std::path::Path::new(&file_name)
-        .file_name()
-        .ok_or_else(|| "Invalid file name provided".to_string())?;
+    let safe_file_name = secure_file_name(&file_name)?;
 
     let mut temp_path = std::env::temp_dir();
     temp_path.push(safe_file_name);
@@ -187,7 +243,11 @@ fn check_files_exist(paths: Vec<String>) -> std::collections::HashMap<String, bo
     paths
         .into_iter()
         .map(|path| {
-            let exists = std::path::Path::new(&path).exists();
+            // Reject traversal / relative probes; treat invalid paths as non-existent.
+            let exists = match secure_verify_path(&path) {
+                Ok(safe) => safe.exists(),
+                Err(_) => false,
+            };
             (path, exists)
         })
         .collect()
@@ -196,9 +256,11 @@ fn check_files_exist(paths: Vec<String>) -> std::collections::HashMap<String, bo
 #[tauri::command]
 async fn read_file_binary(path: String) -> Result<Vec<u8>, String> {
     let safe_path = secure_verify_path(&path)?;
-    let mut file = File::open(&safe_path).map_err(|_| "Unable to read file from disk.".to_string())?;
+    let mut file =
+        File::open(&safe_path).map_err(|_| "Unable to read file from disk.".to_string())?;
     let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).map_err(|_| "Unable to read file from disk.".to_string())?;
+    file.read_to_end(&mut buffer)
+        .map_err(|_| "Unable to read file from disk.".to_string())?;
     Ok(buffer)
 }
 
@@ -213,23 +275,26 @@ async fn read_file_bytes(path: String) -> Result<FilePayload, String> {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "document.pdf".to_string());
 
-    let mut file = File::open(&safe_path).map_err(|_| "Unable to read file from disk.".to_string())?;
+    let mut file =
+        File::open(&safe_path).map_err(|_| "Unable to read file from disk.".to_string())?;
     let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).map_err(|_| "Unable to read file from disk.".to_string())?;
+    file.read_to_end(&mut buffer)
+        .map_err(|_| "Unable to read file from disk.".to_string())?;
 
     Ok(FilePayload {
         bytes: buffer,
         name: file_name,
-        path: path.clone(),
+        path: safe_path.to_string_lossy().into_owned(),
     })
 }
 
 #[tauri::command]
 async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
-    let _safe_path = secure_verify_path(&path)?;
+    // Must use the verified PathBuf — previously validated then opened the raw string.
+    let safe_path = secure_verify_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
         // Read the file natively straight from disk to avoid frontend JSON serialization overhead
-        let file = std::fs::File::open(&path)
+        let file = std::fs::File::open(&safe_path)
             .map_err(|_| "Unable to read file from disk.".to_string())?;
         let reader = std::io::BufReader::new(file);
         let mut decoder = Decoder::new(reader)
@@ -249,9 +314,10 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
                 DecodingResult::U8(data) => {
                     match colortype {
                         tiff::ColorType::RGB(_) => {
-                            rgba_buffer.extend(data.chunks_exact(3).flat_map(|chunk| {
-                                [chunk[0], chunk[1], chunk[2], 255]
-                            }));
+                            rgba_buffer.extend(
+                                data.chunks_exact(3)
+                                    .flat_map(|chunk| [chunk[0], chunk[1], chunk[2], 255]),
+                            );
                         }
                         tiff::ColorType::RGBA(_) => {
                             rgba_buffer.extend(data);
@@ -260,9 +326,9 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
                             if bits == 1 {
                                 if data.len() == (width * height) as usize {
                                     // If it's already unpacked/expanded to 1 byte per pixel by the decoder layer
-                                    rgba_buffer.extend(data.into_iter().flat_map(|gray| {
-                                        [gray, gray, gray, 255]
-                                    }));
+                                    rgba_buffer.extend(
+                                        data.into_iter().flat_map(|gray| [gray, gray, gray, 255]),
+                                    );
                                 } else {
                                     // Unpack packed bits (1 bit per pixel, with each row padded to a byte boundary per TIFF spec)
                                     let bytes_per_row = width.div_ceil(8) as usize;
@@ -302,9 +368,9 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
                                 }
                             } else {
                                 // Standard 8-bit grayscale channels (1 byte per pixel)
-                                rgba_buffer.extend(data.into_iter().flat_map(|gray| {
-                                    [gray, gray, gray, 255]
-                                }));
+                                rgba_buffer.extend(
+                                    data.into_iter().flat_map(|gray| [gray, gray, gray, 255]),
+                                );
                             }
                         }
                         _ => {
@@ -393,8 +459,10 @@ async fn parse_tiff_document(path: String) -> Result<Vec<Vec<u8>>, String> {
 
 #[tauri::command]
 fn compress_pdf_pipeline(file_path: String) -> Result<String, String> {
+    let safe_path = secure_verify_path(&file_path)?;
+
     // 1. Ingest the raw file binary object tree from local storage disk
-    let mut doc = lopdf::Document::load(&file_path)
+    let mut doc = lopdf::Document::load(&safe_path)
         .map_err(|e| format!("Failed to read target PDF structure: {}", e))?;
 
     // 2. Structural Clean: Strip unreferenced nodes and clear dead cross-reference arrays
@@ -403,22 +471,34 @@ fn compress_pdf_pipeline(file_path: String) -> Result<String, String> {
     // Re-encode object data streams into minimized binary payloads
     doc.compress();
 
-    // 3. Derive a clean optimized naming file output profile
-    let export_path = file_path.replace(".pdf", "_compressed.pdf");
+    // 3. Derive a clean optimized naming file output profile next to the source
+    let export_path = {
+        let stem = safe_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "document".to_string());
+        let parent = safe_path.parent().unwrap_or_else(|| Path::new("."));
+        parent.join(format!("{stem}_compressed.pdf"))
+    };
 
+    // Export path is derived from a verified absolute path (no new user-controlled segments).
     // 4. Commit the condensed file byte map payload directly back to system disk space
     doc.save(&export_path)
         .map_err(|e| format!("Failed to write optimized system file: {}", e))?;
 
     Ok(format!(
         "File compressed cleanly! Generated target clone asset at: {}",
-        export_path
+        export_path.to_string_lossy()
     ))
 }
 
 #[tauri::command]
 fn delete_file_from_disk(file_path: String) -> Result<String, String> {
-    std::fs::remove_file(&file_path)
+    let safe_path = secure_verify_path(&file_path)?;
+    if !safe_path.is_file() {
+        return Err("Security Violation: Delete target must be an existing file.".to_string());
+    }
+    std::fs::remove_file(&safe_path)
         .map_err(|e| format!("Operating system failed to erase local target asset: {}", e))?;
 
     Ok("Asset successfully scrubbed off local drive bounds.".to_string())
@@ -444,7 +524,26 @@ pub fn run() {
             rec_model_bytes: tokio::sync::OnceCell::new(),
         })
         .plugin(tauri_plugin_shell::init())
-        .setup(|_app| {
+        .setup(|app| {
+            // File-association / "Open with" / CLI path: load in Rust and push to the
+            // frontend via an event. Avoids depending on frontend invoke() which can be
+            // blocked by CSP on cold start (connect-src / ipc.localhost).
+            if let Some(payload) = load_startup_file_from_args() {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    use tauri::Emitter;
+                    // Events emitted before the webview registers a listener are dropped.
+                    // Retry a few times so onMount has time to attach `startup-file-loaded`.
+                    // Frontend dedupes so multiple deliveries only load once.
+                    for delay_ms in [200u64, 600, 1200] {
+                        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                        if let Err(e) = handle.emit("startup-file-loaded", &payload) {
+                            eprintln!("Failed to emit startup-file-loaded: {e}");
+                        }
+                    }
+                });
+            }
+
             // Spawn a separate thread immediately to keep the UI initialization instantaneous
             tokio::task::spawn_blocking(move || {
                 let temp_dir = std::env::temp_dir();
@@ -548,15 +647,60 @@ mod tests {
         let paths = vec![
             temp_file.to_string_lossy().into_owned(),
             non_existent_file.to_string_lossy().into_owned(),
+            "../../Windows/System32/drivers/etc/hosts".to_string(),
+            "relative/file.pdf".to_string(),
         ];
 
         let result = check_files_exist(paths);
 
-        assert_eq!(result.len(), 2);
-        assert_eq!(result.get(&temp_file.to_string_lossy().into_owned()), Some(&true));
-        assert_eq!(result.get(&non_existent_file.to_string_lossy().into_owned()), Some(&false));
+        assert_eq!(result.len(), 4);
+        assert_eq!(
+            result.get(&temp_file.to_string_lossy().into_owned()),
+            Some(&true)
+        );
+        assert_eq!(
+            result.get(&non_existent_file.to_string_lossy().into_owned()),
+            Some(&false)
+        );
+        // Traversal / relative probes must not report existence
+        assert_eq!(
+            result.get("../../Windows/System32/drivers/etc/hosts"),
+            Some(&false)
+        );
+        assert_eq!(result.get("relative/file.pdf"), Some(&false));
 
         // Clean up
         let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_secure_verify_path_rejects_traversal() {
+        assert!(secure_verify_path("../../Windows/System32/config").is_err());
+        assert!(secure_verify_path(r"C:\Users\..\..\Windows\System32").is_err());
+        assert!(secure_verify_path(r"C:\Users\foo\..\bar\file.pdf").is_err());
+        assert!(secure_verify_path("relative/path/file.pdf").is_err());
+        assert!(secure_verify_path("").is_err());
+        assert!(secure_verify_path("C:\\ok\0evil.pdf").is_err());
+    }
+
+    #[test]
+    fn test_secure_verify_path_accepts_absolute_files() {
+        let abs = std::env::temp_dir().join("speeddf_secure_path_ok.pdf");
+        let abs_str = abs.to_string_lossy().into_owned();
+        let verified = secure_verify_path(&abs_str).expect("absolute path without .. should pass");
+        assert_eq!(verified, abs);
+    }
+
+    #[test]
+    fn test_secure_file_name_strips_directories() {
+        let name = secure_file_name(r"C:\Users\foo\..\evil\document.pdf").unwrap();
+        assert_eq!(name.to_string_lossy(), "document.pdf");
+
+        let name2 = secure_file_name("../../etc/passwd").unwrap();
+        assert_eq!(name2.to_string_lossy(), "passwd");
+
+        assert!(secure_file_name("").is_err());
+        assert!(secure_file_name("..").is_err());
+        assert!(secure_file_name(".").is_err());
     }
 }

@@ -7,6 +7,7 @@
   import { relaunch } from "@tauri-apps/plugin-process";
   import { open as openBrowser } from "@tauri-apps/plugin-shell";
   import * as pdfjsLib from "pdfjs-dist";
+  import { PDFDocument } from "pdf-lib";
   import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
   import TitleBar from "../components/TitleBar.svelte";
   import ToolSidebar from "../components/ToolSidebar.svelte";
@@ -690,7 +691,6 @@
     initializeNewDocument(name, null);
 
     try {
-      const { PDFDocument } = await import("pdf-lib");
       const doc = await PDFDocument.create();
       doc.addPage([595.276, 841.89]); // A4 dimensions
       const bytes = await doc.save();
@@ -988,25 +988,40 @@
       }
     }
 
-    async function initStartupFile() {
-      try {
-        console.log(
-          "Checking for startup single-file execution arguments handshake...",
-        );
-        const payload = await invoke<StartupPayload | null>(
-          "check_startup_file",
-        );
+    // Primary path for double-click / "Open with": Rust loads the file during
+    // setup and emits `startup-file-loaded`. Do not rely on invoke('check_startup_file')
+    // — that IPC path can be blocked by CSP on cold start.
+    let startupFileHandled = false;
+    let destroyStartupFileListener: (() => void) | null = null;
 
-        if (payload && payload.bytes && payload.bytes.length > 0) {
-          console.log(`Loading single-file payload launch: ${payload.name}`);
+    async function handleStartupFilePayload(payload: StartupPayload | null) {
+      if (startupFileHandled) return;
+      if (payload && payload.bytes && payload.bytes.length > 0) {
+        startupFileHandled = true;
+        console.log(`Loading single-file payload launch: ${payload.name}`);
+        try {
           const typedBytes = new Uint8Array(payload.bytes);
           await loadDocument(typedBytes, payload.name, payload.path);
+        } catch (err) {
+          // Allow a later retry emit from Rust if load failed before readiness.
+          startupFileHandled = false;
+          console.warn("Startup file load failed:", err);
         }
-      } catch (err) {
-        console.warn("Startup file handshake processing failed:", err);
       }
     }
-    initStartupFile();
+
+    import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen<StartupPayload>("startup-file-loaded", (event) => {
+          void handleStartupFilePayload(event.payload);
+        }),
+      )
+      .then((unlistenFn) => {
+        destroyStartupFileListener = unlistenFn;
+      })
+      .catch((err) =>
+        console.warn("Startup file event listener registration failed:", err),
+      );
 
     // Capture system Close Button actions cleanly via browser-native confirmation prompts
     const unlistenCloseRequest = appWindow.onCloseRequested(async (event) => {
@@ -1052,6 +1067,7 @@
         capture: true,
       });
       unlistenCloseRequest.then((f) => f());
+      if (destroyStartupFileListener) destroyStartupFileListener();
     };
   });
 

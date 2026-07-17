@@ -34,6 +34,8 @@ Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary
 * **`shapes`**: A `Record<number, AnnotationShape[]>` mapped by page number, storing all drafted vector stamps, texts, and highlighters.
 * **`bookmarks`**: An array of `{ pageNum, name }` tracking user-defined outline flags.
 * **`isDirty`**: Boolean flag tracking whether unsaved workspace modifications exist.
+* **`thumbnailVersion`**: Integer counter tracking thumbnail generation passes to trigger Svelte template/action repaints.
+* **`pageThumbnailOverrides`**: A `Record<number, string>` mapping page index numbers to fresh base64 snapshot strings on save, bypassing pdf.js rendering lag.
 
 ### Active Tool Modifiers (`activeDoc`)
 * **`activeTool`**: String literal tracking the currently selected tool (e.g., `"select"`, `"text"`, `"rect"`, `"signature"`, `"highlight"`).
