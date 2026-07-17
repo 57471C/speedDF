@@ -7,7 +7,10 @@ This document serves as a standardized reference guide for understanding the arc
 ## 1. The File Tree Matrix
 
 ### Frontend System (SvelteKit / TypeScript)
-* **`src/pdfStore.svelte.ts`**: The central Svelte 5 state engine managing all document workspaces, tool configurations, undo/redo stacks, and reactive global variables.
+* **`src/pdfStore.svelte.ts`**: Central document ownership facade. Holds open documents, active document, shapes ownership, bookmarks, signatures, and selection state. Delegates history and tools to dedicated modules.
+* **`src/lib/stores/history.svelte.ts`**: Undo/redo stack and `pushHistorySnapshot()` helpers.
+* **`src/lib/stores/tools.svelte.ts`**: Active tool, color, thickness, and line style state.
+* **`src/lib/annotation/shapeHelpers.ts`**: Pure helper utilities for shape selection patches and related annotation operations.
 * **`src/components/WorkspacePage.svelte`**: The core canvas rendering pipeline that handles PDF.js page painting, text layer overlays, SVG annotation tracking, and interactive tool drafting.
 * **`src/components/TitleBar.svelte`**: The custom OS-level header component that orchestrates top-level tools, window drag mechanics, file saving dialogs, and delegates the `pdf-lib` PDF/Image flattening export pipeline.
 * **`src/components/Workspace.svelte`**: The primary layout container that maps and orchestrates the scrollable sequence of `WorkspacePage` components.
