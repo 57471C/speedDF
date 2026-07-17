@@ -3,6 +3,7 @@ import {
 	activeDoc,
 	executeRedoAction,
 	executeUndoAction,
+	initializeNewDocument,
 	loadSavedSets,
 	pushHistorySnapshot,
 	redoStack,
@@ -13,6 +14,12 @@ import {
 	undoStack,
 	saveSignatureSetAction,
 } from "./pdfStore.svelte.ts";
+
+/** Ensure multi-document facade has a current workspace (setters no-op without one). */
+function openTestDocument(name = "test.pdf") {
+	activeDoc.flushDocumentState();
+	initializeNewDocument(name, null);
+}
 
 describe("loadSavedSets", () => {
 	beforeEach(() => {
@@ -128,7 +135,7 @@ describe("saveSignatureSetAction", () => {
 describe("pushHistorySnapshot", () => {
 	beforeEach(() => {
 		// Reset activeDoc and history stacks explicitly
-		activeDoc.flushDocumentState();
+		openTestDocument();
 		undoStack.length = 0;
 		redoStack.length = 0;
 	});
@@ -186,7 +193,7 @@ describe("pushHistorySnapshot", () => {
 describe("executeUndoAction", () => {
 	beforeEach(() => {
 		// Reset activeDoc and history stacks explicitly
-		activeDoc.flushDocumentState();
+		openTestDocument();
 		undoStack.length = 0;
 		redoStack.length = 0;
 	});
@@ -242,7 +249,7 @@ describe("executeUndoAction", () => {
 
 describe("rotatePageAction", () => {
 	beforeEach(() => {
-		activeDoc.flushDocumentState();
+		openTestDocument();
 	});
 
 	afterEach(() => {
@@ -274,7 +281,7 @@ describe("rotatePageAction", () => {
 
 describe("deleteBookmarkAction", () => {
 	beforeEach(() => {
-		activeDoc.flushDocumentState();
+		openTestDocument();
 	});
 
 	it("should do nothing if no bookmarks exist", () => {
@@ -317,7 +324,7 @@ describe("deleteBookmarkAction", () => {
 
 describe("updateBookmarkNameAction", () => {
 	beforeEach(() => {
-		activeDoc.flushDocumentState();
+		openTestDocument();
 	});
 
 	it("should update the name of an existing bookmark", () => {
@@ -349,7 +356,7 @@ describe("updateBookmarkNameAction", () => {
 
 describe("addOrToggleBookmarkAction", () => {
 	beforeEach(() => {
-		activeDoc.flushDocumentState();
+		openTestDocument();
 	});
 
 	it("should add a new bookmark when none exists for the page", () => {
