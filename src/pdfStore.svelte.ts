@@ -1,3 +1,40 @@
+import {
+	bindHistoryDocument,
+	pushHistorySnapshot,
+	executeUndoAction,
+	executeRedoAction,
+	undoStack,
+	redoStack,
+} from "./lib/stores/history.svelte";
+import {
+	getActiveTool,
+	setActiveTool,
+	getActiveColor,
+	setActiveColor,
+	getActiveThickness,
+	setActiveThickness,
+	getActiveLineStyle,
+	setActiveLineStyle,
+	type ActiveTool,
+	type ActiveLineStyle,
+} from "./lib/stores/tools.svelte";
+import {
+	selectionNeedsPropertyUpdate,
+	patchSelectedShapes,
+} from "./lib/annotation/shapeHelpers";
+
+// Re-export history API so existing `from "../pdfStore.svelte"` imports keep working.
+export {
+	pushHistorySnapshot,
+	executeUndoAction,
+	executeRedoAction,
+	undoStack,
+	redoStack,
+};
+
+// Re-export tool types for consumers that want them without deep imports.
+export type { ActiveTool, ActiveLineStyle };
+
 export interface TextShape {
 	id: string;
 	type: "text";
@@ -91,24 +128,7 @@ export interface SharedDocumentState {
 	clientHeight: number;
 	isClickScrolling: boolean;
 	rotations: Record<number, number>;
-	activeTool:
-		| "select"
-		| "text"
-		| "rect"
-		| "tick"
-		| "dash"
-		| "signature"
-		| "initial"
-		| "highlight"
-		| "rotate"
-		| "round-rect"
-		| "oval"
-		| "rect-fill"
-		| "round-rect-fill"
-		| "oval-fill"
-		| "pen"
-		| "snapshot"
-		| null;
+	activeTool: ActiveTool;
 	shapes: Record<number, AnnotationShape[]>;
 	selectedShape: { pageNumber: number; index: number } | null;
 	selectedShapes: { pageNumber: number; index: number }[];
@@ -119,7 +139,7 @@ export interface SharedDocumentState {
 	filePath: string | null;
 	activeColor: string;
 	activeThickness: number;
-	activeLineStyle: "solid" | "dashed" | "dotted" | "dash-dot";
+	activeLineStyle: ActiveLineStyle;
 	activeFontFamily: "Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono";
 	activeTextAlignment: "left" | "center" | "right";
 	zoomScale: number;
@@ -215,12 +235,8 @@ export const loadSavedSets = (): SignatureSet[] => {
 let openDocuments = $state<DocumentWorkspace[]>([]);
 let activeDocumentId = $state<string | null>(null);
 
-let activeTool = $state<SharedDocumentState["activeTool"]>("select");
 let selectedShape = $state<SharedDocumentState["selectedShape"]>(null);
 let selectedShapes = $state<SharedDocumentState["selectedShapes"]>([]);
-let activeColor = $state("#000000");
-let activeThickness = $state(3);
-let activeLineStyle = $state<"solid" | "dashed" | "dotted" | "dash-dot">("solid");
 let activeFontFamily = $state<"Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono">("Helvetica");
 let activeTextAlignment = $state<"left" | "center" | "right">("left");
 let zoomScale = $state(120);
@@ -315,148 +331,84 @@ export const activeDoc: SharedDocumentState = {
 	get rotations() { return this.current?.rotations || {}; },
 	set rotations(val) { if (this.current) this.current.rotations = val; },
 
-	// Global / session-wide properties
-	get activeTool() { return activeTool; },
-	set activeTool(val) { activeTool = val; },
+	// Global / session-wide tool + stroke style (lib/stores/tools.svelte.ts)
+	get activeTool() { return getActiveTool(); },
+	set activeTool(val) { setActiveTool(val); },
 	get selectedShape() { return selectedShape; },
 	set selectedShape(val) { selectedShape = val; },
 	get selectedShapes() { return selectedShapes; },
 	set selectedShapes(val) { selectedShapes = val; },
-	get activeColor() { return activeColor; },
+	get activeColor() { return getActiveColor(); },
 	set activeColor(val) {
-		activeColor = val;
-		if (selectedShapes.length > 0) {
-			const needsUpdate = selectedShapes.some((s) => {
-				const shape = activeDoc.shapes[s.pageNumber]?.[s.index];
-				return shape && shape.color !== val;
+		setActiveColor(val);
+		if (
+			selectedShapes.length > 0 &&
+			selectionNeedsPropertyUpdate(activeDoc.shapes, selectedShapes, "color", val)
+		) {
+			pushHistorySnapshot();
+			activeDoc.shapes = patchSelectedShapes(activeDoc.shapes, selectedShapes, {
+				color: val,
+				textColor: val,
 			});
-			if (needsUpdate) {
-				pushHistorySnapshot();
-				selectedShapes.forEach((s) => {
-					const list = [...(activeDoc.shapes[s.pageNumber] || [])];
-					if (list[s.index]) {
-						list[s.index] = {
-							...list[s.index],
-							color: val,
-							textColor: val,
-						};
-						activeDoc.shapes = {
-							...activeDoc.shapes,
-							[s.pageNumber]: list,
-						};
-					}
-				});
-				activeDoc.isDirty = true;
-			}
+			activeDoc.isDirty = true;
 		}
 	},
-	get activeThickness() { return activeThickness; },
+	get activeThickness() { return getActiveThickness(); },
 	set activeThickness(val) {
-		activeThickness = val;
-		if (selectedShapes.length > 0) {
-			const needsUpdate = selectedShapes.some((s) => {
-				const shape = activeDoc.shapes[s.pageNumber]?.[s.index];
-				return shape && shape.thickness !== val;
+		setActiveThickness(val);
+		if (
+			selectedShapes.length > 0 &&
+			selectionNeedsPropertyUpdate(activeDoc.shapes, selectedShapes, "thickness", val)
+		) {
+			pushHistorySnapshot();
+			activeDoc.shapes = patchSelectedShapes(activeDoc.shapes, selectedShapes, {
+				thickness: val,
 			});
-			if (needsUpdate) {
-				pushHistorySnapshot();
-				selectedShapes.forEach((s) => {
-					const list = [...(activeDoc.shapes[s.pageNumber] || [])];
-					if (list[s.index]) {
-						list[s.index] = {
-							...list[s.index],
-							thickness: val,
-						};
-						activeDoc.shapes = {
-							...activeDoc.shapes,
-							[s.pageNumber]: list,
-						};
-					}
-				});
-				activeDoc.isDirty = true;
-			}
+			activeDoc.isDirty = true;
 		}
 	},
-	get activeLineStyle() { return activeLineStyle; },
+	get activeLineStyle() { return getActiveLineStyle(); },
 	set activeLineStyle(val) {
-		activeLineStyle = val;
-		if (selectedShapes.length > 0) {
-			const needsUpdate = selectedShapes.some((s) => {
-				const shape = activeDoc.shapes[s.pageNumber]?.[s.index];
-				return shape && shape.lineStyle !== val;
+		setActiveLineStyle(val);
+		if (
+			selectedShapes.length > 0 &&
+			selectionNeedsPropertyUpdate(activeDoc.shapes, selectedShapes, "lineStyle", val)
+		) {
+			pushHistorySnapshot();
+			activeDoc.shapes = patchSelectedShapes(activeDoc.shapes, selectedShapes, {
+				lineStyle: val,
 			});
-			if (needsUpdate) {
-				pushHistorySnapshot();
-				selectedShapes.forEach((s) => {
-					const list = [...(activeDoc.shapes[s.pageNumber] || [])];
-					if (list[s.index]) {
-						list[s.index] = {
-							...list[s.index],
-							lineStyle: val,
-						};
-						activeDoc.shapes = {
-							...activeDoc.shapes,
-							[s.pageNumber]: list,
-						};
-					}
-				});
-				activeDoc.isDirty = true;
-			}
+			activeDoc.isDirty = true;
 		}
 	},
 	get activeFontFamily() { return activeFontFamily; },
 	set activeFontFamily(val) {
 		activeFontFamily = val;
-		if (selectedShapes.length > 0) {
-			const needsUpdate = selectedShapes.some((s) => {
-				const shape = activeDoc.shapes[s.pageNumber]?.[s.index];
-				return shape && shape.fontFamily !== val;
+		if (
+			selectedShapes.length > 0 &&
+			selectionNeedsPropertyUpdate(activeDoc.shapes, selectedShapes, "fontFamily", val)
+		) {
+			pushHistorySnapshot();
+			// Keep font in sync for compatibility
+			activeDoc.shapes = patchSelectedShapes(activeDoc.shapes, selectedShapes, {
+				fontFamily: val,
+				font: val,
 			});
-			if (needsUpdate) {
-				pushHistorySnapshot();
-				selectedShapes.forEach((s) => {
-					const list = [...(activeDoc.shapes[s.pageNumber] || [])];
-					if (list[s.index]) {
-						list[s.index] = {
-							...list[s.index],
-							fontFamily: val,
-							font: val, // Keep in sync for compatibility
-						};
-						activeDoc.shapes = {
-							...activeDoc.shapes,
-							[s.pageNumber]: list,
-						};
-					}
-				});
-				activeDoc.isDirty = true;
-			}
+			activeDoc.isDirty = true;
 		}
 	},
 	get activeTextAlignment() { return activeTextAlignment; },
 	set activeTextAlignment(val) {
 		activeTextAlignment = val;
-		if (selectedShapes.length > 0) {
-			const needsUpdate = selectedShapes.some((s) => {
-				const shape = activeDoc.shapes[s.pageNumber]?.[s.index];
-				return shape && shape.alignment !== val;
+		if (
+			selectedShapes.length > 0 &&
+			selectionNeedsPropertyUpdate(activeDoc.shapes, selectedShapes, "alignment", val)
+		) {
+			pushHistorySnapshot();
+			activeDoc.shapes = patchSelectedShapes(activeDoc.shapes, selectedShapes, {
+				alignment: val,
 			});
-			if (needsUpdate) {
-				pushHistorySnapshot();
-				selectedShapes.forEach((s) => {
-					const list = [...(activeDoc.shapes[s.pageNumber] || [])];
-					if (list[s.index]) {
-						list[s.index] = {
-							...list[s.index],
-							alignment: val,
-						};
-						activeDoc.shapes = {
-							...activeDoc.shapes,
-							[s.pageNumber]: list,
-						};
-					}
-				});
-				activeDoc.isDirty = true;
-			}
+			activeDoc.isDirty = true;
 		}
 	},
 	get zoomScale() { return zoomScale; },
@@ -542,74 +494,8 @@ export const activeDoc: SharedDocumentState = {
 	}
 };
 
-// ⚡ SURGICAL INSERTION: Append this directly below your "export const activeDoc = ..." declaration block
-
-interface HistorySnapshot {
-	shapes: Record<number, AnnotationShape[]>;
-	pageOrder: number[];
-}
-
-// Memory-tracked transaction arrays
-export const undoStack = $state<HistorySnapshot[]>([]);
-export const redoStack = $state<HistorySnapshot[]>([]);
-
-/**
- * ⏳ Commits a deep-cloned historical snapshot of the current canvas layout state onto the undo stack.
- * Call this immediately BEFORE executing any document mutation (drawing, deleting, reordering).
- */
-export function pushHistorySnapshot() {
-	activeDoc.isDirty = true;
-	const snapshot: HistorySnapshot = {
-		shapes: structuredClone($state.snapshot(activeDoc.shapes)),
-		pageOrder: [...activeDoc.pageOrder],
-	};
-	undoStack.push(snapshot);
-
-	// A new user action always invalidates and clears the forward redo stack path
-	if (redoStack.length > 0) {
-		redoStack.length = 0;
-	}
-}
-
-/**
- * 🔄 Pops the last committed snapshot out of the undo stack and restores it safely.
- */
-export function executeUndoAction() {
-	if (undoStack.length === 0) return;
-
-	const currentStatus: HistorySnapshot = {
-		shapes: structuredClone($state.snapshot(activeDoc.shapes)),
-		pageOrder: [...activeDoc.pageOrder],
-	};
-	redoStack.push(currentStatus);
-
-	const previousState = undoStack.pop();
-	if (previousState) {
-		activeDoc.shapes = previousState.shapes;
-		activeDoc.pageOrder = previousState.pageOrder;
-		activeDoc.selectedShape = null;
-	}
-}
-
-/**
- * ➡️ Pops the last state out of the redo stack and shifts the application forward.
- */
-export function executeRedoAction() {
-	if (redoStack.length === 0) return;
-
-	const currentStatus: HistorySnapshot = {
-		shapes: structuredClone($state.snapshot(activeDoc.shapes)),
-		pageOrder: [...activeDoc.pageOrder],
-	};
-	undoStack.push(currentStatus);
-
-	const nextState = redoStack.pop();
-	if (nextState) {
-		activeDoc.shapes = nextState.shapes;
-		activeDoc.pageOrder = nextState.pageOrder;
-		activeDoc.selectedShape = null;
-	}
-}
+// Bind undo/redo to the active document facade (must run after activeDoc exists).
+bindHistoryDocument(activeDoc);
 
 export function saveSignatureSetAction(newSet: SignatureSet) {
 	activeDoc.savedSignatureSets = [...activeDoc.savedSignatureSets, newSet];
