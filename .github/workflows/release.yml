@@ -1,4 +1,5 @@
-name: Release Compilation Engine
+- name: Install Dependencies
+  run: npm ci --ignore-scripts || npm install --ignore-scripts
 
 on:
   push:
