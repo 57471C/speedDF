@@ -101,8 +101,49 @@ export function debounceLeadingLatest(
 	};
 }
 
-/** Shared thumbnail paint knobs — keep Wasm/canvas small. */
-export const THUMBNAIL_MAX_EDGE_PX = 96;
-export const THUMBNAIL_MAX_SCALE = 0.22;
+/** Shared thumbnail paint knobs — keep Wasm/canvas small (esp. ICC-heavy PDFs). */
+export const THUMBNAIL_MAX_EDGE_PX = 84;
+export const THUMBNAIL_MAX_SCALE = 0.18;
+/** Even smaller caps when source PDF is large (byte length). */
+export const THUMBNAIL_LARGE_DOC_BYTES = 8 * 1024 * 1024; // 8 MB
+export const THUMBNAIL_LARGE_MAX_EDGE_PX = 64;
+export const THUMBNAIL_LARGE_MAX_SCALE = 0.12;
+export const THUMBNAIL_RETRY_MAX_SCALE = 0.08;
+export const THUMBNAIL_RETRY_MAX_EDGE_PX = 48;
 export const THUMBNAIL_JPEG_QUALITY = 0.4;
-export const THUMBNAIL_DEBOUNCE_MS = 120;
+export const THUMBNAIL_DEBOUNCE_MS = 150;
+
+export type ThumbnailScalePlan = {
+	maxEdgePx: number;
+	maxScale: number;
+	/** Second attempt after a failed render (even smaller). */
+	retryMaxEdgePx: number;
+	retryMaxScale: number;
+};
+
+/**
+ * Pick conservative thumbnail limits from document size so ICC/Wasm paints
+ * stay within memory on multi-page colour PDFs.
+ */
+export function thumbnailScalePlanForBytes(
+	byteLength: number | null | undefined,
+): ThumbnailScalePlan {
+	const large =
+		typeof byteLength === "number" && byteLength >= THUMBNAIL_LARGE_DOC_BYTES;
+	return {
+		maxEdgePx: large ? THUMBNAIL_LARGE_MAX_EDGE_PX : THUMBNAIL_MAX_EDGE_PX,
+		maxScale: large ? THUMBNAIL_LARGE_MAX_SCALE : THUMBNAIL_MAX_SCALE,
+		retryMaxEdgePx: THUMBNAIL_RETRY_MAX_EDGE_PX,
+		retryMaxScale: THUMBNAIL_RETRY_MAX_SCALE,
+	};
+}
+
+/** Compute viewport scale for a page width/height in PDF units. */
+export function computeThumbnailScale(
+	pageWidthPts: number,
+	maxEdgePx: number,
+	maxScale: number,
+): number {
+	const raw = maxEdgePx / Math.max(0.1, Math.abs(pageWidthPts));
+	return Math.min(maxScale, Math.max(0.05, raw));
+}

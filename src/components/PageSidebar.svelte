@@ -14,11 +14,11 @@
     globalPdfWorkerInstance,
   } from "../pdfStore.svelte";
   import {
+    computeThumbnailScale,
     debounceLeadingLatest,
     runWithPdfRenderSlot,
+    thumbnailScalePlanForBytes,
     THUMBNAIL_DEBOUNCE_MS,
-    THUMBNAIL_MAX_EDGE_PX,
-    THUMBNAIL_MAX_SCALE,
   } from "../lib/render/pdfRenderQueue";
 
   let sidebarContainer = $state<HTMLDivElement | null>(null);
@@ -73,9 +73,18 @@
         cMapPacked: true,
         standardFontDataUrl: window.location.origin + "/standard_fonts/",
         wasmUrl: window.location.origin + "/",
-        worker: globalPdfWorkerInstance.current
+        worker: globalPdfWorkerInstance.current,
+        // Large colour PDFs: avoid extra font-face + XFA work on the shared thumb pipeline
+        useSystemFonts: true,
+        enableXfa: false,
       });
-      sharedPdfjsDocPromise = loadingTask.promise;
+      sharedPdfjsDocPromise = loadingTask.promise.catch((err: unknown) => {
+        // Allow a later retry if the first parse fails under memory pressure
+        console.error("PageSidebar: shared PDF load failed, will retry on next request", err);
+        cachedRawBytes = null;
+        sharedPdfjsDocPromise = null;
+        throw err;
+      });
     }
     
     return sharedPdfjsDocPromise;
@@ -203,6 +212,28 @@
     let pendingPageNum = pageNum;
     let pendingRotation = rotation;
 
+    function paintPlaceholder(label: string, edge = 64) {
+      try {
+        const w = edge;
+        const h = Math.round(edge * 1.3);
+        node.width = w;
+        node.height = h;
+        const ctx = node.getContext("2d");
+        if (!ctx) return;
+        ctx.fillStyle = "#f1f5f9";
+        ctx.fillRect(0, 0, w, h);
+        ctx.strokeStyle = "#cbd5e1";
+        ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, w / 2, h / 2);
+      } catch {
+        /* ignore placeholder failures */
+      }
+    }
+
     async function cancelActiveRender(): Promise<void> {
       const task = activeRenderTask;
       if (!task) return;
@@ -219,6 +250,66 @@
       }
     }
 
+    async function paintPageAtScale(
+      page: any,
+      rot: number,
+      maxEdgePx: number,
+      maxScale: number,
+      generation: number,
+    ): Promise<boolean> {
+      const unrotatedViewport = page.getViewport({ scale: 1 });
+      const currentRotation = (page.rotate + rot) % 360;
+      const isVerticalFactor = currentRotation % 180 === 0;
+      const renderWidth = isVerticalFactor
+        ? unrotatedViewport.width
+        : unrotatedViewport.height;
+      const calculatedScale = computeThumbnailScale(
+        renderWidth,
+        maxEdgePx,
+        maxScale,
+      );
+
+      const viewport = page.getViewport({
+        scale: calculatedScale,
+        rotation: currentRotation,
+      });
+
+      if (generation !== paintGeneration) return false;
+
+      await cancelActiveRender();
+      if (generation !== paintGeneration) return false;
+
+      // Cap bitmap dimensions hard (ICC/Wasm safety net)
+      const capW = Math.min(Math.ceil(viewport.width), maxEdgePx * 2);
+      const capH = Math.min(Math.ceil(viewport.height), maxEdgePx * 3);
+      node.width = Math.max(1, capW);
+      node.height = Math.max(1, capH);
+
+      // Prefer CSS scaling if viewport differs slightly from capped canvas
+      node.style.width = `${Math.min(viewport.width, maxEdgePx)}px`;
+      node.style.height = "auto";
+
+      const renderTask = page.render({
+        canvas: node,
+        viewport,
+        // Skip form/annotation layers — thumbs only need page artwork
+        annotationMode: pdfjsLib.AnnotationMode?.DISABLE ?? 0,
+        intent: "display",
+      });
+      activeRenderTask = renderTask;
+      try {
+        await renderTask.promise;
+        return generation === paintGeneration;
+      } catch (err: any) {
+        if (err?.name === "RenderingCancelledException") return false;
+        throw err;
+      } finally {
+        if (activeRenderTask === renderTask) {
+          activeRenderTask = null;
+        }
+      }
+    }
+
     async function executeRender(pNum: number, rot: number) {
       if (!activeDoc.rawBytes) return;
 
@@ -226,15 +317,17 @@
       // Always free this thumbnail canvas before a new pdf.js paint
       await cancelActiveRender();
       if (generation !== paintGeneration) return;
-      
+
+      // Immediate light placeholder so large PDFs don't look "stuck blank"
+      paintPlaceholder(`p.${pNum}`, 56);
+
       // Check if a live override snapshot exists for this page index
       const liveOverride = activeDoc.pageThumbnailOverrides[pNum - 1];
       if (liveOverride) {
         const overrideImg = new Image();
-        overrideImg.src = liveOverride;
         overrideImg.onload = () => {
           if (generation !== paintGeneration) return;
-          const ctx = node.getContext('2d');
+          const ctx = node.getContext("2d");
           if (ctx) {
             node.width = overrideImg.width;
             node.height = overrideImg.height;
@@ -242,9 +335,15 @@
             ctx.drawImage(overrideImg, 0, 0, node.width, node.height);
           }
         };
-        console.log(`⚡ PageSidebar thumbnail for page ${pNum} updated via override map.`);
+        overrideImg.onerror = () => {
+          if (generation !== paintGeneration) return;
+          paintPlaceholder(`p.${pNum}`);
+        };
+        overrideImg.src = liveOverride;
         return;
       }
+
+      const plan = thumbnailScalePlanForBytes(activeDoc.rawBytes?.byteLength);
 
       // Low-priority slot: yields to main workspace paints; max concurrent globally capped.
       await runWithPdfRenderSlot(
@@ -254,57 +353,61 @@
 
           try {
             const docPromise = getSharedPdfjsDoc();
-            if (!docPromise) return;
+            if (!docPromise) {
+              paintPlaceholder(`p.${pNum}`);
+              return;
+            }
 
-            // Await the shared master document instead of creating a new loadingTask
             const pdfDocument = await docPromise;
             if (generation !== paintGeneration) return;
             const page = await pdfDocument.getPage(pNum);
             if (generation !== paintGeneration) return;
 
-            const targetWidth = THUMBNAIL_MAX_EDGE_PX;
-            const unrotatedViewport = page.getViewport({ scale: 1 });
-            const currentRotation = (page.rotate + rot) % 360;
-
-            const isVerticalFactor = currentRotation % 180 === 0;
-            const renderWidth = isVerticalFactor
-              ? unrotatedViewport.width
-              : unrotatedViewport.height;
-            const calculatedScale = Math.min(
-              THUMBNAIL_MAX_SCALE,
-              Math.max(0.1, targetWidth / Math.max(0.1, Math.abs(renderWidth))),
-            );
-
-            const viewport = page.getViewport({
-              scale: calculatedScale,
-              rotation: currentRotation,
-            });
-
-            node.height = viewport.height;
-            node.width = viewport.width;
-
-            await cancelActiveRender();
-            if (generation !== paintGeneration) return;
-
-            // Dedicated sidebar thumbnail canvas (never the main workspace page canvas)
-            const renderTask = page.render({
-              canvas: node,
-              viewport: viewport,
-            });
-            activeRenderTask = renderTask;
             try {
-              await renderTask.promise;
-            } catch (err: any) {
-              if (err?.name === "RenderingCancelledException") return;
-              throw err;
-            } finally {
-              if (activeRenderTask === renderTask) {
-                activeRenderTask = null;
-              }
+              const ok = await paintPageAtScale(
+                page,
+                rot,
+                plan.maxEdgePx,
+                plan.maxScale,
+                generation,
+              );
+              if (ok || generation !== paintGeneration) return;
+            } catch (firstErr: any) {
+              if (firstErr?.name === "RenderingCancelledException") return;
+              console.warn(
+                `Thumbnail primary render failed for page ${pNum}, retrying smaller:`,
+                firstErr?.message || firstErr,
+              );
+            }
+
+            // Retry once at a much smaller scale (ICC/Wasm recovery path)
+            if (generation !== paintGeneration) return;
+            try {
+              const okRetry = await paintPageAtScale(
+                page,
+                rot,
+                plan.retryMaxEdgePx,
+                plan.retryMaxScale,
+                generation,
+              );
+              if (okRetry || generation !== paintGeneration) return;
+            } catch (retryErr: any) {
+              if (retryErr?.name === "RenderingCancelledException") return;
+              console.error(
+                `Thumbnail retry failed for page ${pNum}:`,
+                retryErr,
+              );
+            }
+
+            if (generation === paintGeneration) {
+              paintPlaceholder(`p.${pNum}`);
             }
           } catch (err: any) {
             if (err?.name === "RenderingCancelledException") return;
             console.error(`Thumbnail render failed for page ${pNum}:`, err);
+            if (generation === paintGeneration) {
+              paintPlaceholder(`p.${pNum}`);
+            }
           }
         },
         () => generation !== paintGeneration,
@@ -320,8 +423,11 @@
       update(newParams: { pageNum: number; rotation: number; version?: number }) {
         pendingPageNum = newParams.pageNum;
         pendingRotation = newParams.rotation;
-        // Overrides should paint immediately for save feedback
-        if (activeDoc.pageThumbnailOverrides[newParams.pageNum - 1]) {
+        // Overrides / version bumps (incl. leaving grid) paint promptly
+        if (
+          activeDoc.pageThumbnailOverrides[newParams.pageNum - 1] ||
+          newParams.version != null
+        ) {
           debounced.cancel();
           void executeRender(newParams.pageNum, newParams.rotation);
           return;
@@ -448,10 +554,20 @@
   }
 
   function toggleGridView() {
-    isGridViewOpen = !isGridViewOpen;
-    if (isGridViewOpen) {
+    const opening = !isGridViewOpen;
+    isGridViewOpen = opening;
+    if (opening) {
       selectedPages = [activeDoc.currentPage];
+    } else {
+      // Grid mounts its own canvases; force sidebar thumbs to repaint when returning
+      activeDoc.thumbnailVersion = (activeDoc.thumbnailVersion || 0) + 1;
     }
+  }
+
+  function closeGridView() {
+    if (!isGridViewOpen) return;
+    isGridViewOpen = false;
+    activeDoc.thumbnailVersion = (activeDoc.thumbnailVersion || 0) + 1;
   }
 
   function handleGridSelect(e: MouseEvent, pageNum: number) {
@@ -700,56 +816,14 @@
     style="color-scheme: dark;"
   >
     <div class="relative w-full flex flex-col gap-3">
-      {#if activeDoc.openDocuments && activeDoc.openDocuments.length > 1}
-        <div class="w-full flex flex-col gap-2 p-3 border-b border-slate-800 bg-slate-950/40">
-          <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider px-1">
-            Open Sessions
-          </div>
-          <div class="flex flex-col gap-1.5 max-h-[220px] overflow-y-auto pr-1">
-            {#each activeDoc.openDocuments as doc}
-              <div 
-                class="flex items-center justify-between group px-2.5 py-2 rounded border transition-all cursor-pointer text-sm
-                  {activeDoc.activeDocumentId === (doc.filePath || doc.fileName) 
-                    ? 'bg-cyan-950/30 border-cyan-500/40 text-cyan-400' 
-                    : 'bg-slate-900/40 border-slate-800/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'}"
-                onclick={() => {
-                  activeDoc.activeDocumentId = doc.filePath || doc.fileName;
-                }}
-              >
-                <div class="flex items-center gap-2 overflow-hidden w-full">
-                  <span class="text-xs opacity-60">
-                    {doc.fileType === 'image' ? '🖼️' : '📄'}
-                  </span>
-                  <span class="truncate font-medium text-xs">
-                    {doc.fileName}
-                  </span>
-                </div>
+      <!-- Multi-doc switching is handled by DocumentTabs (top bar). Keep sidebar focused on pages. -->
 
-                <button 
-                  class="opacity-0 group-hover:opacity-100 p-0.5 rounded text-slate-500 hover:bg-slate-800 hover:text-red-400 transition-all ml-1"
-                  onclick={(e) => {
-                    e.stopPropagation();
-                    activeDoc.activeDocumentId = doc.filePath || doc.fileName;
-                    activeDoc.flushDocumentState();
-                  }}
-                  title="Close Document"
-                >
-                  ✕
-                </button>
-              </div>
-            {/each}
-          </div>
-        </div>
+      {#if hasUserScrolled && activeDoc.pageOrder.length > 0 && activeDoc.scrollHeight > 0}
+        <div 
+          class="absolute left-2 right-2 pointer-events-none border-2 border-red-500 bg-red-500/10 rounded z-30 shadow-[0_0_15px_rgba(239,68,68,0.25)] transition-none"
+          style="transform: translateY({globalRedBoxTop}px); height: {globalRedBoxHeight}px; top: 0;"
+        ></div>
       {/if}
-
-
-      {#if !(activeDoc.fileType === 'image' && activeDoc.openDocuments && activeDoc.openDocuments.length > 1)}
-        {#if hasUserScrolled && activeDoc.pageOrder.length > 0 && activeDoc.scrollHeight > 0}
-          <div 
-            class="absolute left-2 right-2 pointer-events-none border-2 border-red-500 bg-red-500/10 rounded z-30 shadow-[0_0_15px_rgba(239,68,68,0.25)] transition-none"
-            style="transform: translateY({globalRedBoxTop}px); height: {globalRedBoxHeight}px; top: 0;"
-          ></div>
-        {/if}
 
       {#each activeDoc.pageOrder as pageNum, index (pageNum)}
         <div
@@ -945,7 +1019,6 @@
           </div>
         </div>
       {/each}
-      {/if}
 
       <input
         type="file"
@@ -1057,7 +1130,7 @@
       </div>
       
       <div class="flex items-center justify-end">
-        <button onclick={() => isGridViewOpen = false} class="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold transition-colors shadow-md">Done</button>
+        <button onclick={closeGridView} class="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold transition-colors shadow-md">Done</button>
       </div>
     </div>
     
