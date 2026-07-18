@@ -1,55 +1,72 @@
 name: Release Compilation Engine
+
 on:
   push:
     tags:
-      - 'v*' # Triggers automatically on v0.4.1, v0.4.2, v1.0.0, etc.
+      - 'v*'   # Triggers on v1.0.1, v1.0.2, etc.
 
 jobs:
   publish-tauri:
     permissions:
       contents: write
+
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: 'windows-latest' # Compiles your .exe / .msi
-          - platform: 'macos-latest'   # Compiles your Intel/Apple Silicon bundles
-          - platform: 'ubuntu-22.04'   # Compiles your Linux binaries
+          # Windows
+          - platform: 'windows-latest'
+            target: 'x86_64-pc-windows-msvc'
+
+          # macOS Apple Silicon
+          - platform: 'macos-latest'
+            target: 'aarch64-apple-darwin'
+
+          # macOS Intel (for older Macs)
+          - platform: 'macos-13'
+            target: 'x86_64-apple-darwin'
+
+          # Linux
+          - platform: 'ubuntu-22.04'
+            target: 'x86_64-unknown-linux-gnu'
 
     runs-on: ${{ matrix.platform }}
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22 # Bypasses the manifest api and runs instantly!
+          node-version: 22
           cache: 'npm'
 
-      - name: Install Rust Stable
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
-      - name: Rust Cache Setup
+      - name: Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
 
-      - name: Install WebKit2GTK (Linux Only)
+      - name: Install WebKit2GTK (Linux only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev
 
       - name: Install Dependencies
-        run: npm install --no-package-lock
+        run: npm ci --ignore-scripts
 
-      - name: Synchronize SvelteKit generated metadata
+      - name: Sync SvelteKit metadata
         run: npx svelte-kit sync
 
-      - name: Run frontend type checks
+      - name: Type check
         run: npm run check
 
-      - name: Compile & Create GitHub Release
+      - name: Build & Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -57,7 +74,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'speedDF v__VERSION__'
+          releaseName: 'speedDF ${{ github.ref_name }}'
           releaseBody: 'Automated stable compiler distribution asset pipeline.'
           releaseDraft: true
           prerelease: false
+          target: ${{ matrix.target }}

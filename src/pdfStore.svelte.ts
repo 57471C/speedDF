@@ -1,4 +1,3 @@
-import type { PDFWorker } from "pdfjs-dist";
 import {
 	patchSelectedShapes,
 	selectionNeedsPropertyUpdate,
@@ -23,6 +22,9 @@ import {
 	setActiveThickness,
 	setActiveTool,
 } from "./lib/stores/tools.svelte";
+
+/** Avoid importing the name `PDFWorker` (clashes with pdfjs-dist's class export in some tooling). */
+type PdfJsWorker = InstanceType<typeof import("pdfjs-dist")["PDFWorker"]>;
 
 // Re-export tool types for consumers that want them without deep imports.
 export type { ActiveLineStyle, ActiveTool };
@@ -799,6 +801,6 @@ export function updateBookmarkNameAction(pageNum: number, newName: string) {
 }
 
 // True global master Wasm worker singleton to survive component unmounts
-export const globalPdfWorkerInstance: { current: PDFWorker | null } = {
+export const globalPdfWorkerInstance: { current: PdfJsWorker | null } = {
 	current: null,
 };

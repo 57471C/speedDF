@@ -13,6 +13,13 @@
     deleteBookmarkAction,
     globalPdfWorkerInstance,
   } from "../pdfStore.svelte";
+  import {
+    debounceLeadingLatest,
+    runWithPdfRenderSlot,
+    THUMBNAIL_DEBOUNCE_MS,
+    THUMBNAIL_MAX_EDGE_PX,
+    THUMBNAIL_MAX_SCALE,
+  } from "../lib/render/pdfRenderQueue";
 
   let sidebarContainer = $state<HTMLDivElement | null>(null);
   let thumbnailElements = $state<Record<number, HTMLDivElement>>({});
@@ -22,6 +29,13 @@
   let isPageMenuOpen = $state(false);
   let selectedPages = $state<number[]>([]);
   let activeSidebarTab = $state<'thumbnails' | 'bookmarks' | 'comments'>('thumbnails');
+
+  // Images have no outline/bookmarks or comments UI — keep the tab on thumbnails
+  $effect(() => {
+    if (activeDoc.fileType === 'image' && activeSidebarTab !== 'thumbnails') {
+      activeSidebarTab = 'thumbnails';
+    }
+  });
 
   let cachedRawBytes: Uint8Array | null = null;
   let sharedPdfjsDocPromise: Promise<any> | null = null;
@@ -183,10 +197,35 @@
       return;
     }
 
-    let isRendering = false;
+    type RenderTaskLike = { cancel: () => void; promise: Promise<unknown> };
+    let activeRenderTask: RenderTaskLike | null = null;
+    let paintGeneration = 0;
+    let pendingPageNum = pageNum;
+    let pendingRotation = rotation;
+
+    async function cancelActiveRender(): Promise<void> {
+      const task = activeRenderTask;
+      if (!task) return;
+      activeRenderTask = null;
+      try {
+        task.cancel();
+      } catch {
+        /* ignore */
+      }
+      try {
+        await task.promise;
+      } catch {
+        /* cancelled — canvas is free */
+      }
+    }
 
     async function executeRender(pNum: number, rot: number) {
-      if (!activeDoc.rawBytes || isRendering) return;
+      if (!activeDoc.rawBytes) return;
+
+      const generation = ++paintGeneration;
+      // Always free this thumbnail canvas before a new pdf.js paint
+      await cancelActiveRender();
+      if (generation !== paintGeneration) return;
       
       // Check if a live override snapshot exists for this page index
       const liveOverride = activeDoc.pageThumbnailOverrides[pNum - 1];
@@ -194,6 +233,7 @@
         const overrideImg = new Image();
         overrideImg.src = liveOverride;
         overrideImg.onload = () => {
+          if (generation !== paintGeneration) return;
           const ctx = node.getContext('2d');
           if (ctx) {
             node.width = overrideImg.width;
@@ -206,46 +246,92 @@
         return;
       }
 
-      isRendering = true;
+      // Low-priority slot: yields to main workspace paints; max concurrent globally capped.
+      await runWithPdfRenderSlot(
+        "low",
+        async () => {
+          if (generation !== paintGeneration) return;
 
-      try {
-        const docPromise = getSharedPdfjsDoc();
-        if (!docPromise) return;
+          try {
+            const docPromise = getSharedPdfjsDoc();
+            if (!docPromise) return;
 
-        // Await the shared master document instead of creating a new loadingTask
-        const pdfDocument = await docPromise;
-        const page = await pdfDocument.getPage(pNum);
+            // Await the shared master document instead of creating a new loadingTask
+            const pdfDocument = await docPromise;
+            if (generation !== paintGeneration) return;
+            const page = await pdfDocument.getPage(pNum);
+            if (generation !== paintGeneration) return;
 
-        const targetWidth = 84;
-        const unrotatedViewport = page.getViewport({ scale: 1 });
-        const currentRotation = (page.rotate + rot) % 360;
+            const targetWidth = THUMBNAIL_MAX_EDGE_PX;
+            const unrotatedViewport = page.getViewport({ scale: 1 });
+            const currentRotation = (page.rotate + rot) % 360;
 
-        const isVerticalFactor = currentRotation % 180 === 0;
-        const renderWidth = isVerticalFactor
-          ? unrotatedViewport.width
-          : unrotatedViewport.height;
-        const calculatedScale = Math.max(0.1, targetWidth / Math.max(0.1, Math.abs(renderWidth)));
+            const isVerticalFactor = currentRotation % 180 === 0;
+            const renderWidth = isVerticalFactor
+              ? unrotatedViewport.width
+              : unrotatedViewport.height;
+            const calculatedScale = Math.min(
+              THUMBNAIL_MAX_SCALE,
+              Math.max(0.1, targetWidth / Math.max(0.1, Math.abs(renderWidth))),
+            );
 
-        const viewport = page.getViewport({
-          scale: calculatedScale,
-          rotation: currentRotation,
-        });
+            const viewport = page.getViewport({
+              scale: calculatedScale,
+              rotation: currentRotation,
+            });
 
-        node.height = viewport.height;
-        node.width = viewport.width;
+            node.height = viewport.height;
+            node.width = viewport.width;
 
-        await page.render({ canvasContext: node.getContext('2d')!, viewport: viewport }).promise;
-      } catch (err) {
-        console.error(`Thumbnail render failed for page ${pNum}:`, err);
-      } finally {
-        isRendering = false;
-      }
+            await cancelActiveRender();
+            if (generation !== paintGeneration) return;
+
+            // Dedicated sidebar thumbnail canvas (never the main workspace page canvas)
+            const renderTask = page.render({
+              canvas: node,
+              viewport: viewport,
+            });
+            activeRenderTask = renderTask;
+            try {
+              await renderTask.promise;
+            } catch (err: any) {
+              if (err?.name === "RenderingCancelledException") return;
+              throw err;
+            } finally {
+              if (activeRenderTask === renderTask) {
+                activeRenderTask = null;
+              }
+            }
+          } catch (err: any) {
+            if (err?.name === "RenderingCancelledException") return;
+            console.error(`Thumbnail render failed for page ${pNum}:`, err);
+          }
+        },
+        () => generation !== paintGeneration,
+      );
     }
 
-    executeRender(pageNum, rotation);
+    const debounced = debounceLeadingLatest(() => {
+      void executeRender(pendingPageNum, pendingRotation);
+    }, THUMBNAIL_DEBOUNCE_MS);
+
+    debounced.schedule();
     return {
       update(newParams: { pageNum: number; rotation: number; version?: number }) {
-        executeRender(newParams.pageNum, newParams.rotation);
+        pendingPageNum = newParams.pageNum;
+        pendingRotation = newParams.rotation;
+        // Overrides should paint immediately for save feedback
+        if (activeDoc.pageThumbnailOverrides[newParams.pageNum - 1]) {
+          debounced.cancel();
+          void executeRender(newParams.pageNum, newParams.rotation);
+          return;
+        }
+        debounced.schedule();
+      },
+      destroy() {
+        debounced.cancel();
+        paintGeneration += 1;
+        void cancelActiveRender();
       },
     };
   }
@@ -573,23 +659,25 @@
         </button>
       {/if}
 
-      <button 
-        onclick={() => activeSidebarTab = 'bookmarks'}
-        class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'bookmarks' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
-        title="Document Bookmarks">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-        </svg>
-      </button>
+      {#if activeDoc.fileType !== 'image'}
+        <button 
+          onclick={() => activeSidebarTab = 'bookmarks'}
+          class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'bookmarks' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
+          title="Document Bookmarks">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+          </svg>
+        </button>
 
-      <button 
-        onclick={() => activeSidebarTab = 'comments'}
-        class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'comments' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
-        title="Annotation Comments">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        </svg>
-      </button>
+        <button 
+          onclick={() => activeSidebarTab = 'comments'}
+          class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'comments' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
+          title="Annotation Comments">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        </button>
+      {/if}
     </div>
 
     <div class="flex items-center justify-center py-1 bg-[#070a12]/30">

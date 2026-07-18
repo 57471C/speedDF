@@ -69,7 +69,12 @@
   let caseSensitive = $state(false);
   let currentMatchIndex = $state(-1);
   let totalMatches = $state(0);
-  let matchesList = $state<{ pageNumber: number; element: HTMLElement }[]>([]);
+  /** Full-document matches (not limited to currently painted text layers). */
+  let matchesList = $state<
+    { pageNumber: number; occurrenceOnPage: number; element?: HTMLElement | null }[]
+  >([]);
+  let isSearchRunning = $state(false);
+  let searchGeneration = 0;
 
   // Maps to store original HTML of spans to restore them before new search highlights
   const originalSpansMap = new Map<HTMLElement, string>();
@@ -84,16 +89,29 @@
   }
 
   function closeSearch() {
+    searchGeneration += 1;
     showSearchPopup = false;
     searchQuery = "";
     currentMatchIndex = -1;
     totalMatches = 0;
     matchesList = [];
+    isSearchRunning = false;
     clearHighlights();
   }
 
-  function performTextSearch() {
+  function buildSearchRegex(query: string): RegExp {
+    const regexFlags = caseSensitive ? "g" : "gi";
+    const escapedQuery = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+    return new RegExp(`(${escapedQuery})`, regexFlags);
+  }
+
+  /**
+   * Scan every page in the document via pdf.js text content (not only visible
+   * text-layer DOM nodes). Images have no text layer — returns empty.
+   */
+  async function performTextSearch() {
     clearHighlights();
+    const gen = ++searchGeneration;
 
     if (!searchQuery) {
       totalMatches = 0;
@@ -102,35 +120,84 @@
       return;
     }
 
-    const spans = document.querySelectorAll(".textLayer span");
-    const tempMatches: { pageNumber: number; element: HTMLElement }[] = [];
+    // Non-PDF documents: no extractable text stream — leave empty (annotations not indexed)
+    if (activeDoc.fileType === "image" || activeDoc.fileType === "tiff" || !activeDoc.rawBytes) {
+      totalMatches = 0;
+      currentMatchIndex = -1;
+      matchesList = [];
+      return;
+    }
+
+    isSearchRunning = true;
     const query = searchQuery;
+    const tempMatches: {
+      pageNumber: number;
+      occurrenceOnPage: number;
+      element?: HTMLElement | null;
+    }[] = [];
 
-    const regexFlags = caseSensitive ? "g" : "gi";
-    const escapedQuery = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
-    const regex = new RegExp(`(${escapedQuery})`, regexFlags);
+    try {
+      const loadingTask = pdfjsLib.getDocument({
+        data: activeDoc.rawBytes.slice(0),
+        cMapUrl: window.location.origin + "/cmaps/",
+        cMapPacked: true,
+        standardFontDataUrl: window.location.origin + "/standard_fonts/",
+        wasmUrl: window.location.origin + "/",
+      });
+      const pdfDocument = await loadingTask.promise;
+      if (gen !== searchGeneration) return;
 
-    spans.forEach((span) => {
-      const text = span.textContent || "";
-      if (regex.test(text)) {
-        const parentPage = span.closest("[data-page-number]");
-        if (parentPage) {
-          const pageNum = parseInt(parentPage.getAttribute("data-page-number") || "1", 10);
+      const pageOrder: number[] =
+        activeDoc.pageOrder?.length > 0
+          ? [...activeDoc.pageOrder]
+          : Array.from({ length: pdfDocument.numPages }, (_, i) => i + 1);
+
+      for (const pageNumber of pageOrder) {
+        if (gen !== searchGeneration) return;
+        if (pageNumber < 1 || pageNumber > pdfDocument.numPages) continue;
+
+        const page = await pdfDocument.getPage(pageNumber);
+        const textContent = await page.getTextContent();
+        // Join items with spaces so multi-span words still match reasonably
+        const pageText = textContent.items
+          .map((item: any) => (item && typeof item.str === "string" ? item.str : ""))
+          .join(" ");
+
+        const regex = buildSearchRegex(query);
+        let occurrenceOnPage = 0;
+        let m: RegExpExecArray | null;
+        while ((m = regex.exec(pageText)) !== null) {
           tempMatches.push({
-            pageNumber: pageNum,
-            element: span as HTMLElement,
+            pageNumber,
+            occurrenceOnPage,
+            element: null,
           });
+          occurrenceOnPage += 1;
+          // Guard against zero-length matches advancing forever
+          if (m[0].length === 0) {
+            regex.lastIndex += 1;
+          }
         }
       }
-    });
+
+      try {
+        await loadingTask.destroy();
+      } catch {
+        /* ignore */
+      }
+    } catch (err) {
+      console.error("Full-document text search failed:", err);
+    }
+
+    if (gen !== searchGeneration) return;
 
     matchesList = tempMatches;
     totalMatches = matchesList.length;
+    isSearchRunning = false;
 
     if (totalMatches > 0) {
       currentMatchIndex = 0;
-      highlightAllMatches();
-      scrollToMatch(0);
+      await scrollToMatch(0);
     } else {
       currentMatchIndex = -1;
     }
@@ -149,59 +216,125 @@
     });
   }
 
-  function highlightAllMatches() {
+  /**
+   * Highlight query hits inside a page's painted text layer (DOM).
+   * Full-document index is source of truth; this only paints the active page.
+   */
+  function highlightMatchesOnPage(pageNumber: number) {
     if (!searchQuery) return;
-    const query = searchQuery;
-    const regexFlags = caseSensitive ? "g" : "gi";
-    const escapedQuery = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
-    const regex = new RegExp(`(${escapedQuery})`, regexFlags);
+    const pageRoot = document.querySelector(
+      `[data-page-number="${pageNumber}"]`,
+    ) as HTMLElement | null;
+    if (!pageRoot) return;
 
-    matchesList.forEach((match, index) => {
-      const span = match.element;
-      if (!originalSpansMap.has(span)) {
-        originalSpansMap.set(span, span.innerHTML);
+    const regex = buildSearchRegex(searchQuery);
+    const spans = pageRoot.querySelectorAll(".textLayer span");
+    const pageMatchIndices = matchesList
+      .map((m, i) => (m.pageNumber === pageNumber ? i : -1))
+      .filter((i) => i >= 0);
+
+    // Mark every span that contains the query; mark current match distinctly
+    let spanHitOrder = 0;
+    spans.forEach((span) => {
+      const el = span as HTMLElement;
+      const text = el.textContent || "";
+      // Fresh regex without /g for test to avoid lastIndex side-effects
+      const testRe = new RegExp(
+        searchQuery.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&"),
+        caseSensitive ? "" : "i",
+      );
+      if (!testRe.test(text)) return;
+
+      if (!originalSpansMap.has(el)) {
+        originalSpansMap.set(el, el.innerHTML);
       }
 
-      const isCurrent = index === currentMatchIndex;
+      // Determine if this span is the "current" global match for this page
+      // by order of hit spans on the page vs occurrenceOnPage of currentMatchIndex
+      const isCurrent =
+        currentMatchIndex >= 0 &&
+        matchesList[currentMatchIndex]?.pageNumber === pageNumber &&
+        matchesList[currentMatchIndex]?.occurrenceOnPage === spanHitOrder;
+
       const highlightClass = isCurrent
         ? "bg-amber-400 text-slate-950 font-bold ring-2 ring-cyan-500 rounded-sm px-0.5 z-50 relative"
         : "bg-yellow-400 text-slate-950 rounded-sm px-0.5";
 
-      span.innerHTML = originalSpansMap.get(span)!.replace(regex, (m) => {
+      const paintRe = buildSearchRegex(searchQuery);
+      el.innerHTML = originalSpansMap.get(el)!.replace(paintRe, (m) => {
         return `<mark class="${highlightClass}">${escapeHtml(m)}</mark>`;
       });
+
+      // Bind first matching span element for scroll centering
+      if (pageMatchIndices.length > 0) {
+        const globalIdx = pageMatchIndices[Math.min(spanHitOrder, pageMatchIndices.length - 1)];
+        if (globalIdx != null && matchesList[globalIdx] && !matchesList[globalIdx].element) {
+          matchesList[globalIdx] = { ...matchesList[globalIdx], element: el };
+        }
+      }
+      spanHitOrder += 1;
     });
+
+    void regex;
   }
 
   function goToNextMatch() {
     if (totalMatches === 0) return;
     currentMatchIndex = (currentMatchIndex + 1) % totalMatches;
-    highlightAllMatches();
-    scrollToMatch(currentMatchIndex);
+    void scrollToMatch(currentMatchIndex);
   }
 
   function goToPrevMatch() {
     if (totalMatches === 0) return;
     currentMatchIndex = (currentMatchIndex - 1 + totalMatches) % totalMatches;
-    highlightAllMatches();
-    scrollToMatch(currentMatchIndex);
+    void scrollToMatch(currentMatchIndex);
   }
 
   function toggleCaseSensitive() {
     caseSensitive = !caseSensitive;
-    performTextSearch();
+    void performTextSearch();
   }
 
-  function scrollToMatch(index: number) {
+  async function scrollToMatch(index: number) {
     if (index < 0 || index >= matchesList.length) return;
     const match = matchesList[index];
-    match.element.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-      inline: "nearest"
-    });
-    // Set currentPage in global store so sidebar tracks correctly
+
+    // Navigate store + force page paint via scroll
+    (activeDoc as any).isClickScrolling = true;
     activeDoc.currentPage = match.pageNumber;
+
+    // Wait for page container (and ideally text layer) to exist
+    let pageEl: HTMLElement | null = null;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      pageEl = document.querySelector(
+        `[data-page-number="${match.pageNumber}"]`,
+      ) as HTMLElement | null;
+      if (pageEl?.querySelector(".textLayer span")) break;
+      if (pageEl && attempt > 8) break; // page shell exists; text may still be painting
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    if (pageEl) {
+      pageEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    // Give text layer a moment to finish painting, then highlight
+    await new Promise((r) => setTimeout(r, 120));
+    clearHighlights();
+    highlightMatchesOnPage(match.pageNumber);
+
+    const bound = matchesList[index]?.element;
+    if (bound?.isConnected) {
+      bound.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+        inline: "nearest",
+      });
+    }
+
+    setTimeout(() => {
+      (activeDoc as any).isClickScrolling = false;
+    }, 400);
   }
 
   // Auto-Reset Bindings: Reset search when document or zoom scale changes
@@ -1253,7 +1386,7 @@
                   id="search-input"
                   type="text"
                   bind:value={searchQuery}
-                  oninput={performTextSearch}
+                  oninput={() => { void performTextSearch(); }}
                   onkeydown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -1269,7 +1402,7 @@
                 />
                 {#if searchQuery}
                   <button
-                    onclick={() => { searchQuery = ""; performTextSearch(); }}
+                    onclick={() => { searchQuery = ""; void performTextSearch(); }}
                     class="text-slate-500 hover:text-slate-300 ml-1.5 p-0.5 rounded-full hover:bg-slate-800 transition-colors cursor-pointer border-none bg-transparent"
                     title="Clear text"
                   >
@@ -1292,7 +1425,9 @@
 
               <!-- Match Counter Indicator -->
               <div class="text-[11px] font-mono text-slate-400 min-w-[50px] text-center select-none font-semibold border-l border-r border-slate-800 px-2 h-5 flex items-center justify-center">
-                {#if totalMatches > 0}
+                {#if isSearchRunning}
+                  …
+                {:else if totalMatches > 0}
                   {currentMatchIndex + 1}/{totalMatches}
                 {:else if searchQuery && totalMatches === 0}
                   0/0

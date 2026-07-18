@@ -11,8 +11,16 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/lib/stores/history.svelte.ts`**: Undo/redo stack and `pushHistorySnapshot()` helpers.
 * **`src/lib/stores/tools.svelte.ts`**: Active tool, color, thickness, and line style state.
 * **`src/lib/annotation/shapeHelpers.ts`**: Pure helper utilities for shape selection patches and related annotation operations.
-* **`src/components/WorkspacePage.svelte`**: The core canvas rendering pipeline that handles PDF.js page painting, text layer overlays, SVG annotation tracking, and interactive tool drafting.
-* **`src/components/TitleBar.svelte`**: The custom OS-level header component that orchestrates top-level tools, window drag mechanics, file saving dialogs, and delegates the `pdf-lib` PDF/Image flattening export pipeline.
+* **`src/lib/annotation/toolShapes.ts`**: Pure factories for tool-created shapes (box, freehand, text, stamps).
+* **`src/lib/annotation/ghostDimensions.ts`**: Stamp ghost size defaults + localStorage cache for resized stamps.
+* **`src/lib/annotation/strokeStyles.ts`**: Shared SVG stroke-dasharray presets.
+* **`src/lib/interaction/dragHandler.svelte.ts`**: Page drag, multi-select, resize, and pointer event session for `WorkspacePage`.
+* **`src/lib/interaction/coordinates.ts`**: Percentage coordinate transforms (including image rotation).
+* **`src/lib/render/pageRenderer.ts`**: PDF.js / image / TIFF canvas paint + text-layer pipeline.
+* **`src/components/WorkspacePage.svelte`**: Page shell — layout, observers, bookmarks; delegates paint, interaction, and annotation overlay.
+* **`src/components/AnnotationLayer.svelte`**: SVG/DOM annotation overlay (shapes, handles, ghosts, live drawing previews).
+* **`src/components/TitleBar.svelte`**: The custom OS-level header component for window chrome, toolbar actions, and save dialog orchestration. Flatten/export work is delegated to `src/lib/export/flatten.ts`.
+* **`src/lib/export/flatten.ts`**: PDF/image flatten pipeline (`flattenWorkspaceToPDF`, `flattenWorkspaceToImage`), font embed/cache, and post-save thumbnail generation (`syncLiveThumbnail` → `applyLiveThumbnail`).
 * **`src/components/Workspace.svelte`**: The primary layout container that maps and orchestrates the scrollable sequence of `WorkspacePage` components.
 * **`src/components/ToolSidebar.svelte`**: The left-hand navigation panel providing UI buttons to toggle active annotation tools, colors, styles, and document properties.
 * **`src/components/PageSidebar.svelte`**: The right-hand navigation panel managing page ordering, thumbnail routing, deletion loops, and outline/bookmark rendering.
@@ -50,8 +58,9 @@ Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary
 ### Central Lifecycle Functions
 * **`pushHistorySnapshot()`** (`pdfStore.svelte.ts`): Commits a deep clone of the current shapes and page layout to the `undoStack` array. MUST be called prior to document mutations.
 * **`initializeNewDocument(fileName, filePath)`** (`pdfStore.svelte.ts`): Instantiates and registers a clean document workspace profile.
-* **`flattenWorkspaceToPDF()`** (`TitleBar.svelte`): Iterates over the `activeDoc` shape states, compiles them mathematically into native PDF dictionaries using `pdf-lib`, and outputs the raw binary stream.
-* **`flattenWorkspaceToImage()`** (`TitleBar.svelte`): Iterates over the `activeDoc` shape states, drawing them onto a standard HTML Canvas to export `.jpg` or `.png` binary buffers.
+* **`flattenWorkspaceToPDF()`** (`src/lib/export/flatten.ts`): Iterates over the `activeDoc` shape states, compiles them mathematically into native PDF dictionaries using `pdf-lib`, and outputs the raw binary stream. Re-exported from TitleBar as `getAnnotatedPdfBytes` for `bind:this` callers.
+* **`flattenWorkspaceToImage()`** (`src/lib/export/flatten.ts`): Iterates over the `activeDoc` shape states, drawing them onto a standard HTML Canvas to export `.jpg` or `.png` binary buffers.
+* **`syncLiveThumbnail()`** (`src/lib/export/flatten.ts`): After save, renders flattened bytes offscreen and calls `applyLiveThumbnail` (overrides + recents + `thumbnailVersion`).
 * **`parse_tiff_document()`** (`lib.rs`): A Tauri background task that reads a raw TIFF binary stream and unpacks its layered images into an array of optimized PNG Web Buffers.
 * **`run_local_ocr()`** (`commands.rs`): A heavy background inference task that executes DBNet boundary detection and CRNN character recognition over an image using local `tract-onnx` models.
 * **`check_startup_file()`** (`lib.rs`): Fallback command that reads CLI args and returns a `FilePayload`. Primary startup path no longer depends on this.

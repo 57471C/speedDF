@@ -18,117 +18,176 @@
   // Clean, compiled reactive indicators derived dynamically from state conditions
   let processingLocked = $derived(engineStatus === 'processing');
 
+  async function runOcrOnImageBytes(imageBytes: Uint8Array, previewUrl?: string) {
+    const progressChannel = new Channel<number>();
+    progressChannel.onmessage = (currentPercentage) => {
+      ocrProgress = currentPercentage;
+    };
+
+    if (capturedImageSrc) {
+      URL.revokeObjectURL(capturedImageSrc);
+    }
+    if (previewUrl) {
+      capturedImageSrc = previewUrl;
+    } else {
+      const blob = new Blob([imageBytes as BlobPart], { type: "image/png" });
+      capturedImageSrc = URL.createObjectURL(blob);
+    }
+    activeTab = "document";
+
+    const textResult = await invoke<string>("run_local_ocr", {
+      imageBytes: Array.from(imageBytes),
+      onProgress: progressChannel,
+    });
+
+    outputTextResult = textResult;
+    engineStatus = "success";
+    activeTab = "text";
+  }
+
   async function captureCurrentPdfPageBytes() {
-    if (!activeDoc.rawBytes) {
-      engineStatus = 'idle';
+    // Images store rawBytes + imageUrl; PDFs/TIFFs store rawBytes
+    if (!activeDoc.rawBytes && !activeDoc.imageUrl) {
+      engineStatus = "idle";
       return;
     }
 
     ocrProgress = 0;
-    engineStatus = 'processing';
-    errorLog = '';
-    outputTextResult = '';
+    engineStatus = "processing";
+    errorLog = "";
+    outputTextResult = "";
 
     try {
-      // Set up the listener channel
+      // --- IMAGE documents (PNG/JPG/etc.): send raw file bytes straight to OCR ---
+      if (activeDoc.fileType === "image") {
+        let imageBytes: Uint8Array | null = activeDoc.rawBytes
+          ? new Uint8Array(activeDoc.rawBytes)
+          : null;
+
+        // Fallback: decode imageUrl if rawBytes missing
+        if (!imageBytes && activeDoc.imageUrl) {
+          const resp = await fetch(activeDoc.imageUrl);
+          const buf = await resp.arrayBuffer();
+          imageBytes = new Uint8Array(buf);
+        }
+        if (!imageBytes || imageBytes.length === 0) {
+          throw new Error("Image document has no pixel data for OCR.");
+        }
+
+        // Prefer existing object URL for preview (don't revoke the workspace one)
+        const preview =
+          activeDoc.imageUrl ||
+          URL.createObjectURL(new Blob([imageBytes as BlobPart], { type: "image/png" }));
+        // Don't revoke workspace imageUrl in onDestroy if we reused it — track ownership
+        const ownsPreview = preview !== activeDoc.imageUrl;
+        if (capturedImageSrc && capturedImageSrc !== activeDoc.imageUrl) {
+          URL.revokeObjectURL(capturedImageSrc);
+        }
+        capturedImageSrc = preview;
+
+        const progressChannel = new Channel<number>();
+        progressChannel.onmessage = (currentPercentage) => {
+          ocrProgress = currentPercentage;
+        };
+        activeTab = "document";
+
+        const textResult = await invoke<string>("run_local_ocr", {
+          imageBytes: Array.from(imageBytes),
+          onProgress: progressChannel,
+        });
+
+        outputTextResult = textResult;
+        engineStatus = "success";
+        activeTab = "text";
+        void ownsPreview;
+        return;
+      }
+
+      // --- TIFF multipage: OCR active page PNG frame ---
+      if (activeDoc.fileType === "tiff") {
+        const rawPngBytes = activeDoc.tiffPages[activeDoc.currentPage - 1];
+        if (!rawPngBytes) {
+          throw new Error("Target TIFF page frame is missing or empty.");
+        }
+        await runOcrOnImageBytes(rawPngBytes);
+        return;
+      }
+
+      // --- PDF: rasterize current page then OCR ---
+      if (!activeDoc.rawBytes) {
+        throw new Error("No PDF bytes available for OCR.");
+      }
+
       const progressChannel = new Channel<number>();
       progressChannel.onmessage = (currentPercentage) => {
         ocrProgress = currentPercentage;
       };
 
-      if (activeDoc.fileType === 'tiff') {
-        const rawPngBytes = activeDoc.tiffPages[activeDoc.currentPage - 1];
-        if (!rawPngBytes) {
-          throw new Error("Target TIFF page frame is missing or empty.");
-        }
-        
-        // Revoke previous object URL to avoid memory leaks
-        if (capturedImageSrc) {
-          URL.revokeObjectURL(capturedImageSrc);
-        }
-        const blob = new Blob([rawPngBytes as any], { type: 'image/png' });
-        capturedImageSrc = URL.createObjectURL(blob);
-        activeTab = 'document';
+      const loadingTask = pdfjsLib.getDocument({
+        data: activeDoc.rawBytes.slice(0),
+        cMapUrl: window.location.origin + "/cmaps/",
+        cMapPacked: true,
+        standardFontDataUrl: window.location.origin + "/standard_fonts/",
+        wasmUrl: window.location.origin + "/",
+      });
+      const pdfDocument = await loadingTask.promise;
+      const page = await pdfDocument.getPage(activeDoc.currentPage);
 
-        const textResult = await invoke<string>('run_local_ocr', {
-          imageBytes: Array.from(rawPngBytes),
-          onProgress: progressChannel
-        });
+      // Use a strict scale of 2.0 to double resolution for optimal OCR precision
+      const viewport = page.getViewport({ scale: 2.0 });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Could not create offscreen canvas context");
 
-        outputTextResult = textResult;
-        engineStatus = 'success';
-        activeTab = 'text'; // Auto switch to text view on success
-      } else {
-        // Initialize PDF.js loading pipeline from active document bytes
-        const loadingTask = pdfjsLib.getDocument({
-          data: activeDoc.rawBytes.slice(0),
-          cMapUrl: window.location.origin + "/cmaps/",
-          cMapPacked: true,
-          standardFontDataUrl: window.location.origin + "/standard_fonts/",
-          wasmUrl: window.location.origin + "/"
-        });
-        const pdfDocument = await loadingTask.promise;
-        const page = await pdfDocument.getPage(activeDoc.currentPage);
-        
-        // Use a strict scale of 2.0 to double resolution for optimal OCR precision
-        const viewport = page.getViewport({ scale: 2.0 });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const context = canvas.getContext('2d');
-        if (!context) throw new Error("Could not create offscreen canvas context");
+      await page.render({
+        canvas: canvas,
+        viewport: viewport,
+      }).promise;
 
-        await page.render({
-          canvas: canvas,
-          viewport: viewport
-        }).promise;
-
-        canvas.toBlob(async (blob) => {
-          if (!blob) {
-            engineStatus = 'error';
-            errorLog = "Failed to generate page snapshot blob.";
-            return;
-          }
-          
-          if (capturedImageSrc) {
-            URL.revokeObjectURL(capturedImageSrc);
-          }
-          capturedImageSrc = URL.createObjectURL(blob);
-          activeTab = 'document';
-
-          try {
-            const arrayBuffer = await blob.arrayBuffer();
-            const rawBytesArray = new Uint8Array(arrayBuffer);
-
-            const textResult = await invoke<string>('run_local_ocr', {
-              imageBytes: Array.from(rawBytesArray),
-              onProgress: progressChannel
-            });
-
-            outputTextResult = textResult;
-            engineStatus = 'success';
-            activeTab = 'text'; // Auto switch to text view on success
-          } catch (ocrErr: any) {
-            engineStatus = 'error';
-            errorLog = ocrErr.toString();
-          }
-        }, 'image/png');
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob((b) => resolve(b), "image/png"),
+      );
+      if (!blob) {
+        engineStatus = "error";
+        errorLog = "Failed to generate page snapshot blob.";
+        return;
       }
+
+      if (capturedImageSrc && capturedImageSrc !== activeDoc.imageUrl) {
+        URL.revokeObjectURL(capturedImageSrc);
+      }
+      capturedImageSrc = URL.createObjectURL(blob);
+      activeTab = "document";
+
+      const arrayBuffer = await blob.arrayBuffer();
+      const rawBytesArray = new Uint8Array(arrayBuffer);
+
+      const textResult = await invoke<string>("run_local_ocr", {
+        imageBytes: Array.from(rawBytesArray),
+        onProgress: progressChannel,
+      });
+
+      outputTextResult = textResult;
+      engineStatus = "success";
+      activeTab = "text";
     } catch (err: any) {
-      engineStatus = 'error';
+      engineStatus = "error";
       errorLog = err.toString();
     }
   }
 
   // Svelte 5 reactive effect watcher to trigger OCR whenever page or document changes
   $effect(() => {
-    if (activeDoc.rawBytes && activeDoc.currentPage) {
+    if ((activeDoc.rawBytes || activeDoc.imageUrl) && activeDoc.currentPage) {
       captureCurrentPdfPageBytes();
     }
   });
 
   onDestroy(() => {
-    if (capturedImageSrc) {
+    // Never revoke the workspace's live imageUrl — only panel-owned blobs
+    if (capturedImageSrc && capturedImageSrc !== activeDoc.imageUrl) {
       URL.revokeObjectURL(capturedImageSrc);
     }
   });
@@ -142,12 +201,12 @@
     </div>
   {/if}
   
-  {#if !activeDoc.rawBytes}
+  {#if !activeDoc.rawBytes && !activeDoc.imageUrl}
     <div class="flex flex-col items-center justify-center border border-dashed border-zinc-800 bg-zinc-950/40 rounded-lg p-6 text-center text-zinc-500 text-[10px]">
       <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-zinc-600 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
-      <span>No document active in viewer. Please open a PDF or TIFF document to extract text.</span>
+      <span>No document active in viewer. Please open a PDF, image, or TIFF document to extract text.</span>
     </div>
   {/if}
 
@@ -174,7 +233,7 @@
     </div>
   {/if}
 
-  {#if activeDoc.rawBytes && capturedImageSrc}
+  {#if (activeDoc.rawBytes || activeDoc.imageUrl) && capturedImageSrc}
     <div class="flex border-b border-zinc-800 mb-2 shrink-0">
       <button 
         onclick={() => activeTab = 'document'}

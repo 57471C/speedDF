@@ -25,7 +25,7 @@ The PDF.js web worker is served as a static asset in this repository.
 ### Why Standard Methods Fail (Tauri Local Origin Isolation)
 - **Tauri Secure Origin Policy (`tauri.localhost`):** Tauri applications serve local assets from a custom secure origin (`tauri.localhost` or `http://tauri.localhost`).
 - **CDN Blocking:** Standard live CDNs cannot be used directly in strict offline environments. Cross-origin worker restrictions also block external domains unless complex CORS/blob wrappers are used.
-- **Vite Bundling Limits:** Dynamic Vite worker URLs often fail or resolve incorrectly inside Tauri’s asset container.
+- **Vite Bundling Limits:** Dynamic Vite worker URLs often fail or resolve incorrectly inside Tauri's asset container.
 - **Solution:** Manually copy worker scripts into `static/` so they are served from the same origin as the app.
 
 ### Upgrade Protocol
@@ -87,5 +87,45 @@ When changing CSP:
 
 ---
 
-**Last Updated:** July 2026 (post v1.0.1)
-```
+## Section E: Post-Save Thumbnail Sync
+
+### The Problem
+Annotations live in a floating HTML/SVG layer above the PDF/image canvas. Capturing the live viewport canvas only gets the un-annotated background, so thumbnails go stale after save.
+
+Also:
+- Svelte 5 does not reliably re-render when only a nested field like `recents[i].thumbnail` is mutated in place
+- The PageSidebar `use:renderThumbnail` action only re-runs `update()` when its parameter values change
+- After the pdfStore split, thumbnail writes must touch module-level `$state` directly; going through some `activeDoc` getter/setter paths can fail to notify subscribers
+- Image and PDF save paths both need to apply the same override/version pipeline
+
+### The Solution
+1. **Generate from flattened output**
+   After save/flatten, generate a thumbnail from the compiled document bytes (PDF via offscreen pdf.js, image via the image flatten path), not from the live editor canvas. Export a base64 JPEG data URL.
+
+2. **Write shared override state**
+   - `pageThumbnailOverrides[pageIndex] = dataUrl`
+   - Recent docs update via shallow clone + array reassignment:
+     ```ts
+     recents[targetIndex] = { ...recents[targetIndex], thumbnail: dataUrl };
+     recents = [...recents];
+     ```
+   - Always bump `thumbnailVersion++` (do not depend on a recents path match)
+
+3. **Invalidate sidebar actions**
+   ```html
+   <canvas use:renderThumbnail={{ pageNum, rotation, version: activeDoc.thumbnailVersion }}></canvas>
+   ```
+   The version bump wakes `update()`, which draws from `pageThumbnailOverrides`.
+
+4. **Path matching**
+   Use case-insensitive path comparison on Windows when matching the saved file to a recents entry.
+
+### Rules
+- Never thumbnail from the live editor canvas after save.
+- Always use flattened document output so annotations are included.
+- Always bump `thumbnailVersion`, even if the file is not yet present in recents.
+- PDF and image save paths must both end in the same apply/override helper.
+
+---
+
+**Last Updated:** July 2026 (post thumbnail rewire)
