@@ -20,6 +20,7 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 - Search is only the current page or whats in the buffer
 - Files should open to fit screen, but by fit screen it has to respect the files orientation
 - textarea should grow with the text (new lines etc.) 
+- Can't OCR images
 
 
 ## v1.0.0 Stabilization Pass — Completed Items

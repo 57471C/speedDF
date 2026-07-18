@@ -11,7 +11,14 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/lib/stores/history.svelte.ts`**: Undo/redo stack and `pushHistorySnapshot()` helpers.
 * **`src/lib/stores/tools.svelte.ts`**: Active tool, color, thickness, and line style state.
 * **`src/lib/annotation/shapeHelpers.ts`**: Pure helper utilities for shape selection patches and related annotation operations.
-* **`src/components/WorkspacePage.svelte`**: The core canvas rendering pipeline that handles PDF.js page painting, text layer overlays, SVG annotation tracking, and interactive tool drafting.
+* **`src/lib/annotation/toolShapes.ts`**: Pure factories for tool-created shapes (box, freehand, text, stamps).
+* **`src/lib/annotation/ghostDimensions.ts`**: Stamp ghost size defaults + localStorage cache for resized stamps.
+* **`src/lib/annotation/strokeStyles.ts`**: Shared SVG stroke-dasharray presets.
+* **`src/lib/interaction/dragHandler.svelte.ts`**: Page drag, multi-select, resize, and pointer event session for `WorkspacePage`.
+* **`src/lib/interaction/coordinates.ts`**: Percentage coordinate transforms (including image rotation).
+* **`src/lib/render/pageRenderer.ts`**: PDF.js / image / TIFF canvas paint + text-layer pipeline.
+* **`src/components/WorkspacePage.svelte`**: Page shell — layout, observers, bookmarks; delegates paint, interaction, and annotation overlay.
+* **`src/components/AnnotationLayer.svelte`**: SVG/DOM annotation overlay (shapes, handles, ghosts, live drawing previews).
 * **`src/components/TitleBar.svelte`**: The custom OS-level header component that orchestrates top-level tools, window drag mechanics, file saving dialogs, and delegates the `pdf-lib` PDF/Image flattening export pipeline.
 * **`src/components/Workspace.svelte`**: The primary layout container that maps and orchestrates the scrollable sequence of `WorkspacePage` components.
 * **`src/components/ToolSidebar.svelte`**: The left-hand navigation panel providing UI buttons to toggle active annotation tools, colors, styles, and document properties.
