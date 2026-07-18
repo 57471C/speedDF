@@ -2,6 +2,7 @@
 
 ## Features to add ##
 1. Add File tabs for multiple documents.
+2. Comments (partially implemented on pagesSidebar)
 
 ## long term goals (may never do)
 1. Forms entry (NOT XFA Forms!)
@@ -17,10 +18,13 @@ It places a solid background banner matching the page background color directly 
 It puts a standard HTML input text area right on top of it, lets the user type whatever they want, and bakes the final text down as a fresh independent annotation overlay layer upon export.
 
 ## Fixes
-- Search is only the current page or whats in the buffer
-- Files should open to fit screen, but by fit screen it has to respect the files orientation
+- Search is only the current page (or maybe whats in the buffer?).
+- Files should open to fit screen, but by fit screen it has to respect the files orientation.
 - textarea should grow with the text (new lines etc.) 
-- Can't OCR images
+- Can't OCR images (only PDF's work)
+- inital drawing/streaching outline shapes, the center is solid black and should be transparent.
+- bookmark icon top-right of and image (in the main page work area) and the bookmarks (and comments icon too) in pageSidebar icon should be disabled for Image files.
+- Sometimes undo does the last two things (possible grouping or multi select - needs investigation).
 
 
 ## v1.0.0 Stabilization Pass — Completed Items

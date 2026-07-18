@@ -13,6 +13,13 @@
     deleteBookmarkAction,
     globalPdfWorkerInstance,
   } from "../pdfStore.svelte";
+  import {
+    debounceLeadingLatest,
+    runWithPdfRenderSlot,
+    THUMBNAIL_DEBOUNCE_MS,
+    THUMBNAIL_MAX_EDGE_PX,
+    THUMBNAIL_MAX_SCALE,
+  } from "../lib/render/pdfRenderQueue";
 
   let sidebarContainer = $state<HTMLDivElement | null>(null);
   let thumbnailElements = $state<Record<number, HTMLDivElement>>({});
@@ -183,10 +190,35 @@
       return;
     }
 
-    let isRendering = false;
+    type RenderTaskLike = { cancel: () => void; promise: Promise<unknown> };
+    let activeRenderTask: RenderTaskLike | null = null;
+    let paintGeneration = 0;
+    let pendingPageNum = pageNum;
+    let pendingRotation = rotation;
+
+    async function cancelActiveRender(): Promise<void> {
+      const task = activeRenderTask;
+      if (!task) return;
+      activeRenderTask = null;
+      try {
+        task.cancel();
+      } catch {
+        /* ignore */
+      }
+      try {
+        await task.promise;
+      } catch {
+        /* cancelled — canvas is free */
+      }
+    }
 
     async function executeRender(pNum: number, rot: number) {
-      if (!activeDoc.rawBytes || isRendering) return;
+      if (!activeDoc.rawBytes) return;
+
+      const generation = ++paintGeneration;
+      // Always free this thumbnail canvas before a new pdf.js paint
+      await cancelActiveRender();
+      if (generation !== paintGeneration) return;
       
       // Check if a live override snapshot exists for this page index
       const liveOverride = activeDoc.pageThumbnailOverrides[pNum - 1];
@@ -194,6 +226,7 @@
         const overrideImg = new Image();
         overrideImg.src = liveOverride;
         overrideImg.onload = () => {
+          if (generation !== paintGeneration) return;
           const ctx = node.getContext('2d');
           if (ctx) {
             node.width = overrideImg.width;
@@ -206,46 +239,92 @@
         return;
       }
 
-      isRendering = true;
+      // Low-priority slot: yields to main workspace paints; max concurrent globally capped.
+      await runWithPdfRenderSlot(
+        "low",
+        async () => {
+          if (generation !== paintGeneration) return;
 
-      try {
-        const docPromise = getSharedPdfjsDoc();
-        if (!docPromise) return;
+          try {
+            const docPromise = getSharedPdfjsDoc();
+            if (!docPromise) return;
 
-        // Await the shared master document instead of creating a new loadingTask
-        const pdfDocument = await docPromise;
-        const page = await pdfDocument.getPage(pNum);
+            // Await the shared master document instead of creating a new loadingTask
+            const pdfDocument = await docPromise;
+            if (generation !== paintGeneration) return;
+            const page = await pdfDocument.getPage(pNum);
+            if (generation !== paintGeneration) return;
 
-        const targetWidth = 84;
-        const unrotatedViewport = page.getViewport({ scale: 1 });
-        const currentRotation = (page.rotate + rot) % 360;
+            const targetWidth = THUMBNAIL_MAX_EDGE_PX;
+            const unrotatedViewport = page.getViewport({ scale: 1 });
+            const currentRotation = (page.rotate + rot) % 360;
 
-        const isVerticalFactor = currentRotation % 180 === 0;
-        const renderWidth = isVerticalFactor
-          ? unrotatedViewport.width
-          : unrotatedViewport.height;
-        const calculatedScale = Math.max(0.1, targetWidth / Math.max(0.1, Math.abs(renderWidth)));
+            const isVerticalFactor = currentRotation % 180 === 0;
+            const renderWidth = isVerticalFactor
+              ? unrotatedViewport.width
+              : unrotatedViewport.height;
+            const calculatedScale = Math.min(
+              THUMBNAIL_MAX_SCALE,
+              Math.max(0.1, targetWidth / Math.max(0.1, Math.abs(renderWidth))),
+            );
 
-        const viewport = page.getViewport({
-          scale: calculatedScale,
-          rotation: currentRotation,
-        });
+            const viewport = page.getViewport({
+              scale: calculatedScale,
+              rotation: currentRotation,
+            });
 
-        node.height = viewport.height;
-        node.width = viewport.width;
+            node.height = viewport.height;
+            node.width = viewport.width;
 
-        await page.render({ canvasContext: node.getContext('2d')!, viewport: viewport }).promise;
-      } catch (err) {
-        console.error(`Thumbnail render failed for page ${pNum}:`, err);
-      } finally {
-        isRendering = false;
-      }
+            await cancelActiveRender();
+            if (generation !== paintGeneration) return;
+
+            // Dedicated sidebar thumbnail canvas (never the main workspace page canvas)
+            const renderTask = page.render({
+              canvas: node,
+              viewport: viewport,
+            });
+            activeRenderTask = renderTask;
+            try {
+              await renderTask.promise;
+            } catch (err: any) {
+              if (err?.name === "RenderingCancelledException") return;
+              throw err;
+            } finally {
+              if (activeRenderTask === renderTask) {
+                activeRenderTask = null;
+              }
+            }
+          } catch (err: any) {
+            if (err?.name === "RenderingCancelledException") return;
+            console.error(`Thumbnail render failed for page ${pNum}:`, err);
+          }
+        },
+        () => generation !== paintGeneration,
+      );
     }
 
-    executeRender(pageNum, rotation);
+    const debounced = debounceLeadingLatest(() => {
+      void executeRender(pendingPageNum, pendingRotation);
+    }, THUMBNAIL_DEBOUNCE_MS);
+
+    debounced.schedule();
     return {
       update(newParams: { pageNum: number; rotation: number; version?: number }) {
-        executeRender(newParams.pageNum, newParams.rotation);
+        pendingPageNum = newParams.pageNum;
+        pendingRotation = newParams.rotation;
+        // Overrides should paint immediately for save feedback
+        if (activeDoc.pageThumbnailOverrides[newParams.pageNum - 1]) {
+          debounced.cancel();
+          void executeRender(newParams.pageNum, newParams.rotation);
+          return;
+        }
+        debounced.schedule();
+      },
+      destroy() {
+        debounced.cancel();
+        paintGeneration += 1;
+        void cancelActiveRender();
       },
     };
   }

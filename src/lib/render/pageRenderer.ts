@@ -1,10 +1,15 @@
 /**
  * PDF.js / image / TIFF canvas paint + text-layer pipeline for a single workspace page.
  * Owns render task handles; does not own document store state.
+ *
+ * Concurrent paints on the same canvas are prevented by:
+ * - always cancelling the prior render task and awaiting its settle
+ * - a generation counter so superseded async paths never touch the canvas
  */
 
 import * as pdfjsLib from "pdfjs-dist";
-import { activeDoc } from "../../pdfStore.svelte";
+import { activeDoc, globalPdfWorkerInstance } from "../../pdfStore.svelte";
+import { runWithPdfRenderSlot } from "./pdfRenderQueue";
 
 export type PageRendererDeps = {
 	getPageNumber: () => number;
@@ -19,6 +24,19 @@ export type PageRendererDeps = {
 
 export type PageRenderer = ReturnType<typeof createPageRenderer>;
 
+type RenderTaskLike = {
+	cancel: () => void;
+	promise: Promise<unknown>;
+};
+
+function isRenderCancelled(error: unknown): boolean {
+	const err = error as { name?: string; message?: string };
+	if (!err) return false;
+	if (err.name === "RenderingCancelledException") return true;
+	if (typeof err.message === "string" && /cancel/i.test(err.message)) return true;
+	return false;
+}
+
 export function createPageRenderer(deps: PageRendererDeps) {
 	const {
 		getPageNumber,
@@ -31,12 +49,12 @@ export function createPageRenderer(deps: PageRendererDeps) {
 	} = deps;
 
 	let activeTextLayer: InstanceType<typeof pdfjsLib.TextLayer> | null = null;
-	let rendering = false;
-	let activeRenderTask: { cancel: () => void; promise: Promise<unknown> } | null =
-		null;
+	let activeRenderTask: RenderTaskLike | null = null;
 	let activePdfPage: { cleanup: () => void } | null = null;
+	/** Bumped on every paint/cancel so in-flight async work can bail out. */
+	let paintGeneration = 0;
 
-	function clearTextLayer(container: HTMLDivElement | null) {
+	function cancelTextLayerOnly() {
 		if (activeTextLayer) {
 			try {
 				activeTextLayer.cancel();
@@ -45,26 +63,44 @@ export function createPageRenderer(deps: PageRendererDeps) {
 			}
 			activeTextLayer = null;
 		}
-		if (container) {
-			container.replaceChildren();
+	}
+
+	/**
+	 * Cancel the in-flight page.render() and wait until pdf.js releases the canvas.
+	 * Must complete before starting another render on the same canvas element.
+	 */
+	async function cancelActiveRenderTask(): Promise<void> {
+		const task = activeRenderTask;
+		if (!task) return;
+		activeRenderTask = null;
+		try {
+			task.cancel();
+		} catch {
+			/* ignore */
+		}
+		try {
+			await task.promise;
+		} catch {
+			// Expected RenderingCancelledException (or equivalent) after cancel.
 		}
 	}
 
-	function cancelActiveRenderTask() {
-		if (activeRenderTask) {
-			try {
-				activeRenderTask.cancel();
-			} catch {
-				/* ignore */
-			}
-			activeRenderTask = null;
-		}
+	/** Cancel paint + text layer without destroying page resources or DOM children. */
+	async function cancelInFlight(): Promise<void> {
+		paintGeneration += 1;
+		cancelTextLayerOnly();
+		await cancelActiveRenderTask();
 	}
 
 	/** Tear down PDF/text resources when the page leaves the paint viewport. */
-	function releaseWhenUnrendered() {
-		cancelActiveRenderTask();
-		clearTextLayer(getTextLayerElement());
+	async function releaseWhenUnrendered(): Promise<void> {
+		paintGeneration += 1;
+		await cancelActiveRenderTask();
+		const textLayerEl = getTextLayerElement();
+		cancelTextLayerOnly();
+		if (textLayerEl) {
+			textLayerEl.replaceChildren();
+		}
 		if (activePdfPage) {
 			try {
 				activePdfPage.cleanup();
@@ -148,6 +184,7 @@ export function createPageRenderer(deps: PageRendererDeps) {
 			}
 			return {
 				destroy() {
+					void cancelInFlight();
 					if (!getIsSystemPrinting()) {
 						node.width = 0;
 						node.height = 0;
@@ -173,6 +210,7 @@ export function createPageRenderer(deps: PageRendererDeps) {
 			}
 			return {
 				destroy() {
+					void cancelInFlight();
 					if (!getIsSystemPrinting()) {
 						node.width = 0;
 						node.height = 0;
@@ -184,6 +222,7 @@ export function createPageRenderer(deps: PageRendererDeps) {
 
 		return {
 			destroy() {
+				void cancelInFlight();
 				if (!getIsSystemPrinting()) {
 					node.width = 0;
 					node.height = 0;
@@ -205,13 +244,22 @@ export function createPageRenderer(deps: PageRendererDeps) {
 		const basePageWidth = getBasePageWidth();
 		const basePageHeight = getBasePageHeight();
 
+		// New paint generation — any prior in-flight work becomes stale.
+		const generation = ++paintGeneration;
+		// Always free the canvas before a new paint (pdf.js rejects concurrent use).
+		await cancelActiveRenderTask();
+		cancelTextLayerOnly();
+		if (generation !== paintGeneration) return;
+
 		if (activeDoc.fileType === "image") {
-			const rotation = activeDoc.imageRotation ?? 0;
-			clearTextLayer(textLayerContainer);
+			if (textLayerContainer) {
+				textLayerContainer.replaceChildren();
+			}
 
 			if (activeDoc.imageUrl) {
 				const img = new Image();
 				img.onload = () => {
+					if (generation !== paintGeneration) return;
 					const rot = activeDoc.imageRotation || 0;
 					paintRotatedImage(
 						canvas,
@@ -233,13 +281,16 @@ export function createPageRenderer(deps: PageRendererDeps) {
 			const rotation = activeDoc.rotations[pageNum] ?? 0;
 
 			// TIFF pages have no PDF text content — clear any leftover text layer
-			clearTextLayer(textLayerContainer);
+			if (textLayerContainer) {
+				textLayerContainer.replaceChildren();
+			}
 
 			if (pageData) {
 				const blob = new Blob([pageData as BlobPart], { type: "image/png" });
 				const url = URL.createObjectURL(blob);
 				const img = new Image();
 				img.onload = () => {
+					if (generation !== paintGeneration) return;
 					paintRotatedImage(canvas, img, rotation, "native");
 					URL.revokeObjectURL(url);
 				};
@@ -248,101 +299,136 @@ export function createPageRenderer(deps: PageRendererDeps) {
 			return;
 		}
 
-		if (rendering) {
-			// Cancel in-flight paint + text layer (do not wipe container children here —
-			// matches prior WorkspacePage re-entry behaviour).
-			cancelActiveRenderTask();
-			if (activeTextLayer) {
+		// Gate concurrent pdf.js/Wasm paints globally (main view = high priority).
+		await runWithPdfRenderSlot(
+			"high",
+			async () => {
+				if (generation !== paintGeneration) return;
+
 				try {
-					activeTextLayer.cancel();
-				} catch {
-					/* ignore */
-				}
-				activeTextLayer = null;
-			}
-		}
-		rendering = true;
-		try {
-			const loadingTask = pdfjsLib.getDocument({
-				data: pdfBytes.slice(0),
-				cMapUrl: window.location.origin + "/cmaps/",
-				cMapPacked: true,
-				standardFontDataUrl: window.location.origin + "/standard_fonts/",
-				wasmUrl: window.location.origin + "/",
-			});
-			const pdfDocument = await loadingTask.promise;
-			const page = await pdfDocument.getPage(pageNum);
-			activePdfPage = page;
-
-			const dpr = window.devicePixelRatio || 1;
-			const safeScale = Math.max(0.1, scale / 100);
-			const rotation = (page.rotate + rotationAngle) % 360;
-			const adjustedViewport = page.getViewport({
-				scale: safeScale * dpr,
-				rotation,
-			});
-			// CSS-pixel viewport for the text layer (matches on-screen canvas size)
-			const textViewport = page.getViewport({
-				scale: safeScale,
-				rotation,
-			});
-
-			const context = canvas.getContext("2d");
-			if (context) {
-				canvas.width = adjustedViewport.width;
-				canvas.height = adjustedViewport.height;
-				canvas.style.width = `${adjustedViewport.width / dpr}px`;
-				canvas.style.height = `${adjustedViewport.height / dpr}px`;
-				activeRenderTask = page.render({
-					canvas: canvas,
-					viewport: adjustedViewport,
-				});
-				await activeRenderTask.promise;
-			}
-
-			// Superimpose a selectable PDF.js text layer over the rendered canvas
-			if (textLayerContainer) {
-				if (activeTextLayer) {
-					try {
-						activeTextLayer.cancel();
-					} catch {
-						/* ignore */
+					// Prefer the app-wide PDFWorker so we do not spawn extra Wasm heaps.
+					if (!globalPdfWorkerInstance.current) {
+						globalPdfWorkerInstance.current = new pdfjsLib.PDFWorker();
 					}
-					activeTextLayer = null;
-				}
-				// Always clear prior text runs before re-rendering (zoom / page change)
-				textLayerContainer.replaceChildren();
-				textLayerContainer.style.setProperty(
-					"--total-scale-factor",
-					String(safeScale),
-				);
-				textLayerContainer.style.setProperty("--scale-round-x", "1px");
-				textLayerContainer.style.setProperty("--scale-round-y", "1px");
 
-				const textContent = await page.getTextContent();
-				const textLayer = new pdfjsLib.TextLayer({
-					textContentSource: textContent,
-					container: textLayerContainer,
-					viewport: textViewport,
-				});
-				activeTextLayer = textLayer;
-				await textLayer.render();
-			}
-		} catch (error: unknown) {
-			const err = error as { name?: string };
-			if (err && err.name === "RenderingCancelledException") {
-				return;
-			}
-			console.error(error);
-		} finally {
-			rendering = false;
-			activeRenderTask = null;
-		}
+					const loadingTask = pdfjsLib.getDocument({
+						data: pdfBytes.slice(0),
+						cMapUrl: window.location.origin + "/cmaps/",
+						cMapPacked: true,
+						standardFontDataUrl:
+							window.location.origin + "/standard_fonts/",
+						wasmUrl: window.location.origin + "/",
+						worker: globalPdfWorkerInstance.current,
+					});
+					const pdfDocument = await loadingTask.promise;
+					if (generation !== paintGeneration) {
+						try {
+							await loadingTask.destroy();
+						} catch {
+							/* ignore */
+						}
+						return;
+					}
+
+					const page = await pdfDocument.getPage(pageNum);
+					if (generation !== paintGeneration) return;
+					activePdfPage = page;
+
+					const dpr = window.devicePixelRatio || 1;
+					const safeScale = Math.max(0.1, scale / 100);
+					const rotation = (page.rotate + rotationAngle) % 360;
+					const adjustedViewport = page.getViewport({
+						scale: safeScale * dpr,
+						rotation,
+					});
+					// CSS-pixel viewport for the text layer (matches on-screen canvas size)
+					const textViewport = page.getViewport({
+						scale: safeScale,
+						rotation,
+					});
+
+					const context = canvas.getContext("2d");
+					if (context) {
+						// Re-check after any await; another paint may have claimed the canvas.
+						if (generation !== paintGeneration) return;
+
+						// Always cancel any stale task one more time before bind.
+						await cancelActiveRenderTask();
+						if (generation !== paintGeneration) return;
+
+						canvas.width = adjustedViewport.width;
+						canvas.height = adjustedViewport.height;
+						canvas.style.width = `${adjustedViewport.width / dpr}px`;
+						canvas.style.height = `${adjustedViewport.height / dpr}px`;
+
+						const renderTask = page.render({
+							canvas: canvas,
+							viewport: adjustedViewport,
+						});
+						activeRenderTask = renderTask;
+						try {
+							await renderTask.promise;
+						} catch (error: unknown) {
+							if (isRenderCancelled(error)) return;
+							throw error;
+						} finally {
+							if (activeRenderTask === renderTask) {
+								activeRenderTask = null;
+							}
+						}
+					}
+
+					if (generation !== paintGeneration) return;
+
+					// Superimpose a selectable PDF.js text layer over the rendered canvas
+					if (textLayerContainer) {
+						cancelTextLayerOnly();
+						// Always clear prior text runs before re-rendering (zoom / page change)
+						textLayerContainer.replaceChildren();
+						textLayerContainer.style.setProperty(
+							"--total-scale-factor",
+							String(safeScale),
+						);
+						textLayerContainer.style.setProperty(
+							"--scale-round-x",
+							"1px",
+						);
+						textLayerContainer.style.setProperty(
+							"--scale-round-y",
+							"1px",
+						);
+
+						const textContent = await page.getTextContent();
+						if (generation !== paintGeneration) return;
+
+						const textLayer = new pdfjsLib.TextLayer({
+							textContentSource: textContent,
+							container: textLayerContainer,
+							viewport: textViewport,
+						});
+						activeTextLayer = textLayer;
+						try {
+							await textLayer.render();
+						} catch (error: unknown) {
+							if (isRenderCancelled(error)) return;
+							throw error;
+						}
+					}
+				} catch (error: unknown) {
+					if (isRenderCancelled(error)) {
+						return;
+					}
+					console.error(error);
+				}
+			},
+			() => generation !== paintGeneration,
+		);
 	}
 
 	return {
 		canvasLifecycle,
 		renderPageSheet,
 		releaseWhenUnrendered,
+		cancelInFlight,
 	};
 }

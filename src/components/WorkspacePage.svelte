@@ -223,13 +223,24 @@
     // Read textLayerElement here so the effect re-runs once the overlay mounts
     const textLayer = textLayerElement;
     if (isRendered && bytes && canvasElement && zoomScale) {
-      pageRenderer.renderPageSheet(bytes, pageNumber, zoomScale, canvasElement, degrees, textLayer);
+      void pageRenderer.renderPageSheet(
+        bytes,
+        pageNumber,
+        zoomScale,
+        canvasElement,
+        degrees,
+        textLayer,
+      );
     }
+    // Cancel in-flight pdf.js paint when zoom/rotation/bytes/canvas deps change or unmount.
+    return () => {
+      void pageRenderer.cancelInFlight();
+    };
   });
 
   $effect(() => {
     if (!isRendered && !isSystemPrinting) {
-      pageRenderer.releaseWhenUnrendered();
+      void pageRenderer.releaseWhenUnrendered();
     }
   });
 
@@ -330,6 +341,7 @@
       preloadObserver.disconnect();
       paintObserver.disconnect();
       ix.cancelAnimation();
+      void pageRenderer.releaseWhenUnrendered();
     };
   });
 
