@@ -123,6 +123,8 @@ export interface DocumentWorkspace {
 	tiffPages: Uint8Array[];
 	rotations: Record<number, number>;
 	cachedDimensions?: { width: number; height: number }[];
+	/** Per-document sidebar/save thumbnail overrides (not shared across open tabs). */
+	pageThumbnailOverrides?: Record<number, string>;
 }
 
 export interface SignatureSet {
@@ -280,32 +282,145 @@ function loadRecents(): RecentFile[] {
 }
 let recents = $state<RecentFile[]>(loadRecents());
 let thumbnailVersion = $state(0);
-let pageThumbnailOverrides = $state<Record<number, string>>({});
+
+function findOpenDocument(id: string | null | undefined): DocumentWorkspace | null {
+	if (!id) return null;
+	return (
+		openDocuments.find((d) => d.filePath === id || d.fileName === id) || null
+	);
+}
+
+/**
+ * Clear selection + undo/redo when switching or closing documents so history
+ * never crosses document boundaries.
+ */
+function resetSessionUiForDocumentSwitch() {
+	selectedShape = null;
+	selectedShapes = [];
+	undoStack.length = 0;
+	redoStack.length = 0;
+}
 
 /**
  * Post-save thumbnail broadcast:
- * 1) write page-0 override map (sidebar canvases read this)
+ * 1) write page-0 override map on the matching open document
  * 2) bump thumbnailVersion so `use:renderThumbnail` / $effect re-run
  * 3) Svelte 5-safe recents array reassignment for Recent Documents cards
- *
- * Writes module-level $state directly (not via activeDoc getters) so reactivity
- * is reliable after the pdfStore split into multiple .svelte.ts modules.
  */
 export function applyLiveThumbnail(
 	thumbnailDataUrl: string,
 	filePath?: string | null,
 	pageIndex = 0,
 ) {
-	pageThumbnailOverrides = {
-		...pageThumbnailOverrides,
-		[pageIndex]: thumbnailDataUrl,
-	};
+	const target =
+		(filePath ? findOpenDocument(filePath) : null) ||
+		findOpenDocument(activeDocumentId);
+	if (target) {
+		target.pageThumbnailOverrides = {
+			...(target.pageThumbnailOverrides || {}),
+			[pageIndex]: thumbnailDataUrl,
+		};
+		// Ensure array consumers re-read nested mutation
+		openDocuments = [...openDocuments];
+	}
 	if (filePath) {
 		// Bumps thumbnailVersion + updates recents/localStorage
 		updateRecentThumbnail(filePath, thumbnailDataUrl);
 	} else {
 		// No recents path — still invalidate sidebar canvases
 		thumbnailVersion += 1;
+	}
+}
+
+function documentKey(d: DocumentWorkspace): string {
+	return d.filePath || d.fileName;
+}
+
+/** Switch the active workspace tab. */
+export function switchActiveDocument(id: string) {
+	if (!id || activeDocumentId === id) return;
+	if (!findOpenDocument(id)) return;
+	activeDocumentId = id;
+	resetSessionUiForDocumentSwitch();
+}
+
+/**
+ * Cycle active tab (Ctrl+Tab / Ctrl+Shift+Tab).
+ * @param direction +1 next, -1 previous
+ */
+export function cycleActiveDocument(direction: 1 | -1) {
+	if (openDocuments.length < 2) return;
+	const ids = openDocuments.map(documentKey);
+	const current = Math.max(
+		0,
+		ids.findIndex(
+			(id) => id === activeDocumentId,
+		),
+	);
+	const next =
+		(current + direction + openDocuments.length) % openDocuments.length;
+	switchActiveDocument(ids[next]);
+}
+
+/**
+ * Drag-reorder open document tabs. Indices are positions in `openDocuments`.
+ */
+export function reorderOpenDocuments(fromIndex: number, toIndex: number) {
+	if (
+		fromIndex === toIndex ||
+		fromIndex < 0 ||
+		toIndex < 0 ||
+		fromIndex >= openDocuments.length ||
+		toIndex >= openDocuments.length
+	) {
+		return;
+	}
+	const next = [...openDocuments];
+	const [moved] = next.splice(fromIndex, 1);
+	next.splice(toIndex, 0, moved);
+	openDocuments = next;
+}
+
+/**
+ * Close one open document by id (path or fileName).
+ * Does not prompt — caller handles dirty confirmation.
+ */
+export function closeDocumentWorkspace(id: string) {
+	const doc = findOpenDocument(id);
+	if (!doc) return;
+
+	if (doc.imageUrl) {
+		try {
+			URL.revokeObjectURL(doc.imageUrl);
+		} catch {
+			/* ignore */
+		}
+	}
+
+	const wasActive =
+		activeDocumentId === doc.filePath || activeDocumentId === doc.fileName;
+
+	openDocuments = openDocuments.filter(
+		(d) => d.filePath !== id && d.fileName !== id && d !== doc,
+	);
+
+	if (wasActive) {
+		activeDocumentId =
+			openDocuments[0]?.filePath || openDocuments[0]?.fileName || null;
+		resetSessionUiForDocumentSwitch();
+	}
+}
+
+/**
+ * Close every open document without dirty prompts (caller must confirm first).
+ */
+export function closeAllDocumentWorkspaces() {
+	// Copy first — closeDocumentWorkspace mutates the array
+	const ids = openDocuments.map(documentKey);
+	for (const id of ids) {
+		const doc = findOpenDocument(id);
+		if (doc) doc.isDirty = false;
+		closeDocumentWorkspace(id);
 	}
 }
 
@@ -380,7 +495,11 @@ export function initializeNewDocument(
 		(d) => (filePath && d.filePath === filePath) || d.fileName === fileName,
 	);
 	if (existing) {
-		activeDocumentId = existing.filePath || existing.fileName;
+		const nextId = existing.filePath || existing.fileName;
+		if (activeDocumentId !== nextId) {
+			activeDocumentId = nextId;
+			resetSessionUiForDocumentSwitch();
+		}
 		return existing;
 	}
 
@@ -399,10 +518,11 @@ export function initializeNewDocument(
 		isDirty: false,
 		tiffPages: [],
 		rotations: {},
+		pageThumbnailOverrides: {},
 	};
 	openDocuments.push(newDoc);
 	activeDocumentId = filePath || fileName;
-	pageThumbnailOverrides = {};
+	resetSessionUiForDocumentSwitch();
 	return newDoc;
 }
 
@@ -719,10 +839,10 @@ export const activeDoc: SharedDocumentState = {
 	},
 
 	get pageThumbnailOverrides() {
-		return pageThumbnailOverrides;
+		return this.current?.pageThumbnailOverrides || {};
 	},
 	set pageThumbnailOverrides(val) {
-		pageThumbnailOverrides = val;
+		if (this.current) this.current.pageThumbnailOverrides = val;
 	},
 
 	updateRecentThumbnail(filePath: string, thumbnailDataUrl: string) {
@@ -730,16 +850,16 @@ export const activeDoc: SharedDocumentState = {
 		updateRecentThumbnail(filePath, thumbnailDataUrl);
 	},
 
+	/** Close the currently active document (no dirty prompt). Prefer closeDocumentWorkspace. */
 	flushDocumentState() {
-		if (this.imageUrl) {
-			URL.revokeObjectURL(this.imageUrl);
+		const id = activeDocumentId;
+		if (!id) {
+			openDocuments = [];
+			activeDocumentId = null;
+			resetSessionUiForDocumentSwitch();
+			return;
 		}
-		openDocuments = openDocuments.filter(
-			(d) => d.filePath !== activeDocumentId && d.fileName !== activeDocumentId,
-		);
-		activeDocumentId =
-			openDocuments[0]?.filePath || openDocuments[0]?.fileName || null;
-		pageThumbnailOverrides = {};
+		closeDocumentWorkspace(id);
 	},
 };
 

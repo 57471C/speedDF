@@ -23,7 +23,11 @@
     executeRedoAction,
     rotatePageAction,
     initializeNewDocument,
+    switchActiveDocument,
+    closeDocumentWorkspace,
+    closeAllDocumentWorkspaces,
   } from "../pdfStore.svelte";
+  import DocumentTabs from "../components/DocumentTabs.svelte";
 
   const activeDoc = activeDocStore as any;
 
@@ -345,7 +349,10 @@
   });
 
   let loadStartTime = 0;
+  /** Perceived open latency for the most recently loaded document (burn-in overlay). */
   let renderDurationMs = $state<number | null>(null);
+  /** Which tab the latency value belongs to (path or fileName). */
+  let renderDurationDocId = $state<string | null>(null);
   let isZippingLoader = $state(false);
 
   function showNotification(message: string) {
@@ -412,8 +419,15 @@
         );
         let dataUrl = "";
         let orientation = "portrait";
+
+        // Prefer a pre-rendered data-URL thumbnail when provided
+        if (typeof bytesOrThumbnail === "string" && bytesOrThumbnail.startsWith("data:")) {
+          dataUrl = bytesOrThumbnail;
+        }
+
+        // TIFF: use first decoded page PNG
         const pageData = activeDoc.tiffPages[0];
-        if (pageData) {
+        if (!dataUrl && pageData) {
           const blob = new Blob([pageData as any], { type: "image/png" });
           const url = URL.createObjectURL(blob);
           await new Promise<void>((resolve) => {
@@ -422,17 +436,64 @@
               orientation = img.width > img.height ? "landscape" : "portrait";
               resolve();
             };
+            img.onerror = () => resolve();
             img.src = url;
           });
           dataUrl = await new Promise<string>((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => {
               URL.revokeObjectURL(url);
-              resolve(reader.result as string);
+              resolve((reader.result as string) || "");
+            };
+            reader.onerror = () => {
+              URL.revokeObjectURL(url);
+              resolve("");
             };
             reader.readAsDataURL(blob);
           });
         }
+
+        // IMAGE (JPG/PNG/…): decode raw file bytes into a small JPEG data URL
+        if (!dataUrl && activeDoc.fileType === "image") {
+          const bytes =
+            bytesOrThumbnail instanceof Uint8Array
+              ? bytesOrThumbnail
+              : activeDoc.rawBytes;
+          if (bytes && bytes.length > 0) {
+            const ext = (name.split(".").pop() || "png").toLowerCase();
+            const mime =
+              ext === "jpg" || ext === "jpeg"
+                ? "image/jpeg"
+                : ext === "webp"
+                  ? "image/webp"
+                  : `image/${ext}`;
+            const blob = new Blob([bytes as BlobPart], { type: mime });
+            const url = URL.createObjectURL(blob);
+            dataUrl = await new Promise<string>((resolve) => {
+              const img = new Image();
+              img.onload = () => {
+                orientation = img.width > img.height ? "landscape" : "portrait";
+                const canvas = document.createElement("canvas");
+                const targetW = 140;
+                const scale = targetW / Math.max(1, img.width);
+                canvas.width = targetW;
+                canvas.height = Math.max(1, Math.round(img.height * scale));
+                const ctx = canvas.getContext("2d");
+                ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                URL.revokeObjectURL(url);
+                resolve(canvas.toDataURL("image/jpeg", 0.6));
+              };
+              img.onerror = () => {
+                URL.revokeObjectURL(url);
+                resolve("");
+              };
+              img.src = url;
+            });
+          }
+        }
+
+        // Last resort: live object URL is not persistable in localStorage as-is —
+        // leave dataUrl empty only if decode failed (sidebar still uses imageUrl).
         let currentList: RecentFile[] = [];
         const stored = localStorage.getItem("speeddf_recents");
         if (stored) currentList = JSON.parse(stored);
@@ -537,12 +598,18 @@
     const existing = activeDoc.openDocuments.find(
       (d: any) => (filePath && d.filePath === filePath) || d.fileName === fileName
     );
-    if (existing) {
-      activeDoc.activeDocumentId = existing.filePath || existing.fileName;
+    // Already fully loaded — just switch tabs
+    if (existing?.rawBytes) {
+      switchActiveDocument(existing.filePath || existing.fileName);
       return;
     }
 
-    initializeNewDocument(fileName, filePath);
+    // Skeleton / new entry: ensure a workspace slot exists, then fill it
+    if (!existing) {
+      initializeNewDocument(fileName, filePath);
+    } else {
+      switchActiveDocument(existing.filePath || existing.fileName);
+    }
 
     // Use the true click boundary timestamp if provided, otherwise fallback to runtime execution time
     const telemetryChannel = externalStartTime ? 'Recent_Dashboard_Warm' : 'Standard_Load';
@@ -558,6 +625,7 @@
     // 3. Begin the high-resolution hardware benchmarking clock
     loadStartTime = externalStartTime ?? performance.now();
     renderDurationMs = null;
+    renderDurationDocId = null;
 
     try {
       const fileCategory = determineFileType(fileName);
@@ -595,26 +663,45 @@
         activeDoc.shapes = {};
         activeDoc.bookmarks = [];
         activeDoc.imageRotation = 0;
+        // Clear any stale per-doc override so sidebar uses live imageUrl until paint
+        activeDoc.pageThumbnailOverrides = {};
 
         const ext = fileName.toLowerCase().split('.').pop() || "png";
         const mimeType = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `image/${ext}`;
         const blob = new Blob([rawBytes as any], { type: mimeType });
 
+        // Revoke previous object URL if re-loading into same slot
+        if (activeDoc.imageUrl) {
+          try {
+            URL.revokeObjectURL(activeDoc.imageUrl);
+          } catch {
+            /* ignore */
+          }
+        }
         activeDoc.imageUrl = URL.createObjectURL(blob);
+        // Force sidebar/recents consumers to re-read imageUrl immediately
+        activeDoc.thumbnailVersion = (activeDoc.thumbnailVersion || 0) + 1;
 
         const img = new Image();
         img.onload = () => {
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
           const targetWidth = 140;
-          const scaleFactor = targetWidth / img.width;
+          const scaleFactor = targetWidth / Math.max(1, img.width);
           canvas.width = targetWidth;
-          canvas.height = img.height * scaleFactor;
+          canvas.height = Math.max(1, Math.round(img.height * scaleFactor));
 
           ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
           const base64Thumbnail = canvas.toDataURL('image/jpeg', 0.6);
 
+          // Seed per-doc sidebar override so thumb is visible before save
+          activeDoc.pageThumbnailOverrides = { 0: base64Thumbnail };
+          activeDoc.thumbnailVersion = (activeDoc.thumbnailVersion || 0) + 1;
+
           registerRecentFile(fileName, filePath, base64Thumbnail, 'image');
+        };
+        img.onerror = () => {
+          console.warn("Image thumbnail decode failed; sidebar will use live imageUrl");
         };
         img.src = activeDoc.imageUrl;
 
@@ -696,10 +783,13 @@
       // Calculate layout compilation completion speeds down to the millisecond
       const loadEndTime = performance.now();
       renderDurationMs = Math.round(loadEndTime - loadStartTime);
+      renderDurationDocId = filePath || fileName;
       console.log(`⏱️ [${telemetryChannel}] Open-to-Render perceived latency: ${(loadEndTime - loadStartTime).toFixed(2)}ms`);
     } catch (err) {
       console.error("Document Ingestion Core Fault: ", err);
       showNotification("Unable to process document stream");
+      renderDurationMs = null;
+      renderDurationDocId = null;
     } finally {
       isZippingLoader = false;
     }
@@ -708,33 +798,26 @@
   async function promptAndLoadFile(
     filePath: string,
     fileName: string,
-    unsavedMessage: string,
+    _unsavedMessage: string,
     clickStartTime?: number,
   ) {
-    const doLoad = async () => {
-      activeDoc.flushDocumentState();
-      try {
-        const payload = await invoke<StartupPayload>("read_file_bytes", {
-          path: filePath,
-        });
-        if (payload && payload.bytes) {
-          const typedBytes = new Uint8Array(payload.bytes);
-          await loadDocument(typedBytes, fileName || payload.name, filePath, clickStartTime);
-        }
-      } catch (err) {
-        console.error(`Failed to load document from ${filePath}:`, err);
+    // Multi-document: open alongside existing docs (do not flush/close current).
+    // Dirty confirmation only applies to close/replace flows, not open-another.
+    try {
+      const payload = await invoke<StartupPayload>("read_file_bytes", {
+        path: filePath,
+      });
+      if (payload && payload.bytes) {
+        const typedBytes = new Uint8Array(payload.bytes);
+        await loadDocument(
+          typedBytes,
+          fileName || payload.name,
+          filePath,
+          clickStartTime,
+        );
       }
-    };
-
-    if (activeDoc.isDirty) {
-      unsavedModalMessage = unsavedMessage;
-      pendingNavigationAction = () => {
-        activeDoc.isDirty = false;
-        setTimeout(doLoad, 50);
-      };
-      showUnsavedModal = true;
-    } else {
-      await doLoad();
+    } catch (err) {
+      console.error(`Failed to load document from ${filePath}:`, err);
     }
   }
 
@@ -871,24 +954,74 @@
     );
   }
 
-  function closeDocument() {
-    // Intercept if the document has active modifications on screen
-    if (activeDoc.isDirty) {
+  function closeDocumentById(docId: string) {
+    const doc = activeDoc.openDocuments.find(
+      (d: any) => d.filePath === docId || d.fileName === docId,
+    );
+    if (!doc) return;
+
+    if (doc.isDirty) {
       unsavedModalMessage =
         "You have unsaved markup changes on this layout drawing. Are you sure you want to close this document and discard your progress?";
       pendingNavigationAction = () => {
-        activeDoc.isDirty = false;
-        activeDoc.flushDocumentState();
+        doc.isDirty = false;
+        closeDocumentWorkspace(docId);
+        closeSearch();
       };
       showUnsavedModal = true;
-    } else {
-      activeDoc.flushDocumentState();
+      return;
     }
+
+    closeDocumentWorkspace(docId);
+    closeSearch();
+  }
+
+  function closeDocument() {
+    const id = activeDoc.activeDocumentId;
+    if (!id) {
+      activeDoc.flushDocumentState();
+      return;
+    }
+    closeDocumentById(id);
+  }
+
+  function closeAllDocuments() {
+    const docs = [...activeDoc.openDocuments];
+    if (docs.length === 0) return;
+
+    // Close clean tabs immediately; only prompt for remaining dirty ones
+    const dirtyDocs = docs.filter((d: any) => d.isDirty);
+    const cleanDocs = docs.filter((d: any) => !d.isDirty);
+
+    for (const d of cleanDocs) {
+      closeDocumentWorkspace(d.filePath || d.fileName);
+    }
+
+    if (dirtyDocs.length === 0) {
+      closeSearch();
+      return;
+    }
+
+    unsavedModalMessage =
+      dirtyDocs.length === 1
+        ? "You have unsaved markup changes on one remaining tab. Close it and discard progress?"
+        : `You have unsaved changes on ${dirtyDocs.length} remaining tabs. Close them and discard progress?`;
+    pendingNavigationAction = () => {
+      // Only dirty tabs should still be open
+      closeAllDocumentWorkspaces();
+      closeSearch();
+    };
+    showUnsavedModal = true;
   }
 
   // Auto-track files when they are loaded into activeDoc
   $effect(() => {
     if (activeDoc.rawBytes && activeDoc.fileName && activeDoc.filePath) {
+      // Images/TIFF register their own thumbnails (data URL) in the load path —
+      // calling registerRecentFile with raw bytes here produces empty JPG thumbs.
+      if (activeDoc.fileType === "image" || activeDoc.fileType === "tiff") {
+        return;
+      }
       const stored = localStorage.getItem("speeddf_recents");
       let currentList: RecentFile[] = [];
       if (stored) {
@@ -1366,12 +1499,35 @@
     onRedo={executeRedoAction}
   />
 
-  {#if activeDoc.rawBytes}
+  {#if activeDoc.rawBytes || activeDoc.openDocuments.length > 0}
     <div class="flex flex-1 w-full overflow-hidden relative">
       <ToolSidebar bind:zoomScale />
       
-      <div class="relative flex-1 h-full min-w-0 flex flex-col">
-        <Workspace {zoomScale} {isSystemPrinting} onShowNotification={showNotification} />
+      <div class="relative flex-1 h-full min-h-0 min-w-0 flex flex-col">
+        <DocumentTabs
+          onRequestClose={closeDocumentById}
+          onRequestCloseAll={closeAllDocuments}
+          recentFiles={recentFiles}
+          onOpenRecent={openRecentFile}
+        />
+        {#if activeDoc.rawBytes}
+          {#key activeDoc.activeDocumentId}
+            <div class="flex-1 min-h-0 flex flex-col">
+              <Workspace
+                {zoomScale}
+                {isSystemPrinting}
+                onShowNotification={showNotification}
+                openDurationMs={activeDoc.activeDocumentId === renderDurationDocId
+                  ? renderDurationMs
+                  : null}
+              />
+            </div>
+          {/key}
+        {:else}
+          <div class="flex-1 flex items-center justify-center text-slate-600 text-xs">
+            Loading document…
+          </div>
+        {/if}
 
         {#if showSearchPopup}
           <!-- Floating search popup UI panel -->
@@ -1473,16 +1629,6 @@
 
       {#if showOcrDrawer}
         <OcrPanel onClose={() => (showOcrDrawer = false)} />
-      {/if}
-
-      {#if renderDurationMs !== null}
-        <div
-          class="fixed top-11 left-14 z-10 select-none pointer-events-none font-mono text-[9px] tracking-widest text-slate-500/40 font-semibold uppercase mix-blend-screen"
-        >
-          Document Loaded in: <span class="text-cyan-400/30 font-bold"
-            >{renderDurationMs}ms</span
-          >
-        </div>
       {/if}
     </div>
   {:else}

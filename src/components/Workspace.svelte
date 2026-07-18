@@ -30,13 +30,58 @@
     };
   });
 
-  let { zoomScale = $bindable(120), isSystemPrinting = false, onShowNotification } = $props<{
+  let {
+    zoomScale = $bindable(120),
+    isSystemPrinting = false,
+    onShowNotification,
+    openDurationMs = null,
+  } = $props<{
     zoomScale: number;
     isSystemPrinting: boolean;
     onShowNotification?: (message: string) => void;
+    /** Perceived open latency (ms) for the active document; null hides burn-in. */
+    openDurationMs?: number | null;
   }>();
   let scrollContainer = $state<HTMLDivElement | null>(null);
   let scrollObserver = $state<IntersectionObserver | null>(null);
+
+  // "Document loaded in Xms" burn-in (active tab only; parent gates the value).
+  // Stays visible: full brightness briefly, then settles to slight transparency.
+  let showLoadBurnIn = $state(false);
+  let loadBurnInSettled = $state(false);
+  let loadBurnInTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearLoadBurnInTimers() {
+    if (loadBurnInTimer) {
+      clearTimeout(loadBurnInTimer);
+      loadBurnInTimer = null;
+    }
+  }
+
+  function settleLoadBurnIn() {
+    if (!showLoadBurnIn || loadBurnInSettled) return;
+    loadBurnInSettled = true;
+    clearLoadBurnInTimers();
+  }
+
+  $effect(() => {
+    const ms = openDurationMs;
+    clearLoadBurnInTimers();
+    if (ms == null || ms < 0) {
+      showLoadBurnIn = false;
+      loadBurnInSettled = false;
+      return;
+    }
+    // Fresh open — bright first, then soft settle after ~3s (does not hide)
+    showLoadBurnIn = true;
+    loadBurnInSettled = false;
+    loadBurnInTimer = setTimeout(() => {
+      settleLoadBurnIn();
+    }, 3000);
+    return () => {
+      clearLoadBurnInTimers();
+    };
+  });
 
   $effect(() => {
     if (!scrollContainer) return;
@@ -424,10 +469,14 @@
 <div
   bind:this={scrollContainer}
   use:setupWheelZoom
-  onpointerdown={handlePointerDown}
+  onpointerdown={(e) => {
+    settleLoadBurnIn();
+    handlePointerDown(e);
+  }}
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
   onpointerleave={handlePointerLeave}
+  onwheel={() => settleLoadBurnIn()}
   class="flex-1 min-w-0 h-full overflow-auto bg-[#070a12] flex flex-col items-center pt-8 px-4 relative workspace-scroll-container transition-colors duration-200
     {isDragging ? '' : 'scroll-smooth'}
     [&::-webkit-scrollbar]:w-2 
@@ -437,6 +486,29 @@
     hover:[&::-webkit-scrollbar-thumb]:bg-slate-700"
   style={(isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : '') + ' touch-action: pan-x pan-y;'}
 >
+  {#if showLoadBurnIn && openDurationMs != null}
+    <!-- Tight under tab bar (minimal top pad); top-right, clear of scrollbar -->
+    <div
+      class="load-burn-in sticky top-0 z-20 w-full h-0 overflow-visible pointer-events-none select-none
+        {loadBurnInSettled ? 'load-burn-in--settled' : 'load-burn-in--bright'}"
+      aria-live="polite"
+    >
+      <div class="flex justify-end pr-3 pt-1">
+        <span
+          class="inline-block font-mono text-[10px] font-semibold tracking-wider uppercase text-right
+            drop-shadow-[0_1px_2px_rgba(0,0,0,0.75)]
+            {loadBurnInSettled ? 'text-slate-400/80' : 'text-slate-200'}"
+        >
+          Document loaded in
+          <span
+            class="font-bold tabular-nums
+              {loadBurnInSettled ? 'text-cyan-400/70' : 'text-cyan-300'}"
+            >{openDurationMs}ms</span
+          >
+        </span>
+      </div>
+    </div>
+  {/if}
   {#if activeDoc.activeTool === 'snapshot'}
     <div 
       class="absolute inset-0 bg-black/25 z-[90] cursor-crosshair select-none"
@@ -603,6 +675,18 @@
 </div>
 
 <style>
+  .load-burn-in {
+    transition: opacity 0.45s ease;
+  }
+  /* Full-contrast after open */
+  .load-burn-in--bright {
+    opacity: 1;
+  }
+  /* After ~3s / interaction: slight transparency only (still readable, not gone) */
+  .load-burn-in--settled {
+    opacity: 0.72;
+  }
+
   /* Dark Cyber Scrollbar Custom Webkit Injectors */
   .workspace-scroll-container::-webkit-scrollbar {
     width: 8px;
