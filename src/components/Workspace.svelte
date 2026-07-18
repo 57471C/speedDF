@@ -5,15 +5,29 @@
   import WorkspacePage from "./WorkspacePage.svelte";
   import { activeDoc, FONT_MAP, pushHistorySnapshot } from "../pdfStore.svelte";
 
+  // Auto-fit every newly opened document (PDF / TIFF / image) to the viewport,
+  // respecting the page container's actual orientation after layout settles.
   $effect(() => {
-    if (activeDoc.rawBytes && activeDoc.fileType === "tiff") {
-      // Auto-execute your window fitting routine once layout parameters are set
+    const bytes = activeDoc.rawBytes;
+    const fileKey = activeDoc.filePath || activeDoc.fileName || "";
+    // Touch fileType so orientation/type switches re-trigger fit
+    void activeDoc.fileType;
+    if (!bytes || !fileKey) return;
+
+    // Retry a few times so page shells (and image natural size) have painted.
+    let cancelled = false;
+    const delays = [80, 200, 450, 900];
+    for (const ms of delays) {
       setTimeout(() => {
+        if (cancelled) return;
         if (typeof shrinkToWindow === "function") {
           shrinkToWindow();
         }
-      }, 150);
+      }, ms);
     }
+    return () => {
+      cancelled = true;
+    };
   });
 
   let { zoomScale = $bindable(120), isSystemPrinting = false, onShowNotification } = $props<{
@@ -291,19 +305,26 @@
   }
 
   function shrinkToWindow() {
-    if (scrollContainer) {
-      const availableWidth = scrollContainer.clientWidth - 48;
-      const pageEl = scrollContainer.querySelector(".bg-white.relative.rounded-sm");
-      if (pageEl) {
-        const currentWidth = pageEl.getBoundingClientRect().width;
-        if (currentWidth > 0) {
-          const newScale = Math.round((availableWidth / currentWidth) * zoomScale);
-          zoomScale = Math.max(5, Math.min(400, newScale));
-          return;
-        }
+    if (!scrollContainer) return;
+
+    const availableWidth = Math.max(1, scrollContainer.clientWidth - 48);
+    const availableHeight = Math.max(1, scrollContainer.clientHeight - 48);
+    const pageEl = scrollContainer.querySelector(
+      ".bg-white.relative.rounded-sm",
+    ) as HTMLElement | null;
+
+    if (pageEl) {
+      const rect = pageEl.getBoundingClientRect();
+      if (rect.width > 1 && rect.height > 1) {
+        // Fit both axes so landscape and portrait pages fill the window correctly.
+        const widthScale = (availableWidth / rect.width) * zoomScale;
+        const heightScale = (availableHeight / rect.height) * zoomScale;
+        const newScale = Math.round(Math.min(widthScale, heightScale));
+        zoomScale = Math.max(5, Math.min(400, Math.abs(newScale)));
+        return;
       }
-      zoomScale = 100;
     }
+    zoomScale = 100;
   }
 
   let isDrawingMarquee = $state(false);

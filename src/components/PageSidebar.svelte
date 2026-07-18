@@ -30,6 +30,13 @@
   let selectedPages = $state<number[]>([]);
   let activeSidebarTab = $state<'thumbnails' | 'bookmarks' | 'comments'>('thumbnails');
 
+  // Images have no outline/bookmarks or comments UI — keep the tab on thumbnails
+  $effect(() => {
+    if (activeDoc.fileType === 'image' && activeSidebarTab !== 'thumbnails') {
+      activeSidebarTab = 'thumbnails';
+    }
+  });
+
   let cachedRawBytes: Uint8Array | null = null;
   let sharedPdfjsDocPromise: Promise<any> | null = null;
 
@@ -652,23 +659,25 @@
         </button>
       {/if}
 
-      <button 
-        onclick={() => activeSidebarTab = 'bookmarks'}
-        class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'bookmarks' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
-        title="Document Bookmarks">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-        </svg>
-      </button>
+      {#if activeDoc.fileType !== 'image'}
+        <button 
+          onclick={() => activeSidebarTab = 'bookmarks'}
+          class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'bookmarks' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
+          title="Document Bookmarks">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+          </svg>
+        </button>
 
-      <button 
-        onclick={() => activeSidebarTab = 'comments'}
-        class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'comments' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
-        title="Annotation Comments">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        </svg>
-      </button>
+        <button 
+          onclick={() => activeSidebarTab = 'comments'}
+          class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'comments' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
+          title="Annotation Comments">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        </button>
+      {/if}
     </div>
 
     <div class="flex items-center justify-center py-1 bg-[#070a12]/30">

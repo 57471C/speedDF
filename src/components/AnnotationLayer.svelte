@@ -35,6 +35,27 @@
       node.focus();
     }, 0);
   }
+
+  /** Grow textarea height with content (newlines / wrap) so text isn't clipped. */
+  function autoGrowTextarea(node: HTMLTextAreaElement) {
+    function resize() {
+      node.style.height = "auto";
+      node.style.height = `${Math.max(node.scrollHeight, 24)}px`;
+    }
+    resize();
+    node.addEventListener("input", resize);
+    // Cover bind:value updates that don't fire input (e.g. programmatic)
+    const obs = new MutationObserver(resize);
+    obs.observe(node, { characterData: true, subtree: true, childList: true });
+    // Also resize after fonts/layout settle
+    requestAnimationFrame(resize);
+    return {
+      destroy() {
+        node.removeEventListener("input", resize);
+        obs.disconnect();
+      },
+    };
+  }
 </script>
 
   <div
@@ -243,6 +264,7 @@
             <textarea
               bind:value={activeDoc.shapes[pageNumber][idx].text}
               use:autofocusAction
+              use:autoGrowTextarea
               onmousedown={(e) => e.stopPropagation()}
               onblur={(e) => finalizeTextEdit(idx, e.currentTarget)}
               onkeydown={(e) => {
@@ -251,13 +273,21 @@
                   finalizeTextEdit(idx, e.currentTarget);
                 } else if (e.key === "Escape") {
                   finalizeTextEdit(idx, e.currentTarget);
+                } else if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                  // Allow newline; grow after key settles
+                  requestAnimationFrame(() => {
+                    const t = e.currentTarget as HTMLTextAreaElement;
+                    t.style.height = "auto";
+                    t.style.height = `${Math.max(t.scrollHeight, 24)}px`;
+                  });
                 }
               }}
-              class="bg-transparent text-black border border-slate-300 rounded p-1 text-sm shadow-md focus:outline-none focus:ring-1 focus:ring-cyan-500 font-sans block"
+              rows="1"
+              class="bg-transparent text-black border border-slate-300 rounded p-1 text-sm shadow-md focus:outline-none focus:ring-1 focus:ring-cyan-500 font-sans block overflow-hidden min-w-[8ch]"
               class:text-center={shape.alignment === 'center'}
               class:text-right={shape.alignment === 'right'}
               class:text-left={!shape.alignment || shape.alignment === 'left'}
-              style="text-align: {shape.alignment || 'left'}; text-align-last: {shape.alignment || 'left'}; direction: ltr; resize: both; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
+              style="text-align: {shape.alignment || 'left'}; text-align-last: {shape.alignment || 'left'}; direction: ltr; resize: none; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
             ></textarea>
           {:else}
             <span
@@ -473,7 +503,7 @@
               stroke-width={activeDoc.activeTool === "oval" ? (activeDoc.activeThickness || 3) : "0"}
               stroke-dasharray={activeDoc.activeTool === "oval" && activeDoc.activeLineStyle ? strokeDasharrays[activeDoc.activeLineStyle] : "none"}
               vector-effect="non-scaling-stroke"
-              fill={activeDoc.activeTool === "oval-fill" ? activeDoc.activeColor : activeDoc.activeColor + '12'}
+              fill={activeDoc.activeTool === "oval-fill" ? activeDoc.activeColor : "none"}
             />
           </svg>
         </div>
@@ -504,7 +534,7 @@
               stroke-width={activeDoc.activeTool?.includes('-fill') ? 0 : (activeDoc.activeThickness || 3)}
               stroke-dasharray={!activeDoc.activeTool?.includes('-fill') && activeDoc.activeLineStyle ? strokeDasharrays[activeDoc.activeLineStyle] : "none"}
               vector-effect="non-scaling-stroke"
-              fill={activeDoc.activeTool?.includes('-fill') ? activeDoc.activeColor : activeDoc.activeColor + '12'}
+              fill={activeDoc.activeTool?.includes('-fill') ? activeDoc.activeColor : "none"}
             />
           </svg>
         </div>

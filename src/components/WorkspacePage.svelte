@@ -415,7 +415,9 @@
   />
 
   <div class="absolute top-2 left-[calc(100%+8px)] z-30 group">
-    {#if activeDoc.bookmarks.some(b => b.pageNum === pageNumber)}
+    {#if activeDoc.fileType === 'image'}
+      <!-- Bookmarks are not available for image documents -->
+    {:else if activeDoc.bookmarks.some(b => b.pageNum === pageNumber)}
       {@const match = activeDoc.bookmarks.find(b => b.pageNum === pageNumber)!}
       {#snippet flagUI()}
         {@const s = (() => {
