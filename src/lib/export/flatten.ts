@@ -21,6 +21,7 @@ import {
 	updateRecentThumbnail,
 } from "../../pdfStore.svelte";
 import { encodeCommentsKeyword } from "../comments/comments";
+import { applyAndFlattenFormValues } from "../forms/formFields";
 import {
 	runWithPdfRenderSlot,
 	THUMBNAIL_JPEG_QUALITY,
@@ -341,6 +342,19 @@ export async function flattenWorkspaceToPDF(): Promise<Uint8Array | null> {
       await Promise.all(annotationPromises);
     } else {
       const srcDoc = await PDFDocument.load(activeDoc.rawBytes);
+      // Bake AcroForm values into page content before copyPages so filled
+      // appearances survive the export pipeline (and remain multi-doc safe).
+      // Use formValues presence too — fields may exist even if def list is stale.
+      const hasFormEdits =
+        (activeDoc.formFields?.length || 0) > 0 ||
+        Object.keys(activeDoc.formValues || {}).length > 0;
+      if (hasFormEdits) {
+        try {
+          await applyAndFlattenFormValues(srcDoc, activeDoc.formValues || {});
+        } catch (formErr) {
+          console.warn("Form fill/flatten during export failed:", formErr);
+        }
+      }
       const copiedPages = await destDoc.copyPages(
         srcDoc,
         activeDoc.pageOrder.map((num) => num - 1),
