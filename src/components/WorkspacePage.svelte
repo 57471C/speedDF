@@ -19,6 +19,7 @@
   import { STROKE_DASHARRAYS } from "../lib/annotation/strokeStyles";
   import { pageHasComments, countComments, commentsForPage, formatCommentTime } from "../lib/comments/comments";
   import AnnotationLayer from "./AnnotationLayer.svelte";
+  import FormLayer from "./FormLayer.svelte";
 
   let { bytes, pageNumber, zoomScale, isSystemPrinting = false, scrollObserver } = $props<{
     bytes: Uint8Array;
@@ -423,6 +424,11 @@
       class:textLayer--interactive={activeDoc.activeTool === "select"}
       aria-hidden="true"
     ></div>
+  {/if}
+
+  <!-- AcroForm fill layer (text / checkbox / dropdown) — above canvas, below freehand SVG ink -->
+  {#if activeDoc.fileType === "pdf"}
+    <FormLayer {pageNumber} />
   {/if}
 
   <AnnotationLayer

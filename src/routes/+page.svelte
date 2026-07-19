@@ -28,6 +28,7 @@
     closeAllDocumentWorkspaces,
   } from "../pdfStore.svelte";
   import { decodeCommentsFromKeywords } from "../lib/comments/comments";
+  import { extractFormFields } from "../lib/forms/formFields";
   import DocumentTabs from "../components/DocumentTabs.svelte";
 
   const activeDoc = activeDocStore as any;
@@ -659,6 +660,8 @@
         activeDoc.pageThumbnailOverrides = {};
         activeDoc.bookmarks = [];
         activeDoc.comments = [];
+        activeDoc.formFields = [];
+        activeDoc.formValues = {};
       } else if (fileCategory === "image") {
         // Setup the clean single-page layout structure for standard graphics
         activeDoc.fileType = "image";
@@ -672,6 +675,8 @@
         activeDoc.shapes = {};
         activeDoc.bookmarks = [];
         activeDoc.comments = [];
+        activeDoc.formFields = [];
+        activeDoc.formValues = {};
         activeDoc.imageRotation = 0;
         // Clear any stale per-doc override so sidebar uses live imageUrl until paint
         activeDoc.pageThumbnailOverrides = {};
@@ -789,6 +794,17 @@
         } catch (commentsErr) {
           console.warn("Failed to load document comments metadata:", commentsErr);
           activeDoc.comments = [];
+        }
+
+        // AcroForm fields (text / checkbox / dropdown) for interactive fill overlay
+        try {
+          const extracted = await extractFormFields(rawBytes);
+          activeDoc.formFields = extracted.fields;
+          activeDoc.formValues = extracted.values;
+        } catch (formErr) {
+          console.warn("Form field detection skipped:", formErr);
+          activeDoc.formFields = [];
+          activeDoc.formValues = {};
         }
 
         await registerRecentFile(fileName, filePath, rawBytes);
@@ -950,6 +966,8 @@
       activeDoc.rotations = {};
       activeDoc.bookmarks = [];
       activeDoc.comments = [];
+      activeDoc.formFields = [];
+      activeDoc.formValues = {};
       activeDoc.isDirty = false;
       showNotification("Created New Blank A4 Document");
     } catch (e) {

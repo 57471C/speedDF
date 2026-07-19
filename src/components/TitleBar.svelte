@@ -2,7 +2,12 @@
   import { invoke } from "@tauri-apps/api/core";
   import { save } from "@tauri-apps/plugin-dialog";
   import * as pdfjsLib from "pdfjs-dist";
-  import { activeDoc, undoStack, redoStack } from "../pdfStore.svelte";
+  import {
+    activeDoc,
+    undoStack,
+    redoStack,
+    commitActiveDocumentAfterSave,
+  } from "../pdfStore.svelte";
   import {
     flattenWorkspaceToPDF,
     flattenWorkspaceToImage,
@@ -10,6 +15,7 @@
     getAnnotatedPdfBytes as getAnnotatedPdfBytesImpl,
   } from "../lib/export/flatten";
   import { decodeCommentsFromKeywords } from "../lib/comments/comments";
+  import { extractFormFields } from "../lib/forms/formFields";
 
   let {
     onMinimize,
@@ -119,6 +125,15 @@
           console.warn("Failed to load document comments metadata:", commentsErr);
           activeDoc.comments = [];
         }
+        try {
+          const extracted = await extractFormFields(typedBytes);
+          activeDoc.formFields = extracted.fields;
+          activeDoc.formValues = extracted.values;
+        } catch (formErr) {
+          console.warn("Form field detection skipped:", formErr);
+          activeDoc.formFields = [];
+          activeDoc.formValues = {};
+        }
       }
     } catch (err) {
       console.error("Native file load intercept breakdown:", err);
@@ -199,15 +214,16 @@
           return;
         }
 
-        syncLiveThumbnail(savedPath, compiledBytes);
         await invoke("native_overwrite_file", {
           path: savedPath,
           fileBytes: Array.from(compiledBytes),
         });
-        activeDoc.filePath = savedPath;
-        const parts = savedPath.split(/[\\/]/);
-        activeDoc.fileName = parts[parts.length - 1];
-        activeDoc.isDirty = false;
+        // Rebind path/name + rawBytes + clear dirty BEFORE unlocking the UI
+        await commitActiveDocumentAfterSave({
+          compiledBytes,
+          filePath: savedPath,
+        });
+        syncLiveThumbnail(savedPath, compiledBytes);
         if (typeof onSaveSuccess === 'function') onSaveSuccess("File Saved Successfully");
         console.log("Document footprint committed cleanly to disk via Save As.");
       } finally {
@@ -230,19 +246,23 @@
     }
     if (!beginSavingLock()) return;
     try {
+      const savePath = activeDoc.filePath;
       if (activeDoc.fileType === 'image') {
         console.log("Compiling and flattening image annotations for silent save...");
-        const compiledBytes = await flattenWorkspaceToImage(activeDoc.filePath);
+        const compiledBytes = await flattenWorkspaceToImage(savePath);
         if (!compiledBytes) {
           alert("Failed to compile annotations into Image object stream.");
           return;
         }
-        syncLiveThumbnail(activeDoc.filePath, compiledBytes);
         await invoke("native_overwrite_file", {
-          path: activeDoc.filePath,
+          path: savePath,
           fileBytes: Array.from(compiledBytes),
         });
-        activeDoc.isDirty = false;
+        await commitActiveDocumentAfterSave({
+          compiledBytes,
+          filePath: savePath,
+        });
+        syncLiveThumbnail(savePath, compiledBytes);
         console.log("Document footprint committed silently to disk.");
         if (typeof onSaveSuccess === 'function') onSaveSuccess("File Saved Successfully");
         return;
@@ -256,12 +276,15 @@
         alert("Failed to compile annotations into PDF object stream.");
         return;
       }
-      syncLiveThumbnail(activeDoc.filePath, compiledBytes);
       await invoke("native_overwrite_file", {
-        path: activeDoc.filePath,
+        path: savePath,
         fileBytes: Array.from(compiledBytes),
       });
-      activeDoc.isDirty = false;
+      await commitActiveDocumentAfterSave({
+        compiledBytes,
+        filePath: savePath,
+      });
+      syncLiveThumbnail(savePath, compiledBytes);
       console.log("Document footprint committed silently to disk.");
       if (typeof onSaveSuccess === 'function') onSaveSuccess("File Saved Successfully");
     } catch (err) {
@@ -280,6 +303,8 @@
     activeDoc.currentPage = 1;
     activeDoc.shapes = {};
     activeDoc.comments = [];
+    activeDoc.formFields = [];
+    activeDoc.formValues = {};
   }
 
   function handlePrintClick() {

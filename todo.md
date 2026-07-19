@@ -1,14 +1,17 @@
 # Todo List #
 
 ## Features to add ##
-1. Add File tabs for multiple documents.
-2. Comments (partially implemented on pagesSidebar)
+1. Text input memory/forms input memory
+2. Hyperlinks
+3. Forms entry (NOT XFA Forms!) - partially implemented
+4. Froms creation (NOT XFA Forms!)
+5. comments should have XY co-ords. not stuck at the top of the page.
 
 ## long term goals (may never do)
-1. Forms entry (NOT XFA Forms!)
-2. Froms creation (NOT XFA Forms!)
-3. tauri-plugin-tts for Text to Speach
-4. True Structural Text Reflow:
+1. Obeject alignment
+2. R/click tab - "Open in new window"
+2. tauri-plugin-tts for Text to Speach
+3. True Structural Text Reflow:
 Instead of writing a full structural reflow engine, intermediate tools use a visual masking mask shortcut:
 
 When the user clicks to edit a text block, the app detects the bounding box area.
@@ -18,12 +21,14 @@ It places a solid background banner matching the page background color directly 
 It puts a standard HTML input text area right on top of it, lets the user type whatever they want, and bakes the final text down as a fresh independent annotation overlay layer upon export.
 
 ## Fixes
-- Search is only the current page (or maybe whats in the buffer?).
-- Files should open to fit screen, but by fit screen it has to respect the files orientation.
-- textarea should grow with the text (new lines etc.) 
+- "Save As" sometimes loses document focus (hard to pin point be casue the last dev build I checked it didn't do it). Shows loading document workspace (like on a file open) and you have to click the documents tab to regain focus. Double check that "Recent Documents" store is updating appropriatly too.
+- Text tool settings is not persistant. You have to keep changing the toolbar settings to what you want.
+- the app double opens when files are opened from the OS/email instead of opening a new tab.
+- Document loaded in ##ms needs to move right a little (can clash with Bookmarks icon in the workspace)
+
+---
 - Can't OCR images (only PDF's work)
-- inital drawing/streaching outline shapes, the center is solid black and should be transparent.
-- bookmark icon top-right of and image (in the main page work area) and the bookmarks (and comments icon too) in pageSidebar icon should be disabled for Image files.
+- Old install files clean-up
 - Sometimes undo does the last two things (possible grouping or multi select - needs investigation).
 
 

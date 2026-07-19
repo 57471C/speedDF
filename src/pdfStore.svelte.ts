@@ -10,6 +10,7 @@ import {
 	sanitizeCommentText,
 	setCommentAuthorProfile,
 } from "./lib/comments/comments";
+import type { FormFieldDef, FormFieldValue } from "./lib/forms/formFields";
 import {
 	bindHistoryDocument,
 	executeRedoAction,
@@ -32,6 +33,7 @@ import {
 } from "./lib/stores/tools.svelte";
 
 export type { CommentReply, PageComment } from "./lib/comments/comments";
+export type { FormFieldDef, FormFieldValue } from "./lib/forms/formFields";
 
 /** Avoid importing the name `PDFWorker` (clashes with pdfjs-dist's class export in some tooling). */
 type PdfJsWorker = InstanceType<typeof import("pdfjs-dist")["PDFWorker"]>;
@@ -129,6 +131,16 @@ export interface DocumentWorkspace {
 	bookmarks: Bookmark[];
 	/** Per-page threaded comments (document-scoped; not shared across tabs). */
 	comments: PageComment[];
+	/**
+	 * AcroForm field definitions for overlay (text/checkbox/dropdown/signature).
+	 * Empty when the PDF has no form or is not a PDF.
+	 */
+	formFields: FormFieldDef[];
+	/**
+	 * Current form field values keyed by fully-qualified field name.
+	 * Signature fields store stamp data URLs (or empty string when unsigned).
+	 */
+	formValues: Record<string, FormFieldValue>;
 	imageRotation?: number;
 	imageUrl?: string | null;
 	isDirty: boolean;
@@ -195,6 +207,8 @@ export interface SharedDocumentState {
 	isDirty: boolean;
 	bookmarks: Bookmark[];
 	comments: PageComment[];
+	formFields: FormFieldDef[];
+	formValues: Record<string, FormFieldValue>;
 	openDocuments: DocumentWorkspace[];
 	activeDocumentId: string | null;
 	readonly current: DocumentWorkspace | null;
@@ -382,6 +396,70 @@ export function switchActiveDocument(id: string) {
 }
 
 /**
+ * After a successful Save / Save As:
+ * - keep the same open-document object as the active tab (update path/name keys)
+ * - replace in-memory bytes with the compiled output so the UI matches disk
+ * - clear dirty and refresh form field defs from the saved PDF
+ *
+ * Critical: changing filePath/fileName without rebinding activeDocumentId makes
+ * `activeDoc.current` resolve to null (tab "disappears", dirty/form state stuck).
+ */
+export async function commitActiveDocumentAfterSave(opts: {
+	compiledBytes: Uint8Array;
+	/** New absolute path (Save As) or existing path (Save). */
+	filePath?: string | null;
+	fileName?: string;
+}): Promise<void> {
+	const doc = findOpenDocument(activeDocumentId);
+	if (!doc) {
+		console.warn("commitActiveDocumentAfterSave: active document not found");
+		return;
+	}
+
+	const previousKey = documentKey(doc);
+
+	if (opts.filePath !== undefined) {
+		doc.filePath = opts.filePath;
+	}
+	if (opts.fileName !== undefined) {
+		doc.fileName = opts.fileName;
+	} else if (opts.filePath) {
+		const parts = opts.filePath.split(/[\\/]/);
+		doc.fileName = parts[parts.length - 1] || doc.fileName;
+	}
+
+	// Prefer a real ArrayBuffer-backed copy (detached views from save can be fragile)
+	doc.rawBytes = new Uint8Array(opts.compiledBytes);
+	doc.isDirty = false;
+
+	const nextKey = documentKey(doc);
+	if (
+		activeDocumentId === previousKey ||
+		!findOpenDocument(activeDocumentId)
+	) {
+		activeDocumentId = nextKey;
+	}
+
+	// Tab strip / multi-doc list reactivity
+	openDocuments = [...openDocuments];
+
+	// Rebuild form overlay from the bytes we actually wrote (flattened → no widgets)
+	if (doc.fileType === "pdf") {
+		try {
+			const { extractFormFields } = await import("./lib/forms/formFields");
+			const extracted = await extractFormFields(doc.rawBytes);
+			doc.formFields = extracted.fields;
+			doc.formValues = extracted.values;
+			openDocuments = [...openDocuments];
+		} catch (err) {
+			console.warn("Post-save form re-extract failed:", err);
+			doc.formFields = [];
+			doc.formValues = {};
+		}
+	}
+}
+
+/**
  * Cycle active tab (Ctrl+Tab / Ctrl+Shift+Tab).
  * @param direction +1 next, -1 previous
  */
@@ -551,6 +629,8 @@ export function initializeNewDocument(
 		shapes: {},
 		bookmarks: [],
 		comments: [],
+		formFields: [],
+		formValues: {},
 		imageRotation: 0,
 		imageUrl: null,
 		isDirty: false,
@@ -648,6 +728,18 @@ export const activeDoc: SharedDocumentState = {
 	},
 	set comments(val) {
 		if (this.current) this.current.comments = val;
+	},
+	get formFields() {
+		return this.current?.formFields || [];
+	},
+	set formFields(val) {
+		if (this.current) this.current.formFields = val;
+	},
+	get formValues() {
+		return this.current?.formValues || {};
+	},
+	set formValues(val) {
+		if (this.current) this.current.formValues = val;
 	},
 	get imageRotation() {
 		return this.current?.imageRotation || 0;
@@ -1082,6 +1174,18 @@ export function deleteReplyAction(threadId: string, replyId: string) {
 			replies: (c.replies || []).filter((r) => r.id !== replyId),
 		};
 	});
+	activeDoc.isDirty = true;
+}
+
+/** Update a single AcroForm field value (text, checkbox, dropdown, or signature stamp data URL). */
+export function setFormFieldValueAction(
+	name: string,
+	value: FormFieldValue,
+) {
+	if (!name) return;
+	const prev = activeDoc.formValues || {};
+	if (prev[name] === value) return;
+	activeDoc.formValues = { ...prev, [name]: value };
 	activeDoc.isDirty = true;
 }
 
