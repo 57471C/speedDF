@@ -504,7 +504,7 @@
           >Saved Stamp Sets</span
         >
         <div class="max-h-48 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
-          {#each doc.savedSignatureSets as set}
+          {#each doc.savedSignatureSets || [] as set}
             <div
               class="flex items-center gap-1.5 bg-[#141b2b]/60 border border-slate-900 rounded p-1.5 hover:border-slate-800 transition-all"
             >

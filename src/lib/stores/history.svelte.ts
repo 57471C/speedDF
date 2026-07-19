@@ -47,8 +47,8 @@ export function pushHistorySnapshot() {
 	const activeDoc = doc();
 	activeDoc.isDirty = true;
 	const snapshot: HistorySnapshot = {
-		shapes: structuredClone($state.snapshot(activeDoc.shapes)),
-		pageOrder: [...activeDoc.pageOrder],
+		shapes: structuredClone($state.snapshot(activeDoc.shapes || {})),
+		pageOrder: [...(activeDoc.pageOrder || [])],
 	};
 	undoStack.push(snapshot);
 
@@ -66,8 +66,8 @@ export function executeUndoAction() {
 
 	const activeDoc = doc();
 	const currentStatus: HistorySnapshot = {
-		shapes: structuredClone($state.snapshot(activeDoc.shapes)),
-		pageOrder: [...activeDoc.pageOrder],
+		shapes: structuredClone($state.snapshot(activeDoc.shapes || {})),
+		pageOrder: [...(activeDoc.pageOrder || [])],
 	};
 	redoStack.push(currentStatus);
 
@@ -87,8 +87,8 @@ export function executeRedoAction() {
 
 	const activeDoc = doc();
 	const currentStatus: HistorySnapshot = {
-		shapes: structuredClone($state.snapshot(activeDoc.shapes)),
-		pageOrder: [...activeDoc.pageOrder],
+		shapes: structuredClone($state.snapshot(activeDoc.shapes || {})),
+		pageOrder: [...(activeDoc.pageOrder || [])],
 	};
 	undoStack.push(currentStatus);
 

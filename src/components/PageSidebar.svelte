@@ -322,7 +322,7 @@
       paintPlaceholder(`p.${pNum}`, 56);
 
       // Check if a live override snapshot exists for this page index
-      const liveOverride = activeDoc.pageThumbnailOverrides[pNum - 1];
+      const liveOverride = (activeDoc.pageThumbnailOverrides || {})[pNum - 1];
       if (liveOverride) {
         const overrideImg = new Image();
         overrideImg.onload = () => {
@@ -425,7 +425,7 @@
         pendingRotation = newParams.rotation;
         // Overrides / version bumps (incl. leaving grid) paint promptly
         if (
-          activeDoc.pageThumbnailOverrides[newParams.pageNum - 1] ||
+          (activeDoc.pageThumbnailOverrides || {})[newParams.pageNum - 1] ||
           newParams.version != null
         ) {
           debounced.cancel();
@@ -512,20 +512,20 @@
         mainDoc,
         prePagesOrder.map((n) => n - 1),
       );
-      for (const p of prePages) mergedDoc.addPage(p);
+      for (const p of prePages || []) mergedDoc.addPage(p);
 
       const extraPageCount = extraDoc.getPageCount();
       const extraPages = await mergedDoc.copyPages(
         extraDoc,
         Array.from({ length: extraPageCount }, (_, i) => i),
       );
-      for (const p of extraPages) mergedDoc.addPage(p);
+      for (const p of extraPages || []) mergedDoc.addPage(p);
 
       const postPages = await mergedDoc.copyPages(
         mainDoc,
         postPagesOrder.map((n) => n - 1),
       );
-      for (const p of postPages) mergedDoc.addPage(p);
+      for (const p of postPages || []) mergedDoc.addPage(p);
 
       const newRawBytes = await mergedDoc.save();
 
@@ -586,7 +586,7 @@
 
   function batchRotate(direction: "counter" | "clockwise") {
     if (selectedPages.length === 0) return;
-    for (const pageNum of selectedPages) {
+    for (const pageNum of selectedPages || []) {
       rotatePageAction(pageNum, direction);
     }
   }
@@ -643,7 +643,7 @@
         mainDoc,
         prePagesOrder.map((n) => n - 1),
       );
-      for (const p of prePages) mergedDoc.addPage(p);
+      for (const p of prePages || []) mergedDoc.addPage(p);
 
       mergedDoc.addPage([595.276, 841.89]); // A4 Page
 
@@ -651,7 +651,7 @@
         mainDoc,
         postPagesOrder.map((n) => n - 1),
       );
-      for (const p of postPages) mergedDoc.addPage(p);
+      for (const p of postPages || []) mergedDoc.addPage(p);
 
       const newRawBytes = await mergedDoc.save();
 
@@ -682,7 +682,7 @@
     pushHistorySnapshot();
     
     const draggedPage = activeDoc.pageOrder[oldIndex];
-    let newOrder = [...activeDoc.pageOrder];
+    let newOrder = [...(activeDoc.pageOrder || [])];
 
     if (selectedPages.includes(draggedPage) && selectedPages.length > 1) {
       const referencePage = activeDoc.pageOrder[newIndex];
@@ -825,7 +825,7 @@
         ></div>
       {/if}
 
-      {#each activeDoc.pageOrder as pageNum, index (pageNum)}
+      {#each activeDoc.pageOrder || [] as pageNum, index (pageNum)}
         <div
           bind:this={thumbnailElements[pageNum]}
           onclick={() => jumpToTargetPage(pageNum)}
@@ -845,7 +845,7 @@
               <!-- Prefer post-save flattened override (annotations baked in); fall back to live imageUrl -->
               {#key activeDoc.thumbnailVersion}
                 <img
-                  src={activeDoc.pageThumbnailOverrides[0] || activeDoc.imageUrl}
+                  src={(activeDoc.pageThumbnailOverrides || {})[0] || activeDoc.imageUrl}
                   alt="Image Thumbnail"
                   class="w-full h-full object-cover rounded-sm opacity-80"
                 />
@@ -1139,7 +1139,7 @@
       use:setupSortableGrid
       class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-6"
     >
-      {#each activeDoc.pageOrder as pageNum, index (pageNum)}
+      {#each activeDoc.pageOrder || [] as pageNum, index (pageNum)}
         <div 
           onclick={(e) => handleGridSelect(e, pageNum)}
           class="group relative flex flex-col items-center border rounded-xl p-4 transition-all cursor-grab active:cursor-grabbing select-none bg-[#0e131f]

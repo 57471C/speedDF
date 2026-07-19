@@ -202,7 +202,7 @@
       <div
         class="grid grid-cols-5 gap-x-4 gap-y-12 pt-10 pb-6 px-4 w-full overflow-visible justify-items-center"
       >
-        {#each recentFiles as file}
+        {#each recentFiles || [] as file}
           {@const exists = fileStatusMap[file.path] !== false}
           {@const isLandscape = file.orientation === "landscape"}
           {@const doc = { ...file, id: file.path }}

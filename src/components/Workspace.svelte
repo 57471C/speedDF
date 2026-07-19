@@ -640,7 +640,7 @@
 
   {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
     <div class="flex flex-col items-center gap-6 pb-24 origin-top transition-transform duration-150">
-      {#each activeDoc.pageOrder as pageNumber (pageNumber)}
+      {#each activeDoc.pageOrder || [] as pageNumber (pageNumber)}
         <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} {isSystemPrinting} {scrollObserver} />
       {/each}
     </div>

@@ -45,7 +45,7 @@
     const currentRenderVersion = activeDoc.thumbnailVersion;
     
     // 2. Hook up a live reactive dependency line targeting our page overrides state map
-    const liveOverrideTexture = activeDoc.pageThumbnailOverrides[pageNumber - 1];
+    const liveOverrideTexture = (activeDoc.pageThumbnailOverrides || {})[pageNumber - 1];
     
     const canvas = canvasElement;
     const rotationAngle = activeDoc.rotations[pageNumber] ?? 0;

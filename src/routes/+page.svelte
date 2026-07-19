@@ -152,18 +152,19 @@
       if (gen !== searchGeneration) return;
 
       const pageOrder: number[] =
-        activeDoc.pageOrder?.length > 0
-          ? [...activeDoc.pageOrder]
+        (activeDoc.pageOrder?.length ?? 0) > 0
+          ? [...(activeDoc.pageOrder || [])]
           : Array.from({ length: pdfDocument.numPages }, (_, i) => i + 1);
 
-      for (const pageNumber of pageOrder) {
+      for (const pageNumber of pageOrder || []) {
         if (gen !== searchGeneration) return;
         if (pageNumber < 1 || pageNumber > pdfDocument.numPages) continue;
 
         const page = await pdfDocument.getPage(pageNumber);
         const textContent = await page.getTextContent();
-        // Join items with spaces so multi-span words still match reasonably
-        const pageText = textContent.items
+        // Join items with spaces so multi-span words still match reasonably.
+        // Guard items: some PDFs/engines yield undefined items (JSC throws on bare map/for-of).
+        const pageText = (textContent.items || [])
           .map((item: any) => (item && typeof item.str === "string" ? item.str : ""))
           .join(" ");
 
@@ -649,6 +650,12 @@
           { length: decodedPages.length },
           (_, i) => i + 1,
         );
+        activeDoc.currentPage = 1;
+        // Fresh multi-page load: empty shapes map (per-page keys are filled lazily).
+        // Iteration sites must still use (shapes[page] || []) for unannotated pages.
+        activeDoc.shapes = {};
+        activeDoc.rotations = {};
+        activeDoc.pageThumbnailOverrides = {};
         activeDoc.bookmarks = [];
       } else if (fileCategory === "image") {
         // Setup the clean single-page layout structure for standard graphics
@@ -728,7 +735,11 @@
           (_, idx) => idx + 1,
         );
         activeDoc.currentPage = 1;
+        // Empty shapes map for a brand-new multi-page PDF (no prior annotation history).
+        // Page overlay loops use (shapes[page] || []) so missing keys never hit for-of on undefined.
         activeDoc.shapes = {};
+        activeDoc.rotations = {};
+        activeDoc.pageThumbnailOverrides = {};
         activeDoc.fileName = fileName;
         activeDoc.filePath = filePath;
 
