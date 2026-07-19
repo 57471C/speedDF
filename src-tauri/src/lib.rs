@@ -513,7 +513,49 @@ pub fn run() {
         .unwrap();
     let _guard = runtime.enter();
 
+    // Single-instance MUST be the first plugin so a second process hands off
+    // argv (file associations / email "Open with") instead of spawning another UI.
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            use tauri::{Emitter, Manager};
+
+            // Focus the already-running window
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+
+            // Open any document path from the second-instance argv as a new tab
+            for arg in argv.iter().skip(1) {
+                if !is_supported_startup_extension(arg) {
+                    continue;
+                }
+                let path = Path::new(arg);
+                if !(path.exists() && path.is_file()) {
+                    continue;
+                }
+                let Some(file_name) = path.file_name() else {
+                    continue;
+                };
+                let name = file_name.to_string_lossy().into_owned();
+                let path_str = path.to_string_lossy().into_owned();
+                if let Ok(mut file) = File::open(path) {
+                    let mut buffer = Vec::new();
+                    if file.read_to_end(&mut buffer).is_ok() {
+                        let payload = FilePayload {
+                            bytes: buffer,
+                            name,
+                            path: path_str,
+                        };
+                        if let Err(e) = app.emit("open-file-request", &payload) {
+                            eprintln!("Failed to emit open-file-request: {e}");
+                        }
+                        break;
+                    }
+                }
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())

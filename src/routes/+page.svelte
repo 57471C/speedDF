@@ -24,6 +24,7 @@
     rotatePageAction,
     initializeNewDocument,
     switchActiveDocument,
+    documentKey,
     closeDocumentWorkspace,
     closeAllDocumentWorkspaces,
   } from "../pdfStore.svelte";
@@ -603,7 +604,7 @@
     );
     // Already fully loaded — just switch tabs
     if (existing?.rawBytes) {
-      switchActiveDocument(existing.filePath || existing.fileName);
+      switchActiveDocument(documentKey(existing));
       return;
     }
 
@@ -611,7 +612,7 @@
     if (!existing) {
       initializeNewDocument(fileName, filePath);
     } else {
-      switchActiveDocument(existing.filePath || existing.fileName);
+      switchActiveDocument(documentKey(existing));
     }
 
     // Use the true click boundary timestamp if provided, otherwise fallback to runtime execution time
@@ -827,7 +828,9 @@
       // Calculate layout compilation completion speeds down to the millisecond
       const loadEndTime = performance.now();
       renderDurationMs = Math.round(loadEndTime - loadStartTime);
-      renderDurationDocId = filePath || fileName;
+      // Prefer stable workspace id so Save As / path rebind does not hide burn-in
+      renderDurationDocId =
+        activeDoc.activeDocumentId || filePath || fileName;
       console.log(`⏱️ [${telemetryChannel}] Open-to-Render perceived latency: ${(loadEndTime - loadStartTime).toFixed(2)}ms`);
     } catch (err) {
       console.error("Document Ingestion Core Fault: ", err);
@@ -1003,23 +1006,27 @@
 
   function closeDocumentById(docId: string) {
     const doc = activeDoc.openDocuments.find(
-      (d: any) => d.filePath === docId || d.fileName === docId,
+      (d: any) =>
+        d.workspaceId === docId ||
+        d.filePath === docId ||
+        d.fileName === docId,
     );
     if (!doc) return;
+    const id = documentKey(doc);
 
     if (doc.isDirty) {
       unsavedModalMessage =
         "You have unsaved markup changes on this layout drawing. Are you sure you want to close this document and discard your progress?";
       pendingNavigationAction = () => {
         doc.isDirty = false;
-        closeDocumentWorkspace(docId);
+        closeDocumentWorkspace(id);
         closeSearch();
       };
       showUnsavedModal = true;
       return;
     }
 
-    closeDocumentWorkspace(docId);
+    closeDocumentWorkspace(id);
     closeSearch();
   }
 
@@ -1041,7 +1048,7 @@
     const cleanDocs = docs.filter((d: any) => !d.isDirty);
 
     for (const d of cleanDocs) {
-      closeDocumentWorkspace(d.filePath || d.fileName);
+      closeDocumentWorkspace(documentKey(d));
     }
 
     if (dirtyDocs.length === 0) {
@@ -1304,8 +1311,11 @@
     // Primary path for double-click / "Open with": Rust loads the file during
     // setup and emits `startup-file-loaded`. Do not rely on invoke('check_startup_file')
     // — that IPC path can be blocked by CSP on cold start.
+    // Second-instance opens (while app already running) emit `open-file-request`
+    // via the single-instance plugin — always open as a new tab (or focus existing).
     let startupFileHandled = false;
     let destroyStartupFileListener: (() => void) | null = null;
+    let destroyOpenFileListener: (() => void) | null = null;
 
     async function handleStartupFilePayload(payload: StartupPayload | null) {
       if (startupFileHandled) return;
@@ -1323,17 +1333,33 @@
       }
     }
 
+    async function handleOpenFileRequest(payload: StartupPayload | null) {
+      if (!payload?.bytes?.length) return;
+      try {
+        const typedBytes = new Uint8Array(payload.bytes);
+        await loadDocument(typedBytes, payload.name, payload.path);
+      } catch (err) {
+        console.warn("Open-file request (second instance) failed:", err);
+      }
+    }
+
     import("@tauri-apps/api/event")
       .then(({ listen }) =>
-        listen<StartupPayload>("startup-file-loaded", (event) => {
-          void handleStartupFilePayload(event.payload);
-        }),
+        Promise.all([
+          listen<StartupPayload>("startup-file-loaded", (event) => {
+            void handleStartupFilePayload(event.payload);
+          }),
+          listen<StartupPayload>("open-file-request", (event) => {
+            void handleOpenFileRequest(event.payload);
+          }),
+        ]),
       )
-      .then((unlistenFn) => {
-        destroyStartupFileListener = unlistenFn;
+      .then((unlistenFns) => {
+        destroyStartupFileListener = unlistenFns[0];
+        destroyOpenFileListener = unlistenFns[1];
       })
       .catch((err) =>
-        console.warn("Startup file event listener registration failed:", err),
+        console.warn("Startup/open-file event listener registration failed:", err),
       );
 
     // Capture system Close Button actions cleanly via browser-native confirmation prompts
@@ -1381,6 +1407,7 @@
       });
       unlistenCloseRequest.then((f) => f());
       if (destroyStartupFileListener) destroyStartupFileListener();
+      if (destroyOpenFileListener) destroyOpenFileListener();
     };
   });
 

@@ -43,6 +43,10 @@ export function createTickOrDashShape(
 	};
 }
 
+/** Default text box size (% of page) — top-left anchored; grow only via BR handle. */
+export const DEFAULT_TEXT_BOX_W = 20;
+export const DEFAULT_TEXT_BOX_H = 5;
+
 export function createTextShape(
 	mousePctX: number,
 	mousePctY: number,
@@ -51,12 +55,20 @@ export function createTextShape(
 		size: number | undefined;
 		style: AnnotationShape["style"] | string | undefined;
 		color: string;
+		/** Horizontal text alignment for the box (defaults to left). */
+		alignment?: AnnotationShape["alignment"];
+		/** Optional override; defaults keep a real BR-resizable box from first paint. */
+		width?: number;
+		height?: number;
 	},
 ): AnnotationShape {
 	return {
 		type: "text",
 		x: mousePctX,
 		y: mousePctY,
+		// Always size the box so the outline and BR handle share one geometry
+		width: opts.width ?? DEFAULT_TEXT_BOX_W,
+		height: opts.height ?? DEFAULT_TEXT_BOX_H,
 		text: "",
 		font: opts.fontFamily as AnnotationShape["font"],
 		fontFamily: opts.fontFamily as AnnotationShape["fontFamily"],
@@ -64,6 +76,7 @@ export function createTextShape(
 		style: (opts.style as AnnotationShape["style"]) || "Normal",
 		color: opts.color,
 		textColor: opts.color,
+		alignment: opts.alignment || "left",
 	};
 }
 

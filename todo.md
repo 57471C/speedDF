@@ -19,12 +19,10 @@ When the user clicks to edit a text block, the app detects the bounding box area
 It places a solid background banner matching the page background color directly over the old coordinates to "whiteout" the original graphics.
 
 It puts a standard HTML input text area right on top of it, lets the user type whatever they want, and bakes the final text down as a fresh independent annotation overlay layer upon export.
+4. Switch to Bun - could be a big win for speed and bundle size.
 
 ## Fixes
-- "Save As" sometimes loses document focus (hard to pin point be casue the last dev build I checked it didn't do it). Shows loading document workspace (like on a file open) and you have to click the documents tab to regain focus. Double check that "Recent Documents" store is updating appropriatly too.
-- Text tool settings is not persistant. You have to keep changing the toolbar settings to what you want.
-- the app double opens when files are opened from the OS/email instead of opening a new tab.
-- Document loaded in ##ms needs to move right a little (can clash with Bookmarks icon in the workspace)
+- [ ] None.
 
 ---
 - Can't OCR images (only PDF's work)

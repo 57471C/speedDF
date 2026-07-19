@@ -12,6 +12,7 @@
     switchActiveDocument,
     cycleActiveDocument,
     reorderOpenDocuments,
+    documentKey,
     type DocumentWorkspace,
   } from "../pdfStore.svelte";
 
@@ -44,7 +45,7 @@
   let recentMenuEl = $state<HTMLDivElement | null>(null);
 
   function docId(doc: DocumentWorkspace): string {
-    return doc.filePath || doc.fileName;
+    return documentKey(doc);
   }
 
   function shortName(name: string): string {
