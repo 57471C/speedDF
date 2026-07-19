@@ -207,10 +207,15 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			size: activeDoc.defaultSize,
 			style: activeDoc.defaultStyle,
 			color: activeDoc.activeColor,
+			alignment: activeDoc.activeTextAlignment || "left",
 		});
 		const newIndex = addShapeToPage(newTextShape);
 		activelyEditingIndex = newIndex;
-		activeDoc.selectedShape = { pageNumber, index: newIndex };
+		// Keep single-select + selectedShapes in sync so toolbar alignment/font
+		// setters patch this shape immediately while editing.
+		const sel = { pageNumber, index: newIndex };
+		activeDoc.selectedShape = sel;
+		activeDoc.selectedShapes = [sel];
 	}
 
 	function handleMouseDown(e: MouseEvent) {
@@ -474,19 +479,38 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 				rawCurrentX - rect.left,
 				rawCurrentY - rect.top,
 			);
+			const pageNumber = getPageNumber();
+			const resizeShape =
+				activeDoc.shapes[pageNumber]?.[activeDoc.selectedShape.index];
+			// Text boxes: top-left anchor only — force BR geometry (never move x/y)
+			const handle =
+				resizeShape?.type === "text" ? "br" : draggingHandle;
 			const { x, y, width, height } = computeResizedBounds(
-				draggingHandle,
+				handle,
 				initialShapeState,
 				mousePctX,
 				mousePctY,
 			);
 
-			rawResizedShapeCoords = { x, y, width, height };
-
-			dragTargetElement.style.left = `${x}%`;
-			dragTargetElement.style.top = `${y}%`;
-			dragTargetElement.style.width = `${width}%`;
-			dragTargetElement.style.height = `${height}%`;
+			if (resizeShape?.type === "text") {
+				// Lock top-left; only grow width/height so handle stays on the outline
+				rawResizedShapeCoords = {
+					x: initialShapeState.x,
+					y: initialShapeState.y,
+					width,
+					height,
+				};
+				dragTargetElement.style.left = `${initialShapeState.x}%`;
+				dragTargetElement.style.top = `${initialShapeState.y}%`;
+				dragTargetElement.style.width = `${width}%`;
+				dragTargetElement.style.height = `${height}%`;
+			} else {
+				rawResizedShapeCoords = { x, y, width, height };
+				dragTargetElement.style.left = `${x}%`;
+				dragTargetElement.style.top = `${y}%`;
+				dragTargetElement.style.width = `${width}%`;
+				dragTargetElement.style.height = `${height}%`;
+			}
 		}
 
 		// Case 4: Shape drawing
@@ -639,14 +663,6 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			const index = activeDoc.selectedShape.index;
 			const shape = shapesList[index];
 			if (shape && initialShapeState) {
-				const finalX =
-					rawResizedShapeCoords.width > 0
-						? rawResizedShapeCoords.x
-						: initialShapeState.x;
-				const finalY =
-					rawResizedShapeCoords.height > 0
-						? rawResizedShapeCoords.y
-						: initialShapeState.y;
 				const finalW =
 					rawResizedShapeCoords.width > 0
 						? rawResizedShapeCoords.width
@@ -656,10 +672,26 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 						? rawResizedShapeCoords.height
 						: initialShapeState.height;
 
-				shape.x = finalX;
-				shape.y = finalY;
-				shape.width = finalW;
-				shape.height = finalH;
+				if (shape.type === "text") {
+					// Top-left fixed; only BR size changes
+					shape.x = initialShapeState.x;
+					shape.y = initialShapeState.y;
+					shape.width = Math.max(0.5, finalW);
+					shape.height = Math.max(0.5, finalH);
+				} else {
+					const finalX =
+						rawResizedShapeCoords.width > 0
+							? rawResizedShapeCoords.x
+							: initialShapeState.x;
+					const finalY =
+						rawResizedShapeCoords.height > 0
+							? rawResizedShapeCoords.y
+							: initialShapeState.y;
+					shape.x = finalX;
+					shape.y = finalY;
+					shape.width = finalW;
+					shape.height = finalH;
+				}
 
 				if (
 					[
@@ -673,6 +705,13 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 					shape.height
 				) {
 					cacheStampDimensions(shape.type, shape.width, shape.height);
+				}
+				// Clear live inline overrides so Svelte styles take over cleanly
+				if (dragTargetElement) {
+					dragTargetElement.style.left = "";
+					dragTargetElement.style.top = "";
+					dragTargetElement.style.width = "";
+					dragTargetElement.style.height = "";
 				}
 				activeDoc.shapes = {
 					...activeDoc.shapes,
@@ -740,31 +779,56 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		if (!pageContainer) return;
 		e.stopPropagation();
 		e.preventDefault();
-		draggingHandle = handleType;
 		const shape = activeDoc.shapes[pageNumber]?.[index];
-		if (shape) {
-			initialShapeState = {
-				x: shape.x,
-				y: shape.y,
-				width: shape.width || 0,
-				height: shape.height || 0,
-			};
-			dragTargetElement = e.currentTarget
-				? (e.currentTarget as HTMLElement).parentElement
-				: null;
+		if (!shape) return;
 
-			dragPageRect = pageContainer.getBoundingClientRect();
-			dragActive = true;
-			rawStartX = e.clientX;
-			rawStartY = e.clientY;
-			rawCurrentX = e.clientX;
-			rawCurrentY = e.clientY;
-			rawResizedShapeCoords = {
-				x: shape.x,
-				y: shape.y,
-				width: shape.width || 0,
-				height: shape.height || 0,
-			};
+		// Text boxes only support bottom-right growth (top-left anchor)
+		const resolvedHandle = shape.type === "text" ? "br" : handleType;
+		draggingHandle = resolvedHandle;
+
+		const box = e.currentTarget
+			? (e.currentTarget as HTMLElement).parentElement
+			: null;
+		dragTargetElement = box;
+
+		let w = shape.width || 0;
+		let h = shape.height || 0;
+		// If dimensions are missing, seed from the live box so resize doesn't jump from 0
+		if (box && (w <= 0 || h <= 0)) {
+			const pageRect = pageContainer.getBoundingClientRect();
+			const boxRect = box.getBoundingClientRect();
+			if (pageRect.width > 0 && pageRect.height > 0) {
+				w = Math.max(0.5, (boxRect.width / pageRect.width) * 100);
+				h = Math.max(0.5, (boxRect.height / pageRect.height) * 100);
+			}
+		}
+
+		initialShapeState = {
+			x: shape.x,
+			y: shape.y,
+			width: w,
+			height: h,
+		};
+
+		dragPageRect = pageContainer.getBoundingClientRect();
+		dragActive = true;
+		rawStartX = e.clientX;
+		rawStartY = e.clientY;
+		rawCurrentX = e.clientX;
+		rawCurrentY = e.clientY;
+		rawResizedShapeCoords = {
+			x: shape.x,
+			y: shape.y,
+			width: w,
+			height: h,
+		};
+
+		// Ensure the box has explicit size from the first drag frame (handle sticks to BR)
+		if (box) {
+			box.style.left = `${shape.x}%`;
+			box.style.top = `${shape.y}%`;
+			box.style.width = `${w}%`;
+			box.style.height = `${h}%`;
 		}
 	}
 
@@ -801,6 +865,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			if (textInputString.trim().length === 0) {
 				// STEP A: Explicitly isolate and clear active tracking variables first so nothing points to the target index
 				activeDoc.selectedShape = null;
+				activeDoc.selectedShapes = [];
 				activelyEditingIndex = null;
 
 				// STEP B: Perform the state array cleanup pass only after trackers are safe
@@ -824,7 +889,11 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 	}
 
 	function beginTextEdit(index: number) {
+		const pageNumber = getPageNumber();
 		activelyEditingIndex = index;
+		const sel = { pageNumber, index };
+		activeDoc.selectedShape = sel;
+		activeDoc.selectedShapes = [sel];
 	}
 
 	function cancelAnimation() {

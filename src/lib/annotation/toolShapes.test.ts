@@ -59,7 +59,7 @@ describe("createFreehandShape", () => {
 });
 
 describe("createTextShape", () => {
-	it("starts empty at click point", () => {
+	it("starts empty at click point with a sized top-left box", () => {
 		const s = createTextShape(12, 34, {
 			fontFamily: "Helvetica",
 			size: 14,
@@ -75,7 +75,21 @@ describe("createTextShape", () => {
 			style: "Bold",
 			color: "#111",
 			textColor: "#111",
+			alignment: "left",
 		});
+		expect(s.width).toBeGreaterThan(0);
+		expect(s.height).toBeGreaterThan(0);
+	});
+
+	it("applies active alignment immediately", () => {
+		const s = createTextShape(0, 0, {
+			fontFamily: "Inter",
+			size: 12,
+			style: "Normal",
+			color: "#000",
+			alignment: "center",
+		});
+		expect(s.alignment).toBe("center");
 	});
 });
 

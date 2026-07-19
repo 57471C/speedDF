@@ -120,6 +120,11 @@ export interface Bookmark {
 }
 
 export interface DocumentWorkspace {
+	/**
+	 * Stable tab/workspace identity. Never changes on Save As (path/name may).
+	 * Used as activeDocumentId so remounts and focus loss do not happen on rename.
+	 */
+	workspaceId: string;
 	fileType: "pdf" | "tiff" | "image" | null;
 	fileName: string;
 	filePath: string | null;
@@ -303,14 +308,79 @@ let activeDocumentId = $state<string | null>(null);
 
 let selectedShape = $state<SharedDocumentState["selectedShape"]>(null);
 let selectedShapes = $state<SharedDocumentState["selectedShapes"]>([]);
+const TEXT_SETTINGS_KEY = "speeddf_text_settings";
+
+type PersistedTextSettings = {
+	fontFamily?: string;
+	size?: number;
+	style?: "Normal" | "Bold" | "Italic";
+	alignment?: "left" | "center" | "right";
+};
+
+function loadTextSettings(): PersistedTextSettings {
+	try {
+		const raw = localStorage.getItem(TEXT_SETTINGS_KEY);
+		if (!raw) return {};
+		const parsed = JSON.parse(raw);
+		return parsed && typeof parsed === "object" ? parsed : {};
+	} catch {
+		return {};
+	}
+}
+
+function persistTextSettings(partial: PersistedTextSettings) {
+	try {
+		const next = {
+			fontFamily: partial.fontFamily ?? activeFontFamily,
+			size: partial.size ?? defaultSize,
+			style: partial.style ?? defaultStyle,
+			alignment: partial.alignment ?? activeTextAlignment,
+		};
+		localStorage.setItem(TEXT_SETTINGS_KEY, JSON.stringify(next));
+	} catch {
+		/* ignore quota / private mode */
+	}
+}
+
+const _savedText = loadTextSettings();
+const _validFonts = new Set([
+	"Helvetica",
+	"Times-Roman",
+	"Courier",
+	"Inter",
+	"JetBrainsMono",
+]);
+const _initFont = _validFonts.has(String(_savedText.fontFamily || ""))
+	? (_savedText.fontFamily as
+			| "Helvetica"
+			| "Times-Roman"
+			| "Courier"
+			| "Inter"
+			| "JetBrainsMono")
+	: "Helvetica";
+const _initSize =
+	typeof _savedText.size === "number" &&
+	_savedText.size >= 6 &&
+	_savedText.size <= 200
+		? Math.round(_savedText.size)
+		: 12;
+const _initStyle =
+	_savedText.style === "Bold" || _savedText.style === "Italic"
+		? _savedText.style
+		: "Normal";
+const _initAlign =
+	_savedText.alignment === "center" || _savedText.alignment === "right"
+		? _savedText.alignment
+		: "left";
+
 let activeFontFamily = $state<
 	"Helvetica" | "Times-Roman" | "Courier" | "Inter" | "JetBrainsMono"
->("Helvetica");
-let activeTextAlignment = $state<"left" | "center" | "right">("left");
+>(_initFont);
+let activeTextAlignment = $state<"left" | "center" | "right">(_initAlign);
 let zoomScale = $state(120);
-let defaultFont = $state("Helvetica");
-let defaultSize = $state(12);
-let defaultStyle = $state<"Normal" | "Bold" | "Italic">("Normal");
+let defaultFont = $state(_initFont);
+let defaultSize = $state(_initSize);
+let defaultStyle = $state<"Normal" | "Bold" | "Italic">(_initStyle);
 let scrollTop = $state(0);
 let scrollHeight = $state(0);
 let clientHeight = $state(0);
@@ -337,7 +407,10 @@ let isSaving = $state(false);
 function findOpenDocument(id: string | null | undefined): DocumentWorkspace | null {
 	if (!id) return null;
 	return (
-		openDocuments.find((d) => d.filePath === id || d.fileName === id) || null
+		openDocuments.find(
+			(d) =>
+				d.workspaceId === id || d.filePath === id || d.fileName === id,
+		) || null
 	);
 }
 
@@ -383,8 +456,9 @@ export function applyLiveThumbnail(
 	}
 }
 
-function documentKey(d: DocumentWorkspace): string {
-	return d.filePath || d.fileName;
+/** Stable tab id — prefers workspaceId so Save As never remounts the active tab. */
+export function documentKey(d: DocumentWorkspace): string {
+	return d.workspaceId || d.filePath || d.fileName;
 }
 
 /** Switch the active workspace tab. */
@@ -397,12 +471,13 @@ export function switchActiveDocument(id: string) {
 
 /**
  * After a successful Save / Save As:
- * - keep the same open-document object as the active tab (update path/name keys)
+ * - keep the same open-document object as the active tab (update path/name only)
  * - replace in-memory bytes with the compiled output so the UI matches disk
  * - clear dirty and refresh form field defs from the saved PDF
+ * - upsert Recent Documents for the saved path (Save As creates a new path)
  *
- * Critical: changing filePath/fileName without rebinding activeDocumentId makes
- * `activeDoc.current` resolve to null (tab "disappears", dirty/form state stuck).
+ * Critical: activeDocumentId is the stable workspaceId — path/name changes must
+ * not remount the workspace or resolve `current` to null.
  */
 export async function commitActiveDocumentAfterSave(opts: {
 	compiledBytes: Uint8Array;
@@ -416,7 +491,13 @@ export async function commitActiveDocumentAfterSave(opts: {
 		return;
 	}
 
-	const previousKey = documentKey(doc);
+	// Ensure legacy docs without workspaceId still stay focused
+	if (!doc.workspaceId) {
+		doc.workspaceId =
+			typeof crypto !== "undefined" && crypto.randomUUID
+				? crypto.randomUUID()
+				: `ws_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+	}
 
 	if (opts.filePath !== undefined) {
 		doc.filePath = opts.filePath;
@@ -432,13 +513,8 @@ export async function commitActiveDocumentAfterSave(opts: {
 	doc.rawBytes = new Uint8Array(opts.compiledBytes);
 	doc.isDirty = false;
 
-	const nextKey = documentKey(doc);
-	if (
-		activeDocumentId === previousKey ||
-		!findOpenDocument(activeDocumentId)
-	) {
-		activeDocumentId = nextKey;
-	}
+	// Always keep active id on the stable workspace key (path may have changed)
+	activeDocumentId = documentKey(doc);
 
 	// Tab strip / multi-doc list reactivity
 	openDocuments = [...openDocuments];
@@ -456,6 +532,11 @@ export async function commitActiveDocumentAfterSave(opts: {
 			doc.formFields = [];
 			doc.formValues = {};
 		}
+	}
+
+	// Ensure Save As path appears in Recent Documents (thumbnail may arrive async)
+	if (doc.filePath) {
+		upsertRecentEntry(doc.filePath, doc.fileName);
 	}
 }
 
@@ -513,15 +594,22 @@ export function closeDocumentWorkspace(id: string) {
 	}
 
 	const wasActive =
-		activeDocumentId === doc.filePath || activeDocumentId === doc.fileName;
+		activeDocumentId === documentKey(doc) ||
+		activeDocumentId === doc.filePath ||
+		activeDocumentId === doc.fileName;
 
 	openDocuments = openDocuments.filter(
-		(d) => d.filePath !== id && d.fileName !== id && d !== doc,
+		(d) =>
+			d.workspaceId !== id &&
+			d.filePath !== id &&
+			d.fileName !== id &&
+			d !== doc,
 	);
 
 	if (wasActive) {
-		activeDocumentId =
-			openDocuments[0]?.filePath || openDocuments[0]?.fileName || null;
+		activeDocumentId = openDocuments[0]
+			? documentKey(openDocuments[0])
+			: null;
 		resetSessionUiForDocumentSwitch();
 	}
 }
@@ -539,9 +627,59 @@ export function closeAllDocumentWorkspaces() {
 	}
 }
 
+/** Upsert a Recent Documents row (used after Save As when path is new). */
+export function upsertRecentEntry(
+	filePath: string,
+	fileName?: string | null,
+	thumbnail?: string,
+) {
+	if (!filePath) return;
+	try {
+		const name =
+			(fileName && fileName.trim()) ||
+			filePath.split(/[\\/]/).pop() ||
+			"document.pdf";
+		const pathMatch = (item: RecentFile) =>
+			item.path === filePath ||
+			(!!item.path &&
+				item.path.toLowerCase() === filePath.toLowerCase());
+
+		const next = [...(recents || [])];
+		const idx = next.findIndex(pathMatch);
+		const now = Date.now();
+		if (idx !== -1) {
+			next[idx] = {
+				...next[idx],
+				name: name || next[idx].name,
+				path: filePath,
+				timestamp: now,
+				lastOpened: now,
+				...(thumbnail ? { thumbnail } : {}),
+			};
+			// Move to front
+			const [row] = next.splice(idx, 1);
+			next.unshift(row);
+		} else {
+			next.unshift({
+				name,
+				path: filePath,
+				timestamp: now,
+				lastOpened: now,
+				thumbnail: thumbnail || "",
+			});
+		}
+		if (next.length > 10) next.length = 10;
+		recents = next;
+		localStorage.setItem("speeddf_recents", JSON.stringify(next));
+	} catch (err) {
+		console.warn("Failed to upsert recent entry:", err);
+	}
+}
+
 /**
  * Update Recent Documents entry + localStorage. Always bumps thumbnailVersion
  * so PageSidebar redraws even when the path is not (yet) in the recents list.
+ * Creates a new recents row when the path is missing (Save As).
  */
 export function updateRecentThumbnail(
 	filePath: string,
@@ -573,6 +711,13 @@ export function updateRecentThumbnail(
 				console.log(
 					`🚀 Reactive store array reassigned. Thumbnail version bumped to: ${thumbnailVersion}`,
 				);
+			} else if (filePath) {
+				// Save As / first save — ensure Recent Documents shows the new path
+				upsertRecentEntry(
+					filePath,
+					filePath.split(/[\\/]/).pop() || "document.pdf",
+					thumbnailDataUrl,
+				);
 			}
 		}
 
@@ -596,10 +741,24 @@ export function updateRecentThumbnail(
 					console.log("🚀 Persistent localStorage dashboard sync verified.");
 				}
 			}
+		} else if (filePath && thumbnailDataUrl) {
+			// localStorage empty but we just upserted in-memory — persist
+			try {
+				localStorage.setItem("speeddf_recents", JSON.stringify(recents));
+			} catch {
+				/* ignore */
+			}
 		}
 	} catch (err) {
 		console.warn("Failed to update central dashboard thumbnail arrays:", err);
 	}
+}
+
+function newWorkspaceId(): string {
+	if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+		return crypto.randomUUID();
+	}
+	return `ws_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
 export function initializeNewDocument(
@@ -610,7 +769,8 @@ export function initializeNewDocument(
 		(d) => (filePath && d.filePath === filePath) || d.fileName === fileName,
 	);
 	if (existing) {
-		const nextId = existing.filePath || existing.fileName;
+		if (!existing.workspaceId) existing.workspaceId = newWorkspaceId();
+		const nextId = documentKey(existing);
 		if (activeDocumentId !== nextId) {
 			activeDocumentId = nextId;
 			resetSessionUiForDocumentSwitch();
@@ -619,6 +779,7 @@ export function initializeNewDocument(
 	}
 
 	const newDoc: DocumentWorkspace = {
+		workspaceId: newWorkspaceId(),
 		fileType: null,
 		fileName: fileName,
 		filePath: filePath,
@@ -639,7 +800,7 @@ export function initializeNewDocument(
 		pageThumbnailOverrides: {},
 	};
 	openDocuments.push(newDoc);
-	activeDocumentId = filePath || fileName;
+	activeDocumentId = documentKey(newDoc);
 	resetSessionUiForDocumentSwitch();
 	return newDoc;
 }
@@ -658,14 +819,9 @@ export const activeDoc: SharedDocumentState = {
 		activeDocumentId = val;
 	},
 
-	// The active pointer target locator
+	// The active pointer target locator (workspaceId preferred; path/name fallback)
 	get current() {
-		return (
-			openDocuments.find(
-				(d) =>
-					d.filePath === activeDocumentId || d.fileName === activeDocumentId,
-			) || null
-		);
+		return findOpenDocument(activeDocumentId);
 	},
 
 	// Proxy all existing properties safely to prevent breaking views
@@ -860,6 +1016,8 @@ export const activeDoc: SharedDocumentState = {
 	},
 	set activeFontFamily(val) {
 		activeFontFamily = val;
+		defaultFont = val;
+		persistTextSettings({ fontFamily: val });
 		if (
 			selectedShapes.length > 0 &&
 			selectionNeedsPropertyUpdate(
@@ -883,6 +1041,7 @@ export const activeDoc: SharedDocumentState = {
 	},
 	set activeTextAlignment(val) {
 		activeTextAlignment = val;
+		persistTextSettings({ alignment: val });
 		if (
 			selectedShapes.length > 0 &&
 			selectionNeedsPropertyUpdate(
@@ -910,18 +1069,22 @@ export const activeDoc: SharedDocumentState = {
 	},
 	set defaultFont(val) {
 		defaultFont = val;
+		activeFontFamily = val as typeof activeFontFamily;
+		persistTextSettings({ fontFamily: val });
 	},
 	get defaultSize() {
 		return defaultSize;
 	},
 	set defaultSize(val) {
 		defaultSize = val;
+		persistTextSettings({ size: val });
 	},
 	get defaultStyle() {
 		return defaultStyle;
 	},
 	set defaultStyle(val) {
 		defaultStyle = val;
+		persistTextSettings({ style: val });
 	},
 	get scrollTop() {
 		return scrollTop;

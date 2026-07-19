@@ -188,6 +188,11 @@
       selectedFont = activeTextShape.fontFamily || activeTextShape.font || "Helvetica";
       selectedSize = activeTextShape.size || 12;
       selectedStyle = activeTextShape.style || "Normal";
+      // Keep Align dropdown in sync with the selected/editing text box
+      const align = activeTextShape.alignment || "left";
+      if (activeDoc.activeTextAlignment !== align) {
+        activeDoc.activeTextAlignment = align;
+      }
     } else {
       selectedFont = activeDoc.activeFontFamily || activeDoc.defaultFont || "Helvetica";
       selectedSize = activeDoc.defaultSize;
@@ -230,6 +235,19 @@
       activeDoc.shapes = { ...activeDoc.shapes };
     } else {
       activeDoc.defaultStyle = val;
+    }
+  }
+
+  function handleAlignmentChange(e: Event) {
+    const val = (e.target as HTMLSelectElement).value as
+      | "left"
+      | "center"
+      | "right";
+    activeDoc.activeTextAlignment = val;
+    if (activeTextShape) {
+      pushHistorySnapshot();
+      activeTextShape.alignment = val;
+      activeDoc.shapes = { ...activeDoc.shapes };
     }
   }
 
@@ -493,9 +511,10 @@
         {loadBurnInSettled ? 'load-burn-in--settled' : 'load-burn-in--bright'}"
       aria-live="polite"
     >
-      <div class="flex justify-end pr-3 pt-1">
+      <!-- Sit further right of page chrome (bookmarks stick out at page right edge) -->
+      <div class="flex justify-end pr-1 pt-1 pl-8">
         <span
-          class="inline-block font-mono text-[10px] font-semibold tracking-wider uppercase text-right
+          class="inline-block font-mono text-[10px] font-semibold tracking-wider uppercase text-right ml-4
             drop-shadow-[0_1px_2px_rgba(0,0,0,0.75)]
             {loadBurnInSettled ? 'text-slate-400/80' : 'text-slate-200'}"
         >
@@ -613,8 +632,9 @@
 
       <div class="flex items-center gap-1.5 border-l border-slate-800 pl-3">
         <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Align</span>
-        <select 
-          bind:value={activeDoc.activeTextAlignment} 
+        <select
+          value={activeDoc.activeTextAlignment}
+          onchange={handleAlignmentChange}
           class="bg-slate-800 text-slate-200 text-xs border border-slate-700 rounded px-1.5 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-500 mx-1 font-sans"
         >
           <option value="left">≡ Left</option>

@@ -1,6 +1,10 @@
 <script lang="ts">
   import { activeDoc, FONT_MAP } from "../pdfStore.svelte";
   import type { PageInteraction } from "../lib/interaction/dragHandler.svelte";
+  import {
+    DEFAULT_TEXT_BOX_H,
+    DEFAULT_TEXT_BOX_W,
+  } from "../lib/annotation/toolShapes";
 
   let {
     pageNumber,
@@ -36,9 +40,11 @@
     }, 0);
   }
 
-  /** Grow textarea height with content (newlines / wrap) so text isn't clipped. */
+  /** Grow textarea height with content (newlines / wrap) so text isn't clipped.
+   *  Skipped when the text box has a user-resized fixed size (data-fixed-size). */
   function autoGrowTextarea(node: HTMLTextAreaElement) {
     function resize() {
+      if (node.dataset.fixedSize === "true") return;
       node.style.height = "auto";
       node.style.height = `${Math.max(node.scrollHeight, 24)}px`;
     }
@@ -255,16 +261,27 @@
           </div>
         {/if}
       {:else if shape && shape.type === "text"}
+        {@const textSelected =
+          activeDoc.selectedShape?.pageNumber === pageNumber &&
+          activeDoc.selectedShape?.index === idx}
+        {@const textEditing = ix.activelyEditingIndex === idx}
+        {@const textActive = textSelected || textEditing}
+        {@const textW = display.width > 0 ? display.width : DEFAULT_TEXT_BOX_W}
+        {@const textH = display.height > 0 ? display.height : DEFAULT_TEXT_BOX_H}
+        <!-- Top-left anchored box: outline + BR handle share this element; only BR resizes -->
         <div
           data-shape-idx={idx}
-          class="absolute pointer-events-auto z-40"
-          style="left: {display.x}%; top: {display.y}%; color: {shape.textColor || shape.color || '#000000'};"
+          class="absolute pointer-events-auto z-40 box-border
+            {textActive
+              ? 'border border-[#00d2ff] bg-cyan-500/5 rounded-sm shadow-sm'
+              : 'border border-transparent hover:border-slate-400/30 rounded-sm'}"
+          style="left: {display.x}%; top: {display.y}%; width: {textW}%; height: {textH}%; color: {shape.textColor || shape.color || '#000000'};"
         >
-          {#if ix.activelyEditingIndex === idx && activeDoc.shapes[pageNumber]?.[idx]}
+          {#if textEditing && activeDoc.shapes[pageNumber]?.[idx]}
             <textarea
               bind:value={activeDoc.shapes[pageNumber][idx].text}
               use:autofocusAction
-              use:autoGrowTextarea
+              data-fixed-size="true"
               onmousedown={(e) => e.stopPropagation()}
               onblur={(e) => finalizeTextEdit(idx, e.currentTarget)}
               onkeydown={(e) => {
@@ -273,17 +290,10 @@
                   finalizeTextEdit(idx, e.currentTarget);
                 } else if (e.key === "Escape") {
                   finalizeTextEdit(idx, e.currentTarget);
-                } else if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-                  // Allow newline; grow after key settles
-                  requestAnimationFrame(() => {
-                    const t = e.currentTarget as HTMLTextAreaElement;
-                    t.style.height = "auto";
-                    t.style.height = `${Math.max(t.scrollHeight, 24)}px`;
-                  });
                 }
               }}
               rows="1"
-              class="bg-transparent text-black border border-slate-300 rounded p-1 text-sm shadow-md focus:outline-none focus:ring-1 focus:ring-cyan-500 font-sans block overflow-hidden min-w-[8ch]"
+              class="w-full h-full min-w-0 min-h-0 bg-transparent text-black border-0 rounded-sm p-1 text-sm focus:outline-none font-sans block overflow-auto box-border"
               class:text-center={shape.alignment === 'center'}
               class:text-right={shape.alignment === 'right'}
               class:text-left={!shape.alignment || shape.alignment === 'left'}
@@ -296,17 +306,21 @@
                 e.stopPropagation();
                 ix.beginTextEdit(idx);
               }}
-              class="block bg-transparent border border-dashed rounded-xs whitespace-pre-wrap transition-colors cursor-move p-0.5 {activeDoc
-                .selectedShape?.pageNumber === pageNumber &&
-              activeDoc.selectedShape?.index === idx
-                ? 'border-[#00d2ff] bg-cyan-500/5'
-                : 'border-transparent hover:border-slate-400/30'}"
+              class="block w-full h-full overflow-hidden whitespace-pre-wrap cursor-move p-0.5 box-border"
               class:text-center={shape.alignment === 'center'}
               class:text-right={shape.alignment === 'right'}
               class:text-left={!shape.alignment || shape.alignment === 'left'}
               style="text-align: {shape.alignment || 'left'}; color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
               >{shape?.text || " "}</span
             >
+          {/if}
+          <!-- Single BR grab: top-left stays fixed; handle is on the same box as the outline -->
+          {#if textActive}
+            <div
+              onmousedown={(e) => initHandleDrag(e, idx, "br")}
+              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 border-[#00d2ff] -bottom-1.5 -right-1.5 cursor-nwse-resize rounded-full shadow-md z-50"
+              title="Resize text box"
+            ></div>
           {/if}
         </div>
       {:else if shape && shape.type === "tick"}

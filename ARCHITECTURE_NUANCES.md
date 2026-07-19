@@ -75,14 +75,23 @@ Copy-Item -Path "node_modules/pdfjs-dist/build/pdf.worker.mjs.map" -Destination 
 
 Frontend `invoke('check_startup_file')` was blocked by CSP when the app was launched via file association. The enforced policy was missing `http://ipc.localhost`, so the Rust command never ran.
 
+Also, without single-instance handling, opening a file while the app was already running spawned a **second app window** instead of a new tab.
+
 ### The Solution
 
-Handle startup files in Rust setup, **not** via frontend IPC:
+**Cold start — handle in Rust setup, not via frontend IPC:**
 
 1. On setup, read `std::env::args()`.
 2. If a supported file is present, load it into a `FilePayload`.
 3. Emit the event `"startup-file-loaded"` (with short retries so the frontend listener is ready).
-4. Frontend listens for that event and calls the normal `loadDocument(...)` path.
+4. Frontend listens and calls the normal `loadDocument(...)` path (deduped for retries).
+
+**Warm open — single-instance plugin (must be first registered plugin):**
+
+1. `tauri-plugin-single-instance` intercepts the second process.
+2. Focuses the existing `main` window (unminimize / show / focus).
+3. Loads any supported file path from argv and emits **`open-file-request`** with a `FilePayload`.
+4. Frontend listens for `open-file-request` **without** startup dedupe → `loadDocument` opens a new tab (or focuses an existing path match).
 
 `check_startup_file` remains as a fallback only. Do not make double-click / Open with depend on it again.
 
@@ -114,6 +123,7 @@ Also:
 - The PageSidebar `use:renderThumbnail` action only re-runs `update()` when its parameter values change.
 - After the pdfStore split, thumbnail writes must touch module-level `$state` directly; going through some `activeDoc` getter/setter paths can fail to notify subscribers.
 - Image and PDF save paths both need to apply the same override/version pipeline.
+- **Save As** creates a **new path** that may not already exist in Recent Documents.
 
 ### The Solution
 
@@ -122,14 +132,15 @@ Also:
 
 2. **Write shared override state**
    - `pageThumbnailOverrides[pageIndex] = dataUrl`
-   - Recent docs update via shallow clone + array reassignment:
+   - Recent docs update via shallow clone + array reassignment (or `upsertRecentEntry` when the path is new):
 
 ```ts
 recents[targetIndex] = { ...recents[targetIndex], thumbnail: dataUrl };
 recents = [...recents];
 ```
 
-   - Always bump `thumbnailVersion++` (do not depend on a recents path match).
+   - Always bump `thumbnailVersion++` (do not depend only on a recents path match).
+   - On Save As, **upsert** the new path into recents (`upsertRecentEntry` / `updateRecentThumbnail` creates a row if missing).
 
 3. **Invalidate sidebar actions**
 
@@ -151,10 +162,102 @@ recents = [...recents];
 ### Rules
 
 - Never thumbnail from the live editor canvas after save.
-- Always use flattened document output so annotations are included.
+- Always use flattened document output so annotations (and baked form stamps) are included.
 - Always bump `thumbnailVersion`, even if the file is not yet present in recents.
 - PDF and image save paths must both end in the same apply/override helper.
+- Save As must register/update the **new** path in Recent Documents, not only the old one.
 
 ---
 
-**Last Updated:** July 2026 (post v1.0.2)
+## Section F: Stable Tab Identity (Save As Focus Loss)
+
+### The Problem
+
+`activeDocumentId` used to be `filePath || fileName`. On Save As:
+
+1. `filePath` changed while `activeDocumentId` still pointed at the old path.
+2. `activeDoc.current` resolved to `null` → workspace showed **“Loading document…”**.
+3. Updating the id remounted `{#key activeDoc.activeDocumentId}`, which felt like lost focus (user had to click the tab again).
+
+### The Solution
+
+- Each `DocumentWorkspace` has a stable **`workspaceId`** (UUID at creation).
+- `documentKey(doc)` and `activeDocumentId` prefer **`workspaceId`**.
+- Save As updates path/name/bytes only via `commitActiveDocumentAfterSave`; the tab id does **not** change.
+- `findOpenDocument` / `activeDoc.current` match workspaceId **or** path **or** name for compatibility.
+
+### Rules
+
+- Never use path alone as the sole active-tab key if path can change mid-session.
+- Do not rebind `activeDocumentId` to the new path on Save As.
+- Keep multi-document close/switch helpers on `documentKey(doc)`.
+
+---
+
+## Section G: AcroForm Entry & Signature Fields (pdf-lib Limits)
+
+### Scope
+
+Non-XFA AcroForms only. Detected on PDF open; values live in-memory per document until save.
+
+### Detection & Overlay
+
+- `extractFormFields(bytes)` → `formFields` + `formValues` on the workspace.
+- `FormLayer.svelte` draws widgets in page-relative % coordinates (same space as annotations).
+- Interactive when tool is `select` or `text` so drawing tools are not stolen.
+
+### Signature Fields
+
+- pdf-lib’s `PDFSignature` has **no** digital-signature or appearance API.
+- We treat Sig widgets as **stamp targets**: store a PNG/JPEG data URL in `formValues[name]`.
+- UI reuses **`savedSignatureSets`** (no new drawing required for form fields).
+- On save, `applyAndFlattenFormValues`:
+  1. Draws the stamp image into each widget rect (contain + center).
+  2. Removes the Sig field with a **safe remover** — `form.removeField` / `form.flatten` throw when widgets lack `/AP` streams.
+  3. Updates appearances and flattens remaining text/check/dropdown fields.
+
+### Rules
+
+- Do not expect `form.flatten()` alone to handle empty signature widgets.
+- Keep form values document-scoped (multi-tab safe); stamp library can stay session/global.
+- Freehand annotation stamps (`AnnotationLayer` + `activeTool: signature|initial`) are separate from AcroForm Sig fields; both bake on export, different code paths.
+- Radio groups / push buttons / option lists / XFA remain out of scope until explicitly designed.
+
+---
+
+## Section H: Text Tool Settings Persistence
+
+### The Problem
+
+Text font / size / style / alignment lived only in in-memory `$state`, so users had to reselect them every launch and often after tool switches.
+
+### The Solution
+
+Persist defaults under localStorage key **`speeddf_text_settings`**:
+
+- `fontFamily`, `size`, `style`, `alignment`
+- Loaded on module init into `defaultFont` / `defaultSize` / `defaultStyle` / `activeFontFamily` / `activeTextAlignment`
+- Written on setter changes in `pdfStore.svelte.ts`
+
+New text shapes still read `activeDoc.activeFontFamily`, `defaultSize`, and `defaultStyle` from the drag handler factory.
+
+### Rules
+
+- Persist **defaults**, not per-shape values (selected shapes update the live shape only).
+- Keep validation bounds on size (e.g. 6–200) when loading from storage.
+
+---
+
+## Section I: Form Signature Picker Portal
+
+### The Problem
+
+Page containers use CSS transforms for zoom/rotation. A `position: fixed` modal inside `FormLayer` would be clipped or offset relative to the page, not the window.
+
+### The Solution
+
+Stamp picker uses a small **body portal** action (`document.body.appendChild`) so the dialog covers the full window. Escape / backdrop close; apply is ignored if the user switched tabs mid-pick (`pickingDocId`).
+
+---
+
+**Last Updated:** July 2026 (forms + AcroForm signatures, workspaceId / Save As, single-instance warm open, text settings persistence, recents upsert on Save As)
