@@ -27,6 +27,7 @@
     closeDocumentWorkspace,
     closeAllDocumentWorkspaces,
   } from "../pdfStore.svelte";
+  import { decodeCommentsFromKeywords } from "../lib/comments/comments";
   import DocumentTabs from "../components/DocumentTabs.svelte";
 
   const activeDoc = activeDocStore as any;
@@ -657,6 +658,7 @@
         activeDoc.rotations = {};
         activeDoc.pageThumbnailOverrides = {};
         activeDoc.bookmarks = [];
+        activeDoc.comments = [];
       } else if (fileCategory === "image") {
         // Setup the clean single-page layout structure for standard graphics
         activeDoc.fileType = "image";
@@ -669,6 +671,7 @@
         activeDoc.currentPage = 1;
         activeDoc.shapes = {};
         activeDoc.bookmarks = [];
+        activeDoc.comments = [];
         activeDoc.imageRotation = 0;
         // Clear any stale per-doc override so sidebar uses live imageUrl until paint
         activeDoc.pageThumbnailOverrides = {};
@@ -772,6 +775,20 @@
         } catch (outlineErr) {
           console.error("Failed to parse document outline tree:", outlineErr);
           activeDoc.bookmarks = [];
+        }
+
+        // Per-page comments from PDF Keywords (speedDF marker)
+        try {
+          const meta = await pdfDocument.getMetadata();
+          const keywords =
+            (meta?.info as { Keywords?: string } | undefined)?.Keywords ??
+            (meta?.info as { keywords?: string } | undefined)?.keywords ??
+            "";
+          const loaded = decodeCommentsFromKeywords(keywords);
+          activeDoc.comments = loaded ?? [];
+        } catch (commentsErr) {
+          console.warn("Failed to load document comments metadata:", commentsErr);
+          activeDoc.comments = [];
         }
 
         await registerRecentFile(fileName, filePath, rawBytes);
@@ -932,6 +949,7 @@
       activeDoc.shapes = {};
       activeDoc.rotations = {};
       activeDoc.bookmarks = [];
+      activeDoc.comments = [];
       activeDoc.isDirty = false;
       showNotification("Created New Blank A4 Document");
     } catch (e) {
@@ -1358,6 +1376,26 @@
     const handleGlobalShortcuts = (e: KeyboardEvent) => {
       const isCtrl = e.ctrlKey || e.metaKey;
 
+      // Block edit shortcuts while save/flatten is running
+      if (activeDoc.isSaving) {
+        const key = e.key.toLowerCase();
+        if (
+          key === "z" ||
+          key === "y" ||
+          key === "delete" ||
+          key === "backspace" ||
+          (isCtrl && (key === "arrowleft" || key === "arrowright"))
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (isCtrl && key === "s") {
+          e.preventDefault();
+          return;
+        }
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
         e.stopPropagation();
@@ -1406,6 +1444,7 @@
           openFile();
         } else if (key === "s") {
           e.preventDefault();
+          if (activeDoc.isSaving) return;
           if (isShift) {
             if (titleBarRef?.triggerSaveAs) {
               titleBarRef.triggerSaveAs();
@@ -1422,6 +1461,7 @@
             }
           }
         } else {
+          if (activeDoc.isSaving) return;
           switch (key) {
             case "z":
               e.preventDefault();
@@ -1523,7 +1563,7 @@
         />
         {#if activeDoc.rawBytes}
           {#key activeDoc.activeDocumentId}
-            <div class="flex-1 min-h-0 flex flex-col">
+            <div class="flex-1 min-h-0 flex flex-col relative">
               <Workspace
                 {zoomScale}
                 {isSystemPrinting}
@@ -1640,6 +1680,38 @@
 
       {#if showOcrDrawer}
         <OcrPanel onClose={() => (showOcrDrawer = false)} />
+      {/if}
+
+      <!-- Blocks tools + workspace + sidebar while the active document is saving -->
+      {#if activeDoc.isSaving}
+        <div
+          class="absolute inset-0 z-[4000] bg-[#070a12]/55 backdrop-blur-[2px] flex items-center justify-center select-none cursor-wait"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+          onmousedown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onkeydown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          <div
+            class="flex flex-col items-center gap-3 px-6 py-5 rounded-xl bg-[#0b101c]/95 border border-cyan-500/25 shadow-[0_12px_40px_rgba(0,0,0,0.55)]"
+          >
+            <div
+              class="w-9 h-9 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin"
+            ></div>
+            <p class="text-[11px] font-bold uppercase tracking-widest text-cyan-300">
+              Saving…
+            </p>
+            <p class="text-[10px] text-slate-500 font-medium max-w-[200px] text-center leading-relaxed">
+              Compiling annotations. Editing is paused until the file is written.
+            </p>
+          </div>
+        </div>
       {/if}
     </div>
   {:else}

@@ -9,6 +9,7 @@
     syncLiveThumbnail,
     getAnnotatedPdfBytes as getAnnotatedPdfBytesImpl,
   } from "../lib/export/flatten";
+  import { decodeCommentsFromKeywords } from "../lib/comments/comments";
 
   let {
     onMinimize,
@@ -106,14 +107,46 @@
           console.error("Failed to parse document outline tree:", outlineErr);
           activeDoc.bookmarks = [];
         }
+        try {
+          const meta = await pdfDocument.getMetadata();
+          const keywords =
+            (meta?.info as { Keywords?: string } | undefined)?.Keywords ??
+            (meta?.info as { keywords?: string } | undefined)?.keywords ??
+            "";
+          const loaded = decodeCommentsFromKeywords(keywords);
+          activeDoc.comments = loaded ?? [];
+        } catch (commentsErr) {
+          console.warn("Failed to load document comments metadata:", commentsErr);
+          activeDoc.comments = [];
+        }
       }
     } catch (err) {
       console.error("Native file load intercept breakdown:", err);
     }
   }
 
+  function beginSavingLock() {
+    if (activeDoc.isSaving) return false;
+    activeDoc.isSaving = true;
+    // Drop focus so text/input edits cannot continue into the save window
+    try {
+      const el = document.activeElement;
+      if (el instanceof HTMLElement) el.blur();
+    } catch {
+      /* ignore */
+    }
+    return true;
+  }
+
+  function endSavingLock() {
+    activeDoc.isSaving = false;
+  }
+
   async function triggerFileSaveAs() {
     if (!activeDoc.rawBytes && !activeDoc.imageUrl) return;
+    if (activeDoc.isSaving) return;
+
+    // Path picker is interactive — lock only once the user confirms a path
     try {
       let defaultName = "";
 
@@ -150,32 +183,38 @@
 
       if (!savedPath) return;
 
-      let compiledBytes: Uint8Array | null = null;
-      if (activeDoc.fileType === 'image') {
-        console.log("Compiling and flattening image annotations...");
-        compiledBytes = await flattenWorkspaceToImage(savedPath);
-      } else {
-        console.log("Compiling and flattening PDF annotations...");
-        compiledBytes = await flattenWorkspaceToPDF();
-      }
+      if (!beginSavingLock()) return;
+      try {
+        let compiledBytes: Uint8Array | null = null;
+        if (activeDoc.fileType === 'image') {
+          console.log("Compiling and flattening image annotations...");
+          compiledBytes = await flattenWorkspaceToImage(savedPath);
+        } else {
+          console.log("Compiling and flattening PDF annotations...");
+          compiledBytes = await flattenWorkspaceToPDF();
+        }
 
-      if (!compiledBytes) {
-        alert("Failed to compile annotations.");
-        return;
-      }
+        if (!compiledBytes) {
+          alert("Failed to compile annotations.");
+          return;
+        }
 
-      syncLiveThumbnail(savedPath, compiledBytes);
-      await invoke("native_overwrite_file", {
-        path: savedPath,
-        fileBytes: Array.from(compiledBytes),
-      });
-      activeDoc.filePath = savedPath;
-      const parts = savedPath.split(/[\\/]/);
-      activeDoc.fileName = parts[parts.length - 1];
-      activeDoc.isDirty = false;
-      if (typeof onSaveSuccess === 'function') onSaveSuccess("File Saved Successfully");
-      console.log("Document footprint committed cleanly to disk via Save As.");
+        syncLiveThumbnail(savedPath, compiledBytes);
+        await invoke("native_overwrite_file", {
+          path: savedPath,
+          fileBytes: Array.from(compiledBytes),
+        });
+        activeDoc.filePath = savedPath;
+        const parts = savedPath.split(/[\\/]/);
+        activeDoc.fileName = parts[parts.length - 1];
+        activeDoc.isDirty = false;
+        if (typeof onSaveSuccess === 'function') onSaveSuccess("File Saved Successfully");
+        console.log("Document footprint committed cleanly to disk via Save As.");
+      } finally {
+        endSavingLock();
+      }
     } catch (err) {
+      endSavingLock();
       if (err !== "User cancelled save layout") {
         console.error("File generation layer fault:", err);
       }
@@ -184,10 +223,12 @@
 
   async function triggerFileSave() {
     if (!activeDoc.rawBytes && !activeDoc.imageUrl) return;
+    if (activeDoc.isSaving) return;
     if (!activeDoc.filePath) {
       await triggerFileSaveAs();
       return;
     }
+    if (!beginSavingLock()) return;
     try {
       if (activeDoc.fileType === 'image') {
         console.log("Compiling and flattening image annotations for silent save...");
@@ -225,6 +266,8 @@
       if (typeof onSaveSuccess === 'function') onSaveSuccess("File Saved Successfully");
     } catch (err) {
       console.error("Silent file overwrite fault:", err);
+    } finally {
+      endSavingLock();
     }
   }
 
@@ -236,6 +279,7 @@
     activeDoc.pageOrder = [];
     activeDoc.currentPage = 1;
     activeDoc.shapes = {};
+    activeDoc.comments = [];
   }
 
   function handlePrintClick() {
@@ -307,13 +351,23 @@
           </svg>
         </button>
 
-        <button onclick={onSave} title="Save (Ctrl+S)" class="toolbar-btn">
+        <button
+          onclick={onSave}
+          title="Save (Ctrl+S)"
+          class="toolbar-btn"
+          disabled={activeDoc.isSaving || (!activeDoc.rawBytes && !activeDoc.imageUrl)}
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
           </svg>
         </button>
 
-        <button onclick={onSaveAs} title="Save As... (Ctrl+Shift+S)" class="toolbar-btn">
+        <button
+          onclick={onSaveAs}
+          title="Save As... (Ctrl+Shift+S)"
+          class="toolbar-btn"
+          disabled={activeDoc.isSaving || (!activeDoc.rawBytes && !activeDoc.imageUrl)}
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M13.33 13H8a1 1 0 00-1 1v7" />
             <path d="M14.363 17.634a2 2 0 00-.506.854l-.837 2.87a.5.5 0 00.62.62l2.87-.837a2 2 0 00.854-.506l4.013-4.009a1 1 0 10-3.004-3.004z" />
@@ -331,7 +385,7 @@
         <div class="w-px h-4 bg-slate-700 mx-1.5"></div>
 
         <button 
-          disabled={!activeDoc.rawBytes || undoStack.length === 0}
+          disabled={activeDoc.isSaving || !activeDoc.rawBytes || undoStack.length === 0}
           onclick={onUndo} 
           title="Undo (Ctrl+Z)" 
           class="toolbar-btn"
@@ -342,7 +396,7 @@
         </button>
 
         <button 
-          disabled={!activeDoc.rawBytes || redoStack.length === 0}
+          disabled={activeDoc.isSaving || !activeDoc.rawBytes || redoStack.length === 0}
           onclick={onRedo} 
           title="Redo (Ctrl+Y)" 
           class="toolbar-btn"
