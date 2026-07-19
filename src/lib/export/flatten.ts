@@ -20,6 +20,7 @@ import {
 	applyLiveThumbnail,
 	updateRecentThumbnail,
 } from "../../pdfStore.svelte";
+import { encodeCommentsKeyword } from "../comments/comments";
 import {
 	runWithPdfRenderSlot,
 	THUMBNAIL_JPEG_QUALITY,
@@ -412,6 +413,19 @@ export async function flattenWorkspaceToPDF(): Promise<Uint8Array | null> {
       }
     } else {
       destDoc.catalog.delete(PDFName.of('Outlines'));
+    }
+
+    // Per-page threaded comments → PDF Keywords (pdf-lib / pdf.js readable metadata)
+    try {
+      const pageOrderSet = new Set(activeDoc.pageOrder || []);
+      const commentsToSave = (activeDoc.comments || []).filter((c) =>
+        pageOrderSet.has(c.pageNum),
+      );
+      if (commentsToSave.length > 0) {
+        destDoc.setKeywords([encodeCommentsKeyword(commentsToSave)]);
+      }
+    } catch (commentsErr) {
+      console.warn("Failed to embed comments into PDF keywords:", commentsErr);
     }
 
     return await destDoc.save();

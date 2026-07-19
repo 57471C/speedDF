@@ -87,4 +87,4 @@ Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary
 
 ---
 
-**Last Updated:** July 2026 (post v1.0.1)
+**Last Updated:** July 2026 (post v1.0.2)

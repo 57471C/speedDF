@@ -1,6 +1,16 @@
 <script lang="ts">
-  import { untrack } from "svelte";
-  import { activeDoc, saveSignatureSetAction } from "../pdfStore.svelte";
+  import { tick, untrack } from "svelte";
+  import {
+    activeDoc,
+    saveSignatureSetAction,
+    updateSignatureSetAction,
+    type SignatureSet,
+  } from "../pdfStore.svelte";
+  import {
+    initialsFromName,
+    setCommentAuthorProfile,
+    signatureSetLabel,
+  } from "../lib/comments/comments";
 
   // ⚡ FIXED: This explicitly sets up the missing property mapping for line 118 in +page.svelte
   let { zoomScale = $bindable() }: { zoomScale: number } = $props();
@@ -9,6 +19,12 @@
 
   let isMenuOpen = $state(false);
   let isModalOpen = $state(false);
+  /** When set, modal is editing this set id instead of creating a new one. */
+  let editingSetId = $state<string | null>(null);
+  let profileFirstName = $state("");
+  let profileLastName = $state("");
+  let profileEmail = $state("");
+  let profileFormError = $state("");
   let isColorMenuOpen = $state(false);
   let isShapeMenuOpen = $state(false);
   let isThicknessMenuOpen = $state(false);
@@ -126,11 +142,114 @@
     return matched ? matched.id : shapeVariants[0].id;
   });
 
-  function handleSelectStamp(type: "signature" | "initial", dataUrl: string) {
+  function handleSelectStamp(
+    type: "signature" | "initial",
+    dataUrl: string,
+    set?: {
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      initials?: string;
+      label?: string;
+    },
+  ) {
     doc.activeTool = type;
     doc.activeStampDataUrl = dataUrl;
+    // Activate this profile as the comment author when the set has identity fields
+    if (set && (set.initials || set.firstName || set.lastName)) {
+      const fullName =
+        `${set.firstName || ""} ${set.lastName || ""}`.trim() ||
+        set.label?.replace(/:$/, "") ||
+        set.initials ||
+        "You";
+      setCommentAuthorProfile({
+        initials: set.initials || initialsFromName(set.firstName || "", set.lastName || ""),
+        fullName,
+        email: set.email,
+      });
+    }
     isMenuOpen = false;
   }
+
+  function resetProfileForm() {
+    editingSetId = null;
+    profileFirstName = "";
+    profileLastName = "";
+    profileEmail = "";
+    profileFormError = "";
+  }
+
+  function paintDataUrlOnCanvas(
+    canvas: HTMLCanvasElement,
+    dataUrl: string | undefined | null,
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve();
+        return;
+      }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!dataUrl) {
+        resolve();
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve();
+      };
+      img.onerror = () => resolve();
+      img.src = dataUrl;
+    });
+  }
+
+  async function openSignatureModal() {
+    resetProfileForm();
+    isModalOpen = true;
+    isMenuOpen = false;
+    await tick();
+    clearCanvas("sig");
+    clearCanvas("init");
+  }
+
+  async function openEditSignatureModal(e: MouseEvent, set: SignatureSet) {
+    e.stopPropagation();
+    editingSetId = set.id;
+    profileFormError = "";
+
+    // Prefer explicit fields; fall back to parsing "First Last:" labels on legacy sets
+    let first = (set.firstName || "").trim();
+    let last = (set.lastName || "").trim();
+    if (!first && !last && set.label) {
+      const bare = set.label.replace(/:$/, "").trim();
+      if (bare && bare.toLowerCase() !== "untitled") {
+        const parts = bare.split(/\s+/).filter(Boolean);
+        first = parts[0] || "";
+        last = parts.slice(1).join(" ");
+      }
+    }
+    profileFirstName = first;
+    profileLastName = last;
+    profileEmail = (set.email || "").trim();
+
+    isModalOpen = true;
+    isMenuOpen = false;
+    await tick();
+    if (sigCanvas && initCanvas) {
+      await Promise.all([
+        paintDataUrlOnCanvas(sigCanvas, set.signatureDataUrl),
+        paintDataUrlOnCanvas(initCanvas, set.initialDataUrl),
+      ]);
+    }
+  }
+
+  let previewInitials = $derived(
+    initialsFromName(profileFirstName, profileLastName),
+  );
+  let previewLabel = $derived(
+    signatureSetLabel(profileFirstName, profileLastName),
+  );
 
   function triggerDeletePrompt(e: MouseEvent, id: string) {
     e.stopPropagation();
@@ -211,23 +330,42 @@
     };
   }
 
-  function saveSignatureToStorage(data: { signatureDataUrl: string; initialDataUrl: string }) {
-    saveSignatureSetAction({
-      id: crypto.randomUUID(),
-      signatureDataUrl: data.signatureDataUrl,
-      initialDataUrl: data.initialDataUrl,
-    });
-  }
-
-  function commitNewSignatureSet() {
+  function commitSignatureSet() {
     if (!validateSignatureCanvases()) return;
+    const firstName = profileFirstName.trim();
+    const lastName = profileLastName.trim();
+    if (!firstName || !lastName) {
+      profileFormError = "First and last name are required.";
+      return;
+    }
+    profileFormError = "";
     try {
       const data = extractSignatureData();
-      saveSignatureToStorage(data);
+      const initials = initialsFromName(firstName, lastName);
+      const label = signatureSetLabel(firstName, lastName);
+      const email = profileEmail.trim() || undefined;
+      const payload: SignatureSet = {
+        id: editingSetId || crypto.randomUUID(),
+        signatureDataUrl: data.signatureDataUrl,
+        initialDataUrl: data.initialDataUrl,
+        firstName,
+        lastName,
+        email,
+        label,
+        initials,
+      };
+      if (editingSetId) {
+        updateSignatureSetAction(payload);
+      } else {
+        saveSignatureSetAction(payload);
+      }
+      resetProfileForm();
+      clearCanvas("sig");
+      clearCanvas("init");
       isModalOpen = false;
       isMenuOpen = true;
     } catch (e) {
-      console.error("Failed to commit new signature set:", e);
+      console.error("Failed to commit signature set:", e);
     }
   }
 </script>
@@ -506,43 +644,80 @@
         <div class="max-h-48 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
           {#each doc.savedSignatureSets || [] as set}
             <div
-              class="flex items-center gap-1.5 bg-[#141b2b]/60 border border-slate-900 rounded p-1.5 hover:border-slate-800 transition-all"
+              class="flex flex-col gap-1 bg-[#141b2b]/60 border border-slate-900 rounded p-1.5 hover:border-slate-800 transition-all"
             >
-              <button
-                onclick={() =>
-                  handleSelectStamp("signature", set.signatureDataUrl)}
-                class="flex-1 h-10 bg-white rounded flex items-center justify-center border border-transparent hover:border-[#00d2ff] p-1 overflow-hidden"
-                ><img
-                  src={set.signatureDataUrl}
-                  alt="Sig"
-                  class="max-h-full max-w-full object-contain"
-                /></button
-              >
-              <button
-                onclick={() => handleSelectStamp("initial", set.initialDataUrl)}
-                class="w-12 h-10 bg-white rounded flex items-center justify-center border border-transparent hover:border-[#00d2ff] p-1 overflow-hidden"
-                ><img
-                  src={set.initialDataUrl}
-                  alt="Init"
-                  class="max-h-full max-w-full object-contain"
-                /></button
-              >
-              <button
-                onclick={(e) => triggerDeletePrompt(e, set.id)}
-                class="w-7 h-10 rounded flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
-                ><svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  ><path d="M3 6h18" /><path
-                    d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"
-                  /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg
-                ></button
-              >
+              {#if set.label || set.firstName || set.lastName}
+                <div class="flex items-center justify-between gap-1 px-0.5">
+                  <span
+                    class="text-[9px] font-semibold text-slate-300 truncate"
+                    title={set.email || set.label || ""}
+                  >
+                    {set.label ||
+                      signatureSetLabel(set.firstName || "", set.lastName || "")}
+                  </span>
+                  {#if set.initials}
+                    <span class="text-[8px] font-mono font-bold text-cyan-500/80 shrink-0">{set.initials}</span>
+                  {/if}
+                </div>
+              {/if}
+              <div class="flex items-center gap-1.5">
+                <button
+                  onclick={() =>
+                    handleSelectStamp("signature", set.signatureDataUrl, set)}
+                  class="flex-1 h-10 bg-white rounded flex items-center justify-center border border-transparent hover:border-[#00d2ff] p-1 overflow-hidden"
+                  ><img
+                    src={set.signatureDataUrl}
+                    alt="Sig"
+                    class="max-h-full max-w-full object-contain"
+                  /></button
+                >
+                <button
+                  onclick={() =>
+                    handleSelectStamp("initial", set.initialDataUrl, set)}
+                  class="w-12 h-10 bg-white rounded flex items-center justify-center border border-transparent hover:border-[#00d2ff] p-1 overflow-hidden"
+                  ><img
+                    src={set.initialDataUrl}
+                    alt="Init"
+                    class="max-h-full max-w-full object-contain"
+                  /></button
+                >
+                <button
+                  onclick={(e) => openEditSignatureModal(e, set)}
+                  class="w-7 h-10 rounded flex items-center justify-center text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 transition-all"
+                  title="Edit profile set"
+                  ><svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    ><path d="M12 20h9" /><path
+                      d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"
+                    /></svg
+                  ></button
+                >
+                <button
+                  onclick={(e) => triggerDeletePrompt(e, set.id)}
+                  class="w-7 h-10 rounded flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                  title="Delete profile set"
+                  ><svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    ><path d="M3 6h18" /><path
+                      d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"
+                    /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg
+                  ></button
+                >
+              </div>
             </div>
           {:else}
             <div
@@ -553,10 +728,7 @@
           {/each}
         </div>
         <button
-          onclick={() => {
-            isModalOpen = true;
-            isMenuOpen = false;
-          }}
+          onclick={openSignatureModal}
           class="w-full mt-1 py-2 bg-slate-800/40 border border-slate-800 text-slate-300 rounded text-[10px] font-bold flex items-center justify-center gap-1.5 hover:text-white"
           ><svg
             xmlns="http://www.w3.org/2000/svg"
@@ -806,18 +978,23 @@
 {#if isModalOpen}
   <div
     class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4"
+    onclick={(e) => e.stopPropagation()}
   >
     <div
       class="bg-[#090d16] border border-slate-900 rounded-xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col"
+      onclick={(e) => e.stopPropagation()}
     >
       <div
         class="p-4 border-b border-slate-900/50 flex items-center justify-between bg-[#0b101c]"
       >
         <span class="text-xs font-bold tracking-wider text-slate-200 uppercase"
-          >Draw Ink Profile Signoff Set</span
+          >{editingSetId ? "Edit Ink Profile Signoff Set" : "Draw Ink Profile Signoff Set"}</span
         >
         <button
-          onclick={() => (isModalOpen = false)}
+          onclick={() => {
+            resetProfileForm();
+            isModalOpen = false;
+          }}
           class="text-slate-500 hover:text-white transition-colors text-xs font-bold"
           >✕</button
         >
@@ -870,18 +1047,81 @@
           ></canvas>
         </div>
       </div>
+
+      <!-- Profile identity fields -->
+      <div class="px-6 pb-5 bg-[#080b12] flex flex-col gap-3">
+        <div class="flex items-center justify-between px-0.5">
+          <span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest"
+            >Profile identity</span
+          >
+          <span class="text-[9px] font-mono text-slate-500">
+            {#if profileFirstName.trim() || profileLastName.trim()}
+              <span class="text-cyan-500/90 font-bold">{previewInitials}</span>
+              <span class="mx-1 text-slate-700">·</span>
+              <span class="text-slate-400">{previewLabel}</span>
+            {:else}
+              Initials auto from name
+            {/if}
+          </span>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="flex flex-col gap-1">
+            <span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider px-0.5"
+              >First name <span class="text-red-400/80">*</span></span
+            >
+            <input
+              type="text"
+              bind:value={profileFirstName}
+              autocomplete="given-name"
+              placeholder="First name"
+              class="bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1.5 text-[11px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 font-sans"
+            />
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider px-0.5"
+              >Last name <span class="text-red-400/80">*</span></span
+            >
+            <input
+              type="text"
+              bind:value={profileLastName}
+              autocomplete="family-name"
+              placeholder="Last name"
+              class="bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1.5 text-[11px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 font-sans"
+            />
+          </label>
+        </div>
+        <label class="flex flex-col gap-1">
+          <span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider px-0.5"
+            >Email <span class="text-slate-600 normal-case tracking-normal font-medium">(optional)</span></span
+          >
+          <input
+            type="email"
+            bind:value={profileEmail}
+            autocomplete="email"
+            placeholder="email@example.com"
+            class="bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1.5 text-[11px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 font-sans"
+          />
+        </label>
+        {#if profileFormError}
+          <p class="text-[10px] text-red-400 font-medium px-0.5">{profileFormError}</p>
+        {/if}
+      </div>
+
       <div
         class="p-4 border-t border-slate-900/60 flex items-center justify-end gap-2 bg-[#0b101c]"
       >
         <button
-          onclick={() => (isModalOpen = false)}
+          onclick={() => {
+            resetProfileForm();
+            isModalOpen = false;
+          }}
           class="px-4 py-2 bg-slate-900 text-slate-400 font-bold text-[10px] rounded-md transition-colors uppercase"
           >Cancel</button
         >
         <button
-          onclick={commitNewSignatureSet}
+          onclick={commitSignatureSet}
           class="px-5 py-2 bg-[#00d2ff] text-slate-950 font-bold text-[10px] rounded-md hover:bg-cyan-400 transition-colors uppercase"
-          >Save Profile Combo</button
+          >{editingSetId ? "Update Profile Combo" : "Save Profile Combo"}</button
         >
       </div>
     </div>

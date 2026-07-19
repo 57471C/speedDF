@@ -2,6 +2,14 @@ import {
 	patchSelectedShapes,
 	selectionNeedsPropertyUpdate,
 } from "./lib/annotation/shapeHelpers";
+import type { PageComment } from "./lib/comments/comments";
+import {
+	createCommentId,
+	getCommentAuthor,
+	getCommentAuthorFullName,
+	sanitizeCommentText,
+	setCommentAuthorProfile,
+} from "./lib/comments/comments";
 import {
 	bindHistoryDocument,
 	executeRedoAction,
@@ -22,6 +30,8 @@ import {
 	setActiveThickness,
 	setActiveTool,
 } from "./lib/stores/tools.svelte";
+
+export type { CommentReply, PageComment } from "./lib/comments/comments";
 
 /** Avoid importing the name `PDFWorker` (clashes with pdfjs-dist's class export in some tooling). */
 type PdfJsWorker = InstanceType<typeof import("pdfjs-dist")["PDFWorker"]>;
@@ -117,6 +127,8 @@ export interface DocumentWorkspace {
 	currentPage: number;
 	shapes: Record<number, AnnotationShape[]>;
 	bookmarks: Bookmark[];
+	/** Per-page threaded comments (document-scoped; not shared across tabs). */
+	comments: PageComment[];
 	imageRotation?: number;
 	imageUrl?: string | null;
 	isDirty: boolean;
@@ -131,6 +143,16 @@ export interface SignatureSet {
 	id: string;
 	signatureDataUrl: string;
 	initialDataUrl: string;
+	/** Profile first name (optional on legacy sets). */
+	firstName?: string;
+	/** Profile last name (optional on legacy sets). */
+	lastName?: string;
+	/** Optional contact for future signature-use notifications. */
+	email?: string;
+	/** Display label e.g. "Terry Minett:" */
+	label?: string;
+	/** Short initials e.g. "TM" — also used as comment author badge. */
+	initials?: string;
 }
 
 export interface SharedDocumentState {
@@ -172,12 +194,23 @@ export interface SharedDocumentState {
 	flushDocumentState(): void;
 	isDirty: boolean;
 	bookmarks: Bookmark[];
+	comments: PageComment[];
 	openDocuments: DocumentWorkspace[];
 	activeDocumentId: string | null;
 	readonly current: DocumentWorkspace | null;
 	recents: RecentFile[];
 	thumbnailVersion: number;
 	pageThumbnailOverrides: Record<number, string>;
+	/**
+	 * Session UI signal: when set, PageSidebar switches to the comments tab
+	 * and focuses this page number. Consumed (cleared) by the sidebar.
+	 */
+	commentsFocusRequest: number | null;
+	/**
+	 * Session UI: true while the active document is being flattened/written.
+	 * Blocks workspace edits so the dirty flag cannot flip during save lag.
+	 */
+	isSaving: boolean;
 	updateRecentThumbnail(filePath: string, thumbnailDataUrl: string): void;
 }
 
@@ -282,6 +315,10 @@ function loadRecents(): RecentFile[] {
 }
 let recents = $state<RecentFile[]>(loadRecents());
 let thumbnailVersion = $state(0);
+/** Session-only: ask PageSidebar to open the comments tab for a page. */
+let commentsFocusRequest = $state<number | null>(null);
+/** Session-only: workspace is locked while save/flatten runs. */
+let isSaving = $state(false);
 
 function findOpenDocument(id: string | null | undefined): DocumentWorkspace | null {
 	if (!id) return null;
@@ -513,6 +550,7 @@ export function initializeNewDocument(
 		currentPage: 1,
 		shapes: {},
 		bookmarks: [],
+		comments: [],
 		imageRotation: 0,
 		imageUrl: null,
 		isDirty: false,
@@ -604,6 +642,12 @@ export const activeDoc: SharedDocumentState = {
 	},
 	set bookmarks(val) {
 		if (this.current) this.current.bookmarks = val;
+	},
+	get comments() {
+		return this.current?.comments || [];
+	},
+	set comments(val) {
+		if (this.current) this.current.comments = val;
 	},
 	get imageRotation() {
 		return this.current?.imageRotation || 0;
@@ -845,6 +889,20 @@ export const activeDoc: SharedDocumentState = {
 		if (this.current) this.current.pageThumbnailOverrides = val;
 	},
 
+	get commentsFocusRequest() {
+		return commentsFocusRequest;
+	},
+	set commentsFocusRequest(val) {
+		commentsFocusRequest = val;
+	},
+
+	get isSaving() {
+		return isSaving;
+	},
+	set isSaving(val) {
+		isSaving = !!val;
+	},
+
 	updateRecentThumbnail(filePath: string, thumbnailDataUrl: string) {
 		// Delegate to module-level helper so $state writes are never lost via `this` binding.
 		updateRecentThumbnail(filePath, thumbnailDataUrl);
@@ -866,12 +924,42 @@ export const activeDoc: SharedDocumentState = {
 // Bind undo/redo to the active document facade (must run after activeDoc exists).
 bindHistoryDocument(activeDoc);
 
+function syncCommentAuthorFromSignatureSet(set: SignatureSet) {
+	if (!(set.initials || set.firstName || set.lastName)) return;
+	const fullName =
+		`${set.firstName || ""} ${set.lastName || ""}`.trim() ||
+		set.label?.replace(/:$/, "") ||
+		set.initials ||
+		"You";
+	setCommentAuthorProfile({
+		initials: set.initials || fullName.slice(0, 2).toUpperCase() || "You",
+		fullName,
+		email: set.email,
+	});
+}
+
+function persistSignatureSets(sets: SignatureSet[]) {
+	activeDoc.savedSignatureSets = sets;
+	localStorage.setItem("speeddf_signature_sets", JSON.stringify(sets));
+}
+
 export function saveSignatureSetAction(newSet: SignatureSet) {
-	activeDoc.savedSignatureSets = [...activeDoc.savedSignatureSets, newSet];
-	localStorage.setItem(
-		"speeddf_signature_sets",
-		JSON.stringify(activeDoc.savedSignatureSets),
-	);
+	persistSignatureSets([...activeDoc.savedSignatureSets, newSet]);
+	syncCommentAuthorFromSignatureSet(newSet);
+}
+
+/** Replace an existing signature set by id (edit flow). Falls back to append if id missing. */
+export function updateSignatureSetAction(updated: SignatureSet) {
+	const list = activeDoc.savedSignatureSets || [];
+	const idx = list.findIndex((s) => s.id === updated.id);
+	if (idx < 0) {
+		saveSignatureSetAction(updated);
+		return;
+	}
+	const next = [...list];
+	next[idx] = updated;
+	persistSignatureSets(next);
+	syncCommentAuthorFromSignatureSet(updated);
 }
 
 export function rotatePageAction(
@@ -918,6 +1006,83 @@ export function updateBookmarkNameAction(pageNum: number, newName: string) {
 	activeDoc.bookmarks = activeDoc.bookmarks.map((b) =>
 		b.pageNum === pageNum ? { ...b, name: newName } : b,
 	);
+}
+
+/** Open the comments sidebar panel focused on a page (session UI signal). */
+export function requestCommentsPanel(pageNum: number) {
+	activeDoc.currentPage = pageNum;
+	commentsFocusRequest = pageNum;
+}
+
+/** Add a root comment on a page. Returns the new comment id, or null if text empty. */
+export function addCommentAction(pageNum: number, text: string): string | null {
+	const clean = sanitizeCommentText(text);
+	if (!clean || pageNum < 1) return null;
+	const id = createCommentId();
+	const next: PageComment = {
+		id,
+		pageNum,
+		author: getCommentAuthor(),
+		authorFullName: getCommentAuthorFullName(),
+		text: clean,
+		createdAt: Date.now(),
+		replies: [],
+	};
+	activeDoc.comments = [...(activeDoc.comments || []), next];
+	activeDoc.isDirty = true;
+	return id;
+}
+
+/** Reply to a root comment thread. */
+export function replyToCommentAction(
+	threadId: string,
+	text: string,
+): string | null {
+	const clean = sanitizeCommentText(text);
+	if (!clean || !threadId) return null;
+	const replyId = createCommentId();
+	let found = false;
+	activeDoc.comments = (activeDoc.comments || []).map((c) => {
+		if (c.id !== threadId) return c;
+		found = true;
+		return {
+			...c,
+			replies: [
+				...(c.replies || []),
+				{
+					id: replyId,
+					author: getCommentAuthor(),
+					authorFullName: getCommentAuthorFullName(),
+					text: clean,
+					createdAt: Date.now(),
+				},
+			],
+		};
+	});
+	if (!found) return null;
+	activeDoc.isDirty = true;
+	return replyId;
+}
+
+/** Delete an entire root thread (including replies). */
+export function deleteCommentAction(threadId: string) {
+	const before = activeDoc.comments?.length || 0;
+	activeDoc.comments = (activeDoc.comments || []).filter((c) => c.id !== threadId);
+	if ((activeDoc.comments?.length || 0) !== before) {
+		activeDoc.isDirty = true;
+	}
+}
+
+/** Delete a single reply under a root thread. */
+export function deleteReplyAction(threadId: string, replyId: string) {
+	activeDoc.comments = (activeDoc.comments || []).map((c) => {
+		if (c.id !== threadId) return c;
+		return {
+			...c,
+			replies: (c.replies || []).filter((r) => r.id !== replyId),
+		};
+	});
+	activeDoc.isDirty = true;
 }
 
 // True global master Wasm worker singleton to survive component unmounts

@@ -11,8 +11,15 @@
     pushHistorySnapshot,
     updateBookmarkNameAction,
     deleteBookmarkAction,
+    replyToCommentAction,
+    deleteCommentAction,
+    deleteReplyAction,
     globalPdfWorkerInstance,
   } from "../pdfStore.svelte";
+  import {
+    countComments,
+    formatCommentTime,
+  } from "../lib/comments/comments";
   import {
     computeThumbnailScale,
     debounceLeadingLatest,
@@ -44,6 +51,10 @@
   let editingBookmarkId = $state<number | null>(null);
   let editingBookmarkName = $state<string>("");
 
+  // --- Comments panel state ---
+  let replyDrafts = $state<Record<string, string>>({});
+  let openReplyId = $state<string | null>(null);
+
   // --- Bookmark Sorting Logic ---
   // Automatically sorts bookmarks based on their actual position in the document (pageOrder)
   let sortedBookmarks = $derived([...(activeDoc.bookmarks || [])].sort((a, b) => {
@@ -51,6 +62,37 @@
     const idxB = activeDoc.pageOrder.indexOf(b.pageNum);
     return idxA - idxB;
   }));
+
+  let totalCommentCount = $derived(countComments(activeDoc.comments));
+
+  // Always list every page, ordered by document page order then time
+  let visibleComments = $derived.by(() => {
+    return [...(activeDoc.comments || [])].sort((a, b) => {
+      const idxA = activeDoc.pageOrder.indexOf(a.pageNum);
+      const idxB = activeDoc.pageOrder.indexOf(b.pageNum);
+      if (idxA !== idxB) return idxA - idxB;
+      return a.createdAt - b.createdAt;
+    });
+  });
+
+  // Honor page "Add comment" / comment-badge requests from WorkspacePage
+  $effect(() => {
+    const focusPage = activeDoc.commentsFocusRequest;
+    if (focusPage != null && focusPage > 0) {
+      activeSidebarTab = "comments";
+      // Consume the session signal so it does not re-fire
+      activeDoc.commentsFocusRequest = null;
+    }
+  });
+
+  function submitReply(threadId: string) {
+    const text = replyDrafts[threadId] || "";
+    const id = replyToCommentAction(threadId, text);
+    if (id) {
+      replyDrafts = { ...replyDrafts, [threadId]: "" };
+      openReplyId = null;
+    }
+  }
 
   function getSharedPdfjsDoc() {
     if (activeDoc.fileType === "tiff" || activeDoc.fileType === "image" || !activeDoc.rawBytes) return null;
@@ -803,7 +845,7 @@
         {:else if activeSidebarTab === 'bookmarks'}
           Bookmarks ({sortedBookmarks.length})
         {:else}
-          Comments (0)
+          Comments ({totalCommentCount})
         {/if}
       </span>
     </div>
@@ -1106,9 +1148,126 @@
       {/if}
     </div>
   {:else}
-    <div class="flex flex-col items-center justify-center p-6 text-center text-slate-500 h-40">
-      <span class="text-[10px] font-medium tracking-wide uppercase">Panel View Pending</span>
-      <p class="text-[9px] text-slate-600 mt-1 max-w-[100px] leading-normal">Feature integration staged on subbranch.</p>
+    <!-- Comments panel: all pages, document-wide list -->
+    <div class="flex flex-col gap-2 p-2 overflow-y-auto w-full h-[calc(100vh-80px)]" style="color-scheme: dark;">
+      {#if visibleComments.length === 0}
+        <div class="text-center text-[10px] text-slate-600 mt-12 px-3 leading-relaxed">
+          No comments in this document yet. Use the comment bubble on a page to add one.
+        </div>
+      {:else}
+        {#each visibleComments as thread (thread.id)}
+          <div class="rounded-lg border border-slate-900/50 bg-[#0e1321]/40 hover:border-slate-700/40 transition-all overflow-hidden">
+            <div class="p-2.5">
+              <div class="flex items-start justify-between gap-1 mb-1">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span
+                      class="text-[10px] font-semibold text-slate-200 truncate"
+                      title={thread.authorFullName || thread.author}
+                    >{thread.author}</span>
+                    <span class="text-[8px] text-slate-600 font-mono">{formatCommentTime(thread.createdAt)}</span>
+                    <button
+                      onclick={() => jumpToTargetPage(thread.pageNum)}
+                      class="text-[8px] font-bold px-1 py-0.5 rounded bg-slate-900 text-cyan-500/80 uppercase tracking-wider hover:bg-slate-800"
+                      title="Go to page"
+                    >
+                      p.{thread.pageNum}
+                    </button>
+                  </div>
+                </div>
+                <button
+                  onclick={() => deleteCommentAction(thread.id)}
+                  class="p-0.5 rounded text-slate-600 hover:text-red-400 hover:bg-slate-900 shrink-0"
+                  title="Delete thread"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </div>
+              <p class="text-[11px] text-slate-300 leading-relaxed whitespace-pre-wrap break-words font-sans">{thread.text}</p>
+
+              <div class="mt-1.5 flex items-center gap-2">
+                <button
+                  onclick={() => {
+                    openReplyId = openReplyId === thread.id ? null : thread.id;
+                  }}
+                  class="text-[9px] font-bold uppercase tracking-wide text-slate-500 hover:text-cyan-400 transition-colors"
+                >
+                  Reply{(thread.replies?.length || 0) > 0 ? ` (${thread.replies.length})` : ""}
+                </button>
+              </div>
+            </div>
+
+            {#if (thread.replies || []).length > 0}
+              <div class="border-t border-slate-900/60 bg-[#0a0e18]/50 px-2.5 py-1.5 space-y-2">
+                {#each thread.replies || [] as reply (reply.id)}
+                  <div class="pl-2 border-l-2 border-slate-800">
+                    <div class="flex items-start justify-between gap-1">
+                      <div class="flex items-center gap-1.5 min-w-0">
+                        <span
+                          class="text-[9px] font-semibold text-slate-400 truncate"
+                          title={reply.authorFullName || reply.author}
+                        >{reply.author}</span>
+                        <span class="text-[8px] text-slate-600 font-mono">{formatCommentTime(reply.createdAt)}</span>
+                      </div>
+                      <button
+                        onclick={() => deleteReplyAction(thread.id, reply.id)}
+                        class="p-0.5 rounded text-slate-700 hover:text-red-400 shrink-0"
+                        title="Delete reply"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                      </button>
+                    </div>
+                    <p class="text-[10px] text-slate-400 leading-relaxed whitespace-pre-wrap break-words mt-0.5 font-sans">{reply.text}</p>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+
+            {#if openReplyId === thread.id}
+              <div class="border-t border-slate-900/60 p-2 flex flex-col gap-1.5 bg-[#0a0e18]/40">
+                <textarea
+                  value={replyDrafts[thread.id] || ""}
+                  oninput={(e) => {
+                    replyDrafts = {
+                      ...replyDrafts,
+                      [thread.id]: (e.currentTarget as HTMLTextAreaElement).value,
+                    };
+                  }}
+                  rows="2"
+                  placeholder="Write a reply…"
+                  onkeydown={(e) => {
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault();
+                      submitReply(thread.id);
+                    } else if (e.key === "Escape") {
+                      openReplyId = null;
+                    }
+                  }}
+                  class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-200 placeholder-slate-600 resize-none focus:outline-none focus:border-cyan-500/50 font-sans"
+                ></textarea>
+                <div class="flex justify-end gap-1.5">
+                  <button
+                    onclick={() => (openReplyId = null)}
+                    class="px-2 py-0.5 text-[9px] font-bold uppercase text-slate-500 hover:text-slate-300"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onclick={() => submitReply(thread.id)}
+                    disabled={!(replyDrafts[thread.id] || "").trim()}
+                    class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide
+                      {(replyDrafts[thread.id] || "").trim()
+                        ? 'bg-cyan-600/25 text-cyan-300 border border-cyan-500/40'
+                        : 'bg-slate-900 text-slate-600 border border-slate-800 cursor-not-allowed'}"
+                  >
+                    Post reply
+                  </button>
+                </div>
+              </div>
+            {/if}
+          </div>
+        {/each}
+      {/if}
     </div>
   {/if}
 {/if}
