@@ -23,7 +23,7 @@ jobs:
             target: 'aarch64-apple-darwin'
 
           # macOS Intel (for older Macs)
-          - platform: 'macos-13'
+          - platform: 'macos-latest'
             target: 'x86_64-apple-darwin'
 
           # Linux
