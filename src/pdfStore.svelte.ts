@@ -545,13 +545,11 @@ export async function commitActiveDocumentAfterSave(opts: {
  * @param direction +1 next, -1 previous
  */
 export function cycleActiveDocument(direction: 1 | -1) {
-	if (openDocuments.length < 2) return;
+	if (openDocuments.length < 2 || activeDocumentId === null) return;
 	const ids = openDocuments.map(documentKey);
 	const current = Math.max(
 		0,
-		ids.findIndex(
-			(id) => id === activeDocumentId,
-		),
+		ids.indexOf(activeDocumentId),
 	);
 	const next =
 		(current + direction + openDocuments.length) % openDocuments.length;
@@ -636,7 +634,7 @@ export function upsertRecentEntry(
 	if (!filePath) return;
 	try {
 		const name =
-			(fileName && fileName.trim()) ||
+			fileName?.trim() ||
 			filePath.split(/[\\/]/).pop() ||
 			"document.pdf";
 		const pathMatch = (item: RecentFile) =>

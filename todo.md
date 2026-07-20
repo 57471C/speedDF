@@ -22,7 +22,10 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 4. Switch to Bun - could be a big win for speed and bundle size.
 
 ## Fixes
-- [ ] None.
+- [ ] shift multi-click isn't working on shapes (possibly text too).
+- [ ] Percentage Coordinate Calculations: Scaling custom annotation coordinates using percentages handles responsive layout redraws smoothly. However, as heavy vector layers grow or high-density custom paths are drawn, processing structural text layouts might hit rendering delays on weaker hardware profiles.
+- [ ] Form Field Layout Boundaries: Limiting initial widget operations strictly to text inputs, checkboxes, and dropdown strings provides a highly optimized experience. However, you'll need to keep a close eye on incoming documents containing radio group blocks or complex XFA templates, which remain out of scope for now.
+
 
 ---
 - Can't OCR images (only PDF's work)
