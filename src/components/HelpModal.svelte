@@ -21,7 +21,7 @@
           >
           <span
             class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
-            >v1.0.4</span
+            >v1.0.5</span
           >
         </div>
         <button

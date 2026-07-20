@@ -1,15 +1,14 @@
 # Todo List #
 
 ## Features to add ##
-1. Text input memory/forms input memory
-2. Hyperlinks
-3. Forms entry (NOT XFA Forms!) - partially implemented
-4. Froms creation (NOT XFA Forms!)
+1. Add Text input memory/forms input memory (use differnt stores?)
+2. Hyperlinks (rendering/clickable) - security check!
+3. Obeject alignment
+4. R/click tab - "Open in new window" 
+4. Froms creation (NOT XFA Forms!) + huperlinks
 5. comments should have XY co-ords. not stuck at the top of the page.
 
 ## long term goals (may never do)
-1. Obeject alignment
-2. R/click tab - "Open in new window"
 2. tauri-plugin-tts for Text to Speach
 3. True Structural Text Reflow:
 Instead of writing a full structural reflow engine, intermediate tools use a visual masking mask shortcut:
@@ -22,7 +21,8 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 4. Switch to Bun - could be a big win for speed and bundle size.
 
 ## Fixes
-- [ ] shift multi-click isn't working on shapes (possibly text too).
+- [ ] Disable F5 refresh!
+---
 - [ ] Percentage Coordinate Calculations: Scaling custom annotation coordinates using percentages handles responsive layout redraws smoothly. However, as heavy vector layers grow or high-density custom paths are drawn, processing structural text layouts might hit rendering delays on weaker hardware profiles.
 - [ ] Form Field Layout Boundaries: Limiting initial widget operations strictly to text inputs, checkboxes, and dropdown strings provides a highly optimized experience. However, you'll need to keep a close eye on incoming documents containing radio group blocks or complex XFA templates, which remain out of scope for now.
 
