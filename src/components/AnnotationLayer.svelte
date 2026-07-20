@@ -5,6 +5,8 @@
     DEFAULT_TEXT_BOX_H,
     DEFAULT_TEXT_BOX_W,
   } from "../lib/annotation/toolShapes";
+  import { ANNOTATION_TEXT_KEY } from "../lib/forms/formMemory";
+  import ValueMemoryPopover from "./ValueMemoryPopover.svelte";
 
   let {
     pageNumber,
@@ -34,31 +36,132 @@
     getDisplayPoints: (points: { x: number; y: number }[] | undefined) => { x: number; y: number }[];
   }>();
 
+  /** Value-memory popover state for the active text annotation editor. */
+  let textMemoryOpen = $state(false);
+  let textMemoryAnchor = $state<HTMLElement | null>(null);
+  let textMemoryIdx = $state<number | null>(null);
+
+  const annotationMemoryKeys = [ANNOTATION_TEXT_KEY];
+
   function autofocusAction(node: HTMLInputElement | HTMLTextAreaElement) {
     setTimeout(() => {
       node.focus();
+      textMemoryAnchor = node;
+      textMemoryIdx = ix.activelyEditingIndex;
+      textMemoryOpen = true;
     }, 0);
   }
 
-  /** Grow textarea height with content (newlines / wrap) so text isn't clipped.
-   *  Skipped when the text box has a user-resized fixed size (data-fixed-size). */
-  function autoGrowTextarea(node: HTMLTextAreaElement) {
-    function resize() {
-      if (node.dataset.fixedSize === "true") return;
-      node.style.height = "auto";
-      node.style.height = `${Math.max(node.scrollHeight, 24)}px`;
+  function onTextMemoryFocus(idx: number, e: FocusEvent) {
+    textMemoryIdx = idx;
+    textMemoryAnchor = e.currentTarget as HTMLElement;
+    textMemoryOpen = true;
+  }
+
+  function closeTextMemory() {
+    textMemoryOpen = false;
+  }
+
+  function onTextMemoryBlur(idx: number, e: FocusEvent) {
+    const el = e.currentTarget as HTMLInputElement | HTMLTextAreaElement;
+    // Capture the edit session index now — ignore stale blurs for other fields
+    const sessionIdx = ix.activelyEditingIndex;
+    // Popover uses mousedown preventDefault to keep focus; only finalize on true leave
+    requestAnimationFrame(() => {
+      if (document.activeElement === el) return;
+      // Only finalize if this blur belongs to the live edit session
+      if (sessionIdx === null || sessionIdx !== idx) return;
+      if (ix.activelyEditingIndex !== idx) return;
+      textMemoryOpen = false;
+      textMemoryAnchor = null;
+      textMemoryIdx = null;
+      finalizeTextEdit(idx, el);
+    });
+  }
+
+  function onTextMemorySelect(idx: number, value: string) {
+    // Apply only to the focused edit session — never by matching text content
+    const editIdx = ix.activelyEditingIndex;
+    if (editIdx === null || editIdx !== idx) return;
+    const pageShapes = activeDoc.shapes[pageNumber] || [];
+    const shape = pageShapes[editIdx];
+    if (!shape || shape.type !== "text") return;
+
+    // Immutable single-slot update so siblings (even with the same string) stay put
+    const next = pageShapes.slice();
+    next[editIdx] = { ...shape, text: value };
+    activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: next };
+
+    // Keep editing; hide suggestions after pick
+    textMemoryOpen = false;
+    // Re-focus after Svelte patches the bound textarea, then grow to fit
+    requestAnimationFrame(() => {
+      const el = textMemoryAnchor;
+      if (el instanceof HTMLTextAreaElement && el.isConnected) {
+        el.focus();
+        const len = el.value.length;
+        try {
+          el.setSelectionRange(len, len);
+        } catch {
+          /* ignore */
+        }
+        growTextBoxToContent(editIdx, el);
+      }
+    });
+  }
+
+  /**
+   * Grow the text annotation box (and textarea) to fit content / newlines.
+   * Height is stored as % of page so it survives confirm and zoom.
+   */
+  function growTextBoxToContent(idx: number, node: HTMLTextAreaElement) {
+    const pageRoot = node.closest("[data-page-number]") as HTMLElement | null;
+    const pageH = pageRoot?.clientHeight ?? 0;
+    if (pageH <= 0) return;
+    const host = node.parentElement as HTMLElement | null;
+    if (!host) return;
+
+    // Classic measure: collapse height, read scrollHeight, restore
+    const prevHostH = host.style.height;
+    const prevNodeH = node.style.height;
+    host.style.height = "auto";
+    node.style.height = "0px";
+    const neededPx = Math.max(node.scrollHeight, 18);
+    host.style.height = prevHostH;
+    node.style.height = prevNodeH;
+
+    const heightPct = Math.max(
+      DEFAULT_TEXT_BOX_H,
+      (neededPx / pageH) * 100,
+    );
+
+    const pageShapes = activeDoc.shapes[pageNumber] || [];
+    const shape = pageShapes[idx];
+    if (!shape || shape.type !== "text") return;
+
+    const prev = shape.height ?? 0;
+    if (Math.abs(prev - heightPct) >= 0.05) {
+      const next = pageShapes.slice();
+      next[idx] = { ...shape, height: heightPct };
+      activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: next };
     }
-    resize();
-    node.addEventListener("input", resize);
-    // Cover bind:value updates that don't fire input (e.g. programmatic)
-    const obs = new MutationObserver(resize);
-    obs.observe(node, { characterData: true, subtree: true, childList: true });
-    // Also resize after fonts/layout settle
-    requestAnimationFrame(resize);
+    // Fill host (style % applied on next paint; % fallback via h-full)
+    node.style.height = "100%";
+  }
+
+  /** Svelte action: auto-expand text box on input / Enter newlines. */
+  function autoGrowTextBox(node: HTMLTextAreaElement, idx: number) {
+    let index = idx;
+    const onInput = () => growTextBoxToContent(index, node);
+    node.addEventListener("input", onInput);
+    // Initial fit after fonts/layout
+    requestAnimationFrame(() => growTextBoxToContent(index, node));
     return {
+      update(newIdx: number) {
+        index = newIdx;
+      },
       destroy() {
-        node.removeEventListener("input", resize);
-        obs.disconnect();
+        node.removeEventListener("input", onInput);
       },
     };
   }
@@ -262,12 +365,12 @@
         {/if}
       {:else if shape && shape.type === "text"}
         {@const textSelected =
-          activeDoc.selectedShape?.pageNumber === pageNumber &&
-          activeDoc.selectedShape?.index === idx}
+          activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)}
         {@const textEditing = ix.activelyEditingIndex === idx}
         {@const textActive = textSelected || textEditing}
         {@const textW = display.width > 0 ? display.width : DEFAULT_TEXT_BOX_W}
         {@const textH = display.height > 0 ? display.height : DEFAULT_TEXT_BOX_H}
+        {@const textColor = shape.textColor || shape.color || '#000000'}
         <!-- Top-left anchored box: outline + BR handle share this element; only BR resizes -->
         <div
           data-shape-idx={idx}
@@ -275,30 +378,60 @@
             {textActive
               ? 'border border-[#00d2ff] bg-cyan-500/5 rounded-sm shadow-sm'
               : 'border border-transparent hover:border-slate-400/30 rounded-sm'}"
-          style="left: {display.x}%; top: {display.y}%; width: {textW}%; height: {textH}%; color: {shape.textColor || shape.color || '#000000'};"
+          style="left: {display.x}%; top: {display.y}%; width: {textW}%; height: {textH}%; color: {textColor};"
         >
           {#if textEditing && activeDoc.shapes[pageNumber]?.[idx]}
+            {@const editFont = `calc(${shape.size || 12}px * ${Math.max(0.1, Math.abs(zoomScale / 100))})`}
+            {@const editFamily = FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}
+            {@const editWeight = shape.style === 'Bold' ? 'bold' : 'normal'}
+            {@const editStyle = shape.style === 'Italic' ? 'italic' : 'normal'}
+            <!-- Shared metrics with display span to avoid a vertical jump on confirm/blur -->
             <textarea
               bind:value={activeDoc.shapes[pageNumber][idx].text}
               use:autofocusAction
-              data-fixed-size="true"
+              use:autoGrowTextBox={idx}
               onmousedown={(e) => e.stopPropagation()}
-              onblur={(e) => finalizeTextEdit(idx, e.currentTarget)}
+              onfocus={(e) => onTextMemoryFocus(idx, e)}
+              onblur={(e) => onTextMemoryBlur(idx, e)}
               onkeydown={(e) => {
+                // Plain Enter inserts a newline (auto-grow handles height).
+                // Ctrl/Cmd/Shift+Enter commits the text box.
                 if (e.key === "Enter" && (e.shiftKey || e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
+                  textMemoryOpen = false;
+                  textMemoryAnchor = null;
+                  textMemoryIdx = null;
                   finalizeTextEdit(idx, e.currentTarget);
                 } else if (e.key === "Escape") {
+                  textMemoryOpen = false;
+                  textMemoryAnchor = null;
+                  textMemoryIdx = null;
                   finalizeTextEdit(idx, e.currentTarget);
+                } else if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                  // After newline is inserted, grow on next frame
+                  requestAnimationFrame(() =>
+                    growTextBoxToContent(idx, e.currentTarget as HTMLTextAreaElement),
+                  );
                 }
               }}
               rows="1"
-              class="w-full h-full min-w-0 min-h-0 bg-transparent text-black border-0 rounded-sm p-1 text-sm focus:outline-none font-sans block overflow-auto box-border"
+              class="w-full h-full min-w-0 min-h-0 bg-transparent border-0 rounded-none p-0.5 m-0 focus:outline-none font-sans block overflow-hidden box-border"
               class:text-center={shape.alignment === 'center'}
               class:text-right={shape.alignment === 'right'}
               class:text-left={!shape.alignment || shape.alignment === 'left'}
-              style="text-align: {shape.alignment || 'left'}; text-align-last: {shape.alignment || 'left'}; direction: ltr; resize: none; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
+              style="color: {textColor}; caret-color: {textColor}; text-align: {shape.alignment || 'left'}; text-align-last: {shape.alignment || 'left'}; direction: ltr; resize: none; line-height: 1.2; font-size: {editFont}; font-family: {editFamily}; font-weight: {editWeight}; font-style: {editStyle};"
+              autocomplete="off"
             ></textarea>
+            {#if textMemoryIdx === idx}
+              <ValueMemoryPopover
+                open={textMemoryOpen}
+                anchorEl={textMemoryAnchor}
+                memoryKeys={annotationMemoryKeys}
+                currentValue={activeDoc.shapes[pageNumber][idx].text || ""}
+                onSelect={(v) => onTextMemorySelect(idx, v)}
+                onClose={closeTextMemory}
+              />
+            {/if}
           {:else}
             <span
               onmousedown={(e) => startTextDrag(e, idx)}
@@ -306,11 +439,11 @@
                 e.stopPropagation();
                 ix.beginTextEdit(idx);
               }}
-              class="block w-full h-full overflow-hidden whitespace-pre-wrap cursor-move p-0.5 box-border"
+              class="block w-full h-full overflow-hidden whitespace-pre-wrap cursor-move p-0.5 m-0 box-border"
               class:text-center={shape.alignment === 'center'}
               class:text-right={shape.alignment === 'right'}
               class:text-left={!shape.alignment || shape.alignment === 'left'}
-              style="text-align: {shape.alignment || 'left'}; color: {shape.textColor || shape.color || '#000000'}; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
+              style="text-align: {shape.alignment || 'left'}; color: {shape.textColor || shape.color || '#000000'}; line-height: 1.2; font-size: calc({shape.size || 12}px * {Math.max(0.1, Math.abs(zoomScale / 100))}); font-family: {FONT_MAP[shape.font || 'Helvetica']?.css || 'Helvetica, Arial, sans-serif'}; font-weight: {shape.style === 'Bold' ? 'bold' : 'normal'}; font-style: {shape.style === 'Italic' ? 'italic' : 'normal'};"
               >{shape?.text || " "}</span
             >
           {/if}

@@ -293,13 +293,27 @@
         (event.key === "Delete" || event.key === "Backspace") &&
         activeDoc.selectedShape
       ) {
-        if (document.activeElement?.tagName === "INPUT") return true;
+        // Never steal Backspace/Delete from text editing (textarea) or form inputs
+        const el = document.activeElement as HTMLElement | null;
+        const tag = el?.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          el?.isContentEditable
+        ) {
+          return false;
+        }
+        // Also skip while a text annotation edit session is open on this page
+        if (ix.activelyEditingIndex !== null) return false;
+
         pushHistorySnapshot();
         const { pageNumber: targetPage, index: targetIdx } =
           activeDoc.selectedShape;
         const existingList = [...(activeDoc.shapes[targetPage] || [])];
         if (existingList[targetIdx]) {
           activeDoc.selectedShape = null;
+          activeDoc.selectedShapes = [];
           existingList.splice(targetIdx, 1);
           activeDoc.shapes = {
             ...activeDoc.shapes,

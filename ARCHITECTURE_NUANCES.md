@@ -241,10 +241,13 @@ Persist defaults under localStorage key **`speeddf_text_settings`**:
 
 New text shapes still read `activeDoc.activeFontFamily`, `defaultSize`, and `defaultStyle` from the drag handler factory.
 
+On **document open / tab switch**, `resetSessionUiForDocumentSwitch` also sets font to **Helvetica** (UI label: Standard Sans) so each document starts from a predictable default without wiping size/style prefs entirely from disk.
+
 ### Rules
 
 - Persist **defaults**, not per-shape values (selected shapes update the live shape only).
 - Keep validation bounds on size (e.g. 6–200) when loading from storage.
+- Toolbar option value remains `Helvetica` (not “Arial”) — CSS stack may still list Arial as a fallback for rendering.
 
 ---
 
@@ -260,4 +263,82 @@ Stamp picker uses a small **body portal** action (`document.body.appendChild`) s
 
 ---
 
-**Last Updated:** July 2026 (forms + AcroForm signatures, workspaceId / Save As, single-instance warm open, text settings persistence, recents upsert on Save As)
+## Section J: Form & Text Value Memory
+
+### The Problem
+
+Users retype the same names, addresses, and reference numbers across annotations and AcroForm fields. Browser autocomplete is inconsistent inside Tauri webviews and does not span free text annotations.
+
+### The Solution
+
+Lightweight personal memory in localStorage key **`speeddf_form_memory`**:
+
+```ts
+{ version: 1, global: string[], byKey: Record<string, string[]> }
+```
+
+- **Global** MRU list (all text-like fields)
+- **Per-key** lists: `annotation:text`, `form:text`, `form:field:<AcroFormName>`
+- Suggestions require **≥ 2 characters**, case-insensitive **startsWith** only (not substring mid-word)
+- UI: `ValueMemoryPopover.svelte` (body portal — same clipping issue as §I)
+- ★ Remember / × remove one / Clear all
+- Keyboard: ↓↑ highlight, Enter applies when a row is highlighted
+
+### Rules
+
+- Memory is **session/global**, not per-document — intentional for multi-tab work.
+- Apply only to the **focused** field or `activelyEditingIndex` — never scan shapes by matching string value.
+- Do not store memory blobs in PDF Keywords / metadata.
+
+---
+
+## Section K: Text Edit Session Safety (Finalize & Backspace)
+
+### Problems that bit us
+
+1. **`finalizeTextEdit` guard was too loose**  
+   `if (activelyEditingIndex !== null && activelyEditingIndex !== index) return` allowed a second finalize after the session ended (`activelyEditingIndex === null`). Stale blurs (e.g. remount after picking a memory value) could delete/overwrite **another** text shape, especially when values matched.
+
+2. **Global Backspace deleted the selected shape while typing**  
+   `WorkspacePage` Delete/Backspace handler skipped only `INPUT`, not `TEXTAREA`. While editing, the text shape stayed selected, so Backspace removed the whole object instead of a character.
+
+3. **Empty finalize deleted the object**  
+   Clearing the last character and blurring removed the shape; users expect an empty box to remain until they place another text draft (cleaned via `withoutEmptyTextDrafts`).
+
+### The Solution
+
+- Strict session match: `if (activelyEditingIndex !== index) return;`
+- Clear `activelyEditingIndex` **before** mutating shapes so concurrent finalizes no-op.
+- Immutable single-slot patches: `next[index] = { ...shape, text }` — never filter-by-value.
+- Deletion shortcut: ignore when focus is `INPUT` / `TEXTAREA` / `SELECT` / contenteditable, or `ix.activelyEditingIndex !== null`.
+- Empty finalize **keeps** the shape with `text: ""`.
+
+### Rules
+
+- Never finalize “whatever index is in a stale event” after the edit session ends.
+- Never treat Backspace as shape-delete while a text control is focused.
+- Prefer index-based updates for text shapes; value equality is not identity.
+
+---
+
+## Section L: Text Box Auto-Grow & Shape Click-Drop Geometry
+
+### Text auto-grow
+
+Default height is one line via `defaultTextBoxHeightPct(fontSize, pageHeightPx, zoomScale)`. On input/Enter, `AnnotationLayer.growTextBoxToContent` measures `scrollHeight` and writes `shape.height` as **% of page** so multi-line content stays visible without manual BR resize (BR still works for explicit sizing).
+
+### Shape click-drop
+
+If a box-tool gesture is effectively a click (&lt; 2×2 CSS px drag):
+
+- Default size = **`zoomScale * 1.5`** CSS pixels (100% → 150×150).
+- Pointer is the **top-right** corner; shape extends **left and down** (normalize both corners through `normalizeCoordinates` so image rotation stays correct).
+- Drag larger than the threshold still creates freeform size from start→end.
+
+### Multi-select
+
+`hasModifier = e.shiftKey || e.ctrlKey || e.metaKey` on shape move and text select paths. Shift was the missing piece for users who expect OS-style multi-select.
+
+---
+
+**Last Updated:** July 2026 (form/text value memory, text edit session safety, auto-grow + shape drop geometry, Shift multi-select, Helvetica defaults, forms + workspaceId / Save As)
