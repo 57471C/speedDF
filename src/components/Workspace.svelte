@@ -581,7 +581,7 @@
           onchange={handleFontChange}
           class="bg-slate-900 border border-slate-800 text-slate-200 rounded px-2 py-1 text-xs font-medium outline-none focus:border-cyan-500 transition-colors cursor-pointer"
         >
-          <option value="Helvetica" style="font-family: Arial, sans-serif;">Standard Sans (Arial)</option>
+          <option value="Helvetica" style="font-family: Helvetica, Arial, sans-serif;">Standard Sans (Helvetica)</option>
           <option value="Times-Roman" style="font-family: 'Times New Roman', serif;">Standard Serif (Times)</option>
           <option value="Courier" style="font-family: 'Courier New', monospace;">Standard Mono (Courier)</option>
           <option value="Inter" style="font-family: 'Inter', sans-serif;">Modern Corporate (Inter)</option>

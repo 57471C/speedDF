@@ -43,9 +43,34 @@ export function createTickOrDashShape(
 	};
 }
 
-/** Default text box size (% of page) — top-left anchored; grow only via BR handle. */
+/** Default text box width (% of page) — top-left anchored; grow only via BR handle. */
 export const DEFAULT_TEXT_BOX_W = 20;
-export const DEFAULT_TEXT_BOX_H = 5;
+
+/**
+ * Fallback single-line height (% of page) when page metrics are unavailable.
+ * Prefer {@link defaultTextBoxHeightPct} with live page height + font size.
+ */
+export const DEFAULT_TEXT_BOX_H = 1.6;
+
+/**
+ * One row of text as a % of page height.
+ * Matches AnnotationLayer CSS: font-size = sizePx * (zoomScale/100).
+ * Includes a small fixed pad for textarea p-0.5 (2px top + 2px bottom).
+ */
+export function defaultTextBoxHeightPct(
+	fontSize: number | undefined,
+	pageHeightPx: number,
+	zoomScale: number,
+): number {
+	const size = Math.max(6, fontSize ?? 12);
+	const scale = Math.max(0.1, Math.abs(zoomScale) / 100);
+	// Exactly one em row at the rendered font size
+	const linePx = size * scale;
+	const padPx = 4; // p-0.5 top+bottom in CSS px
+	const pct = ((linePx + padPx) / Math.max(1, pageHeightPx)) * 100;
+	// Keep a usable minimum so the caret is still clickable
+	return Math.max(0.4, pct);
+}
 
 export function createTextShape(
 	mousePctX: number,

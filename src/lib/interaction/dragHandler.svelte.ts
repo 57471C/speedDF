@@ -15,6 +15,7 @@ import {
 	createSignatureOrInitialShape,
 	createTextShape,
 	createTickOrDashShape,
+	defaultTextBoxHeightPct,
 	hasEmptyTextDraft,
 	withoutEmptyTextDrafts,
 } from "../annotation/toolShapes";
@@ -58,6 +59,8 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 	let liveHighlightPoints = $state<{ x: number; y: number }[]>([]);
 
 	let activelyEditingIndex = $state<number | null>(null);
+	/** Snapshot of text when edit began — guards against accidental empty-delete on blur. */
+	let textEditBaseline = "";
 	let draggingHandle = $state<string | null>(null);
 	let initialShapeState = $state<{
 		x: number;
@@ -202,15 +205,39 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			};
 		}
 
+		const zoom = Math.max(5, Math.abs(getZoomScale()));
+		const pageContainer = getPageContainer();
+		let pageHeightPx = 0;
+		if (activeDoc.fileType === "image") {
+			const rot = activeDoc.imageRotation || 0;
+			const baseH =
+				rot === 90 || rot === 270
+					? getBasePageWidth()
+					: getBasePageHeight();
+			pageHeightPx = Math.max(1, baseH) * (zoom / 100);
+		} else if (pageContainer) {
+			pageHeightPx = pageContainer.getBoundingClientRect().height;
+		}
+		if (pageHeightPx <= 0) {
+			pageHeightPx = 792 * (zoom / 100);
+		}
+		const textHeight = defaultTextBoxHeightPct(
+			activeDoc.defaultSize,
+			pageHeightPx,
+			zoom,
+		);
+
 		const newTextShape = createTextShape(mousePctX, mousePctY, {
 			fontFamily: activeDoc.activeFontFamily,
 			size: activeDoc.defaultSize,
 			style: activeDoc.defaultStyle,
 			color: activeDoc.activeColor,
 			alignment: activeDoc.activeTextAlignment || "left",
+			height: textHeight,
 		});
 		const newIndex = addShapeToPage(newTextShape);
 		activelyEditingIndex = newIndex;
+		textEditBaseline = "";
 		// Keep single-select + selectedShapes in sync so toolbar alignment/font
 		// setters patch this shape immediately while editing.
 		const sel = { pageNumber, index: newIndex };
@@ -306,6 +333,23 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		}
 	}
 
+	function toggleMultiSelect(pageNumber: number, index: number) {
+		const existsIdx = activeDoc.selectedShapes.findIndex(
+			(s) => s.pageNumber === pageNumber && s.index === index,
+		);
+		if (existsIdx > -1) {
+			activeDoc.selectedShapes = activeDoc.selectedShapes.filter(
+				(_, i) => i !== existsIdx,
+			);
+		} else {
+			activeDoc.selectedShapes = [
+				...activeDoc.selectedShapes,
+				{ pageNumber, index },
+			];
+		}
+		activeDoc.selectedShape = activeDoc.selectedShapes[0] || null;
+	}
+
 	function initShapeMove(e: MouseEvent, index: number) {
 		const pageContainer = getPageContainer();
 		const pageNumber = getPageNumber();
@@ -313,23 +357,15 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			return;
 		e.stopPropagation();
 
-		const hasModifier = e.ctrlKey || e.metaKey;
+		// Shift (and Ctrl/Cmd) multi-select — toggle without starting a drag
+		const hasModifier = e.shiftKey || e.ctrlKey || e.metaKey;
 		const isAlreadySelected = activeDoc.selectedShapes.some(
 			(s) => s.pageNumber === pageNumber && s.index === index,
 		);
 
 		if (hasModifier) {
-			// Toggle membership in the multi-select collection
-			const existsIdx = activeDoc.selectedShapes.findIndex(
-				(s) => s.pageNumber === pageNumber && s.index === index,
-			);
-			if (existsIdx > -1) {
-				activeDoc.selectedShapes.splice(existsIdx, 1);
-			} else {
-				activeDoc.selectedShapes.push({ pageNumber, index });
-			}
-			activeDoc.selectedShape = activeDoc.selectedShapes[0] || null;
-			return; // Toggling selection should not initiate a drag
+			toggleMultiSelect(pageNumber, index);
+			return;
 		} else {
 			if (!isAlreadySelected) {
 				activeDoc.selectedShapes = [{ pageNumber, index }];
@@ -387,8 +423,20 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		e.stopPropagation();
 		e.preventDefault();
 
-		activeDoc.selectedShape = { pageNumber, index };
-		activeDoc.selectedShapes = [{ pageNumber, index }];
+		// Shift/Ctrl/Cmd multi-select for text (same as shapes)
+		const hasModifier = e.shiftKey || e.ctrlKey || e.metaKey;
+		if (activeDoc.activeTool === "select" && hasModifier) {
+			toggleMultiSelect(pageNumber, index);
+			return;
+		}
+
+		const isAlreadySelected = activeDoc.selectedShapes.some(
+			(s) => s.pageNumber === pageNumber && s.index === index,
+		);
+		if (!isAlreadySelected || activeDoc.selectedShapes.length <= 1) {
+			activeDoc.selectedShape = { pageNumber, index };
+			activeDoc.selectedShapes = [{ pageNumber, index }];
+		}
 
 		pushHistorySnapshot();
 
@@ -745,28 +793,40 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		const widthPixels = Math.abs(finalCurrentX - startX);
 		const heightPixels = Math.abs(finalCurrentY - startY);
 
+		const boxOpts = {
+			color: activeDoc.activeColor,
+			thickness: activeDoc.activeThickness,
+			lineStyle: activeDoc.activeLineStyle,
+		};
+		const toolType = activeDoc.activeTool as AnnotationShape["type"];
+
+		let newShape: AnnotationShape;
 		if (widthPixels > 2 && heightPixels > 2) {
+			// Drag-to-size
 			const startNorm = normalizeCoordinates(startX, startY);
+			const endNorm = normalizeCoordinates(finalCurrentX, finalCurrentY);
+			newShape = createBoxShape(toolType, startNorm, endNorm, boxOpts);
+		} else {
+			// Click-to-drop: default size = 1.5× zoom level (100% → 150×150px).
+			// Pointer is the top-right corner; shape extends left and down.
+			const zoom = Math.max(5, Math.abs(getZoomScale()));
+			const defaultSizePx = zoom * 1.5;
+			const startNorm = normalizeCoordinates(
+				startX - defaultSizePx,
+				startY,
+			);
 			const endNorm = normalizeCoordinates(
-				finalCurrentX,
-				finalCurrentY,
+				startX,
+				startY + defaultSizePx,
 			);
-			const newShape = createBoxShape(
-				activeDoc.activeTool as AnnotationShape["type"],
-				startNorm,
-				endNorm,
-				{
-					color: activeDoc.activeColor,
-					thickness: activeDoc.activeThickness,
-					lineStyle: activeDoc.activeLineStyle,
-				},
-			);
-			const existing = activeDoc.shapes[pageNumber] || [];
-			activeDoc.shapes = {
-				...activeDoc.shapes,
-				[pageNumber]: [...existing, newShape],
-			};
+			newShape = createBoxShape(toolType, startNorm, endNorm, boxOpts);
 		}
+
+		const existing = activeDoc.shapes[pageNumber] || [];
+		activeDoc.shapes = {
+			...activeDoc.shapes,
+			[pageNumber]: [...existing, newShape],
+		};
 	}
 
 	function initHandleDrag(
@@ -854,42 +914,52 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		element: HTMLInputElement | HTMLTextAreaElement,
 	) {
 		const pageNumber = getPageNumber();
-		if (
-			!element.isConnected ||
-			(activelyEditingIndex !== null && activelyEditingIndex !== index)
-		)
-			return;
-		const existing = activeDoc.shapes[pageNumber] || [];
-		if (existing[index]) {
-			const textInputString = element.value;
-			if (textInputString.trim().length === 0) {
-				// STEP A: Explicitly isolate and clear active tracking variables first so nothing points to the target index
-				activeDoc.selectedShape = null;
-				activeDoc.selectedShapes = [];
-				activelyEditingIndex = null;
+		// Strict session match: only the currently editing index may finalize.
+		// Stale blurs (memory pick remount, recycled each-nodes, second rAF) used
+		// to slip through when activelyEditingIndex was already null and then
+		// delete/overwrite a *different* text field whose value happened to match.
+		if (activelyEditingIndex !== index) return;
 
-				// STEP B: Perform the state array cleanup pass only after trackers are safe
-				const updated = existing.filter((_, idx) => idx !== index);
-				activeDoc.shapes = {
-					...activeDoc.shapes,
-					[pageNumber]: updated,
-				};
-			} else {
-				existing[index].text = textInputString.trim();
-				activeDoc.shapes = {
-					...activeDoc.shapes,
-					[pageNumber]: [...existing],
-				};
-				activelyEditingIndex = null;
-				pushHistorySnapshot();
-			}
-		} else {
+		const existing = activeDoc.shapes[pageNumber] || [];
+		const shape = existing[index];
+		if (!shape || shape.type !== "text") {
 			activelyEditingIndex = null;
+			textEditBaseline = "";
+			return;
+		}
+
+		// Trust the live editor while it is still mounted. If blur unmounted it first
+		// (focus race / select-tool click), fall back to bound text then edit baseline
+		// so an existing annotation is never accidentally deleted as "empty".
+		const finalText = (
+			element.isConnected
+				? element.value
+				: shape.text || textEditBaseline || ""
+		).trim();
+
+		// End the session first so any concurrent/stale finalize calls no-op.
+		activelyEditingIndex = null;
+		const baseline = textEditBaseline;
+		textEditBaseline = "";
+
+		// Keep the text object even when empty (user may clear via Backspace).
+		// Empty drafts are cleaned when placing a new text box (withoutEmptyTextDrafts).
+		const next = existing.slice();
+		next[index] = { ...shape, text: finalText };
+		activeDoc.shapes = {
+			...activeDoc.shapes,
+			[pageNumber]: next,
+		};
+		// Avoid noisy history when nothing changed vs baseline
+		if (finalText !== baseline.trim()) {
+			pushHistorySnapshot();
 		}
 	}
 
 	function beginTextEdit(index: number) {
 		const pageNumber = getPageNumber();
+		const shape = activeDoc.shapes[pageNumber]?.[index];
+		textEditBaseline = shape?.text ?? "";
 		activelyEditingIndex = index;
 		const sel = { pageNumber, index };
 		activeDoc.selectedShape = sel;

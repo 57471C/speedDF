@@ -416,13 +416,18 @@ function findOpenDocument(id: string | null | undefined): DocumentWorkspace | nu
 
 /**
  * Clear selection + undo/redo when switching or closing documents so history
- * never crosses document boundaries.
+ * never crosses document boundaries. Also reset text tool defaults for a
+ * clean start on each document (Standard Sans / Helvetica).
  */
 function resetSessionUiForDocumentSwitch() {
 	selectedShape = null;
 	selectedShapes = [];
 	undoStack.length = 0;
 	redoStack.length = 0;
+	// Direct assign (selection already cleared)
+	activeFontFamily = "Helvetica";
+	defaultFont = "Helvetica";
+	persistTextSettings({ fontFamily: "Helvetica" });
 }
 
 /**

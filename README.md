@@ -93,6 +93,20 @@ Page restructuring utilises strict immutable list reconciliation tracking loops 
 
 ### 10. Real text annotations ###
 * **Real text annotations:** Text annotations in speedDF are stored as real PDF text objects (not flattened drawings), so they remain selectable and editable after export.
+* **Live colour & type:** The editing textarea uses the active toolbar colour (`activeColor` / `textColor`) and the selected font (Standard Sans maps to **Helvetica**). Default text-box height is a single line scaled to the current font size; the box auto-grows vertically when you press Enter for new lines.
+* **Text tool defaults:** Font / size / style / alignment persist across sessions (`speeddf_text_settings`). On document open or tab switch, the text font resets to Helvetica for a clean start.
+
+### 11. Form & text value memory ###
+* **Remember common values:** While typing in a free text annotation or an AcroForm text field, type at least two characters to open a lightweight autocomplete of saved values (case-insensitive **starts-with** match).
+* **★ Remember this value** stores the current string in `localStorage` (`speeddf_form_memory`) — global list plus per field-type / field-name lists.
+* Each suggestion has an **×** to forget that entry; **Clear all** wipes the memory store.
+* **Keyboard:** ↓ / ↑ highlight a row; **Enter** applies the highlighted value (plain Enter still inserts a newline when nothing is highlighted).
+* Memory is **personal and cross-document** (not per file), so multi-tab work stays fast without leaking values into the PDF binary.
+
+### 12. Shape drop & multi-select polish ###
+* **Click-to-drop shapes:** A short click (no drag) places a default square sized at **1.5× zoom level** in CSS pixels (100% zoom → 150×150). The pointer sits on the **top-right** corner; the shape extends left and down.
+* **Drag-to-size** still works for freeform boxes (rect / oval / filled variants).
+* **Multi-select:** **Shift+Click** (and Ctrl/Cmd+Click) toggles shapes and text into a group for batch move / property edits.
 
 ---
 
@@ -127,7 +141,7 @@ Visual background downloader streams tracking remote binary models fetching upda
 Custom color-scheme inputs automatically tracking desktop configuration switches to map dark popover pickers natively. The color picker and toolbar controls inherit the system dark mode preference and render consistently across Windows and macOS webview engines.
 
 ### 9. Visual Grouping Overrides
-High-efficiency temporary multi-select operations initialized cleanly via `Ctrl+Click` modifier triggers. Selected shape groups can be batch-modified for color, thickness, and line style through the toolbar, with all mutations tracked through the undo/redo history stack.
+High-efficiency temporary multi-select operations via **Shift+Click** and **Ctrl/Cmd+Click**. Selected shape groups (including text boxes) can be batch-modified for color, thickness, and line style through the toolbar, with all mutations tracked through the undo/redo history stack.
 
 ### 10. Parallelized Core TIFF Decoding
 Vectorized background decoding pipelines utilizing optimized multi-page system conversions. The Rust `tiff` crate processes packed 1-bit, 8-bit grayscale, RGB, and RGBA TIFF images through a compile-time lookup table (`TIFF_1BIT_LUT`) for maximum throughput, with results streamed as PNG byte vectors.
@@ -196,7 +210,10 @@ npx tauri build --debug
 ## Keyboard Shortcut Matrix
 
 * **? / F1** : Toggles the operational system help control panel and licensing modal layout
-* **Delete / Backspace** : Drops selected items (Select Mode)
+* **Delete / Backspace** : Drops selected items (Select Mode only — ignored while typing in a text box or form field)
+* **Shift+Click** / **Ctrl+Click** / **Cmd+Click** : Toggle multi-select on shapes and text annotations
+* **↓ / ↑** then **Enter** : Navigate and apply a remembered value in the text/form autocomplete popdown
+* **Enter** (text edit) : Insert newline (box auto-grows); **Ctrl/Cmd/Shift+Enter** commits the text box
 * **Ctrl + Right Arrow** : Shifts active page orientation 90° Clockwise
 * **Ctrl + Left Arrow** : Shifts active page orientation 90° Counter-Clockwise
 * **F12** : Toggles Chrome DevTools Window (Unlocked Only)
@@ -220,6 +237,8 @@ npx tauri build --debug
 - [x] Telemetry timer relocation to true UI click boundary for accurate perceived-latency metrics.
 - [x] Svelte 5 reactivity feedback loop prevention via `untrack()` guards.
 - [x] Recent Document structural layout caching for instant skeleton hydration.
+- [x] Form & text value memory (localStorage autocomplete for annotations + AcroForm text).
+- [x] Text/shape polish: colour-matched editing, zoom-scaled shape drop, Shift multi-select, auto-growing text boxes.
 
 ---
 

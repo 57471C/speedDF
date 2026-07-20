@@ -11,10 +11,15 @@
     type FormFieldValue,
   } from "../lib/forms/formFields";
   import {
+    FORM_TEXT_TYPE_KEY,
+    formFieldMemoryKey,
+  } from "../lib/forms/formMemory";
+  import {
     initialsFromName,
     setCommentAuthorProfile,
     signatureSetLabel,
   } from "../lib/comments/comments";
+  import ValueMemoryPopover from "./ValueMemoryPopover.svelte";
 
   let { pageNumber } = $props<{ pageNumber: number }>();
 
@@ -33,6 +38,11 @@
   /** Document id when picker opened — multi-tab safe apply. */
   let pickingDocId = $state<string | null>(null);
 
+  /** Text field with open value-memory popover. */
+  let memoryFieldName = $state<string | null>(null);
+  let memoryAnchor = $state<HTMLElement | null>(null);
+  let memoryDraft = $state("");
+
   function fieldValue(field: FormFieldDef): FormFieldValue {
     const v = activeDoc.formValues?.[field.name];
     if (v !== undefined) return v;
@@ -40,10 +50,56 @@
     return "";
   }
 
+  function memoryKeysForField(field: FormFieldDef): string[] {
+    return [formFieldMemoryKey(field.name), FORM_TEXT_TYPE_KEY];
+  }
+
+  function onTextFocus(field: FormFieldDef, e: FocusEvent) {
+    if (field.readOnly) return;
+    const el = e.currentTarget as HTMLInputElement;
+    memoryFieldName = field.name;
+    memoryAnchor = el;
+    memoryDraft = el.value;
+  }
+
+  function closeFieldMemory() {
+    memoryFieldName = null;
+    memoryAnchor = null;
+  }
+
+  function onTextBlur(field: FormFieldDef) {
+    // Delay so popover mousedown can preventDefault and keep focus first
+    requestAnimationFrame(() => {
+      if (
+        memoryFieldName === field.name &&
+        document.activeElement !== memoryAnchor
+      ) {
+        closeFieldMemory();
+      }
+    });
+  }
+
   function onTextInput(field: FormFieldDef, e: Event) {
     if (field.readOnly) return;
     const el = e.currentTarget as HTMLInputElement | HTMLTextAreaElement;
     setFormFieldValueAction(field.name, el.value);
+    if (memoryFieldName === field.name) {
+      memoryDraft = el.value;
+      memoryAnchor = el;
+    }
+  }
+
+  function onMemorySelect(field: FormFieldDef, value: string) {
+    // Only the focused field may receive a remembered value
+    if (memoryFieldName !== field.name) return;
+    setFormFieldValueAction(field.name, value);
+    memoryDraft = value;
+    // Close autocomplete after pick; field stays focused for further edits
+    memoryFieldName = null;
+    if (memoryAnchor instanceof HTMLInputElement) {
+      memoryAnchor.value = value;
+      memoryAnchor.focus();
+    }
   }
 
   function onCheckboxChange(field: FormFieldDef, e: Event) {
@@ -156,6 +212,8 @@
             type="text"
             value={String(fieldValue(field) ?? "")}
             oninput={(e) => onTextInput(field, e)}
+            onfocus={(e) => onTextFocus(field, e)}
+            onblur={() => onTextBlur(field)}
             onmousedown={stopBubble}
             onpointerdown={stopBubble}
             readonly={field.readOnly}
@@ -163,7 +221,18 @@
             title={field.name}
             class="form-field-input w-full h-full"
             class:form-field-readonly={field.readOnly}
+            autocomplete="off"
           />
+          {#if memoryFieldName === field.name && !field.readOnly}
+            <ValueMemoryPopover
+              open={true}
+              anchorEl={memoryAnchor}
+              memoryKeys={memoryKeysForField(field)}
+              currentValue={memoryDraft}
+              onSelect={(v) => onMemorySelect(field, v)}
+              onClose={closeFieldMemory}
+            />
+          {/if}
         {:else if field.type === "checkbox"}
           <label
             class="form-field-checkbox-wrap w-full h-full flex items-center justify-center cursor-pointer"
