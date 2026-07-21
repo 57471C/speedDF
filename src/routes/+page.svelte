@@ -88,9 +88,9 @@
   const originalSpansMap = new Map<HTMLElement, string>();
 
   function clearHighlights() {
-    originalSpansMap.forEach((origHTML, element) => {
+    originalSpansMap.forEach((origText, element) => {
       if (element.isConnected) {
-        element.innerHTML = origHTML;
+        element.textContent = origText;
       }
     });
     originalSpansMap.clear();
@@ -255,7 +255,7 @@
       if (!testRe.test(text)) return;
 
       if (!originalSpansMap.has(el)) {
-        originalSpansMap.set(el, el.innerHTML);
+        originalSpansMap.set(el, el.textContent || "");
       }
 
       // Determine if this span is the "current" global match for this page
@@ -270,9 +270,17 @@
         : "bg-yellow-400 text-slate-950 rounded-sm px-0.5";
 
       const paintRe = buildSearchRegex(searchQuery);
-      el.innerHTML = originalSpansMap.get(el)!.replace(paintRe, (m) => {
-        return `<mark class="${highlightClass}">${escapeHtml(m)}</mark>`;
-      });
+      const originalText = originalSpansMap.get(el)!;
+      const parts = originalText.split(paintRe);
+      let newHTML = "";
+      for (let i = 0; i < parts.length; i++) {
+        if (i % 2 === 0) {
+          newHTML += escapeHtml(parts[i]);
+        } else {
+          newHTML += `<mark class="${highlightClass}">${escapeHtml(parts[i])}</mark>`;
+        }
+      }
+      el.innerHTML = newHTML;
 
       // Bind first matching span element for scroll centering
       if (pageMatchIndices.length > 0) {
