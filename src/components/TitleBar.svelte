@@ -92,19 +92,26 @@
           const outline = await pdfDocument.getOutline();
           if (outline && outline.length > 0) {
             const loadedBookmarks = [];
-            for (const item of outline) {
-              let pageNum = 1;
-              if (item.dest) {
-                let destObj: any = item.dest;
-                if (typeof destObj === 'string') {
-                  destObj = await pdfDocument.getDestination(destObj);
-                }
-                if (Array.isArray(destObj) && destObj[0]) {
-                  const pageIndex = await pdfDocument.getPageIndex(destObj[0]);
-                  pageNum = pageIndex + 1;
-                }
-              }
-              loadedBookmarks.push({ pageNum, name: item.title || "" });
+            const BATCH_SIZE = 50;
+            for (let i = 0; i < outline.length; i += BATCH_SIZE) {
+              const batch = outline.slice(i, i + BATCH_SIZE);
+              const results = await Promise.all(
+                batch.map(async (item) => {
+                  let pageNum = 1;
+                  if (item.dest) {
+                    let destObj: any = item.dest;
+                    if (typeof destObj === 'string') {
+                      destObj = await pdfDocument.getDestination(destObj);
+                    }
+                    if (Array.isArray(destObj) && destObj[0]) {
+                      const pageIndex = await pdfDocument.getPageIndex(destObj[0]);
+                      pageNum = pageIndex + 1;
+                    }
+                  }
+                  return { pageNum, name: item.title || "" };
+                })
+              );
+              loadedBookmarks.push(...results);
             }
             activeDoc.bookmarks = loadedBookmarks;
           } else {
