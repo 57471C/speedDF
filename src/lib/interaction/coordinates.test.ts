@@ -45,11 +45,7 @@ describe("getDisplayCoords", () => {
 
 	it("rotates bounds for 180° image", () => {
 		expect(
-			getDisplayCoords(
-				{ x: 10, y: 20, width: 30, height: 40 },
-				"image",
-				180,
-			),
+			getDisplayCoords({ x: 10, y: 20, width: 30, height: 40 }, "image", 180),
 		).toEqual({ x: 60, y: 40, width: 30, height: 40 });
 	});
 });

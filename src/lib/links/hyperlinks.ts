@@ -74,8 +74,18 @@ type PdfJsPageProxy = {
 		height: number;
 		convertToViewportPoint: (x: number, y: number) => number[];
 	};
-	getAnnotations: (params?: { intent?: string }) => Promise<any[]>;
+	getAnnotations: (params?: { intent?: string }) => Promise<PdfJsAnnotation[]>;
 	rotate?: number;
+};
+
+type PdfJsAnnotation = {
+	subtype?: string;
+	url?: string;
+	unsafeUrl?: string;
+	action?: string | { uri?: string; url?: string };
+	dest?: unknown;
+	rect?: number[];
+	[key: string]: unknown;
 };
 
 type PdfJsDocumentProxy = {
@@ -106,7 +116,7 @@ export async function extractHyperlinksFromDocument(
 		const pageW = viewport.width || 1;
 		const pageH = viewport.height || 1;
 
-		let annotations: any[] = [];
+		let annotations: PdfJsAnnotation[] = [];
 		try {
 			annotations = await page.getAnnotations({ intent: "display" });
 		} catch {
@@ -115,7 +125,7 @@ export async function extractHyperlinksFromDocument(
 
 		let linkIndex = 0;
 		for (const ann of annotations || []) {
-			if (!ann || ann.subtype !== "Link") continue;
+			if (ann?.subtype !== "Link") continue;
 
 			// pdf.js sets `url` for safe-ish URIs; `unsafeUrl` is the raw string
 			const candidate =
@@ -173,16 +183,16 @@ export async function extractHyperlinks(
 			// Match other call sites; workers/fonts already configured app-wide
 			cMapUrl:
 				typeof window !== "undefined"
-					? window.location.origin + "/cmaps/"
+					? `${window.location.origin}/cmaps/`
 					: undefined,
 			cMapPacked: true,
 			standardFontDataUrl:
 				typeof window !== "undefined"
-					? window.location.origin + "/standard_fonts/"
+					? `${window.location.origin}/standard_fonts/`
 					: undefined,
 			wasmUrl:
 				typeof window !== "undefined"
-					? window.location.origin + "/"
+					? `${window.location.origin}/`
 					: undefined,
 		});
 		const pdf = (await loadingTask.promise) as unknown as PdfJsDocumentProxy;

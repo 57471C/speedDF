@@ -27,11 +27,14 @@
     onRequestClose,
     onRequestCloseAll,
     recentFiles = [],
+    fileStatusMap = {},
     onOpenRecent,
   }: {
     onRequestClose: (docId: string) => void;
     onRequestCloseAll: () => void;
     recentFiles?: RecentItem[];
+    /** path → exists on disk; missing keys treated as available */
+    fileStatusMap?: Record<string, boolean>;
     onOpenRecent?: (name: string, path: string) => void;
   } = $props();
 
@@ -54,7 +57,7 @@
     return base.length > 28 ? base.slice(0, 25) + "…" : base;
   }
 
-  /** Recents not already open as a tab (by path). */
+  /** Recents not already open as a tab (by path). Unavailable files stay listed. */
   let availableRecents = $derived.by(() => {
     const openPaths = new Set(
       activeDoc.openDocuments
@@ -63,7 +66,7 @@
     );
     return (recentFiles || [])
       .filter((r) => r.path && !openPaths.has(r.path.toLowerCase()))
-      .slice(0, 10);
+      .slice(0, 12);
   });
 
   function scrollActiveTabIntoView() {
@@ -227,20 +230,28 @@
             </div>
           {:else}
             {#each availableRecents as rec}
+              {@const exists = fileStatusMap[rec.path] !== false}
               <button
                 type="button"
-                class="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-slate-900/80 transition-colors"
+                class="w-full flex items-center gap-2 px-3 py-2 text-left transition-colors
+                  {exists
+                    ? 'hover:bg-slate-900/80 cursor-pointer'
+                    : 'opacity-45 cursor-default'}"
+                aria-disabled={!exists}
                 onclick={() => {
+                  if (!exists) return;
                   showRecentMenu = false;
                   onOpenRecent?.(rec.name, rec.path);
                 }}
-                title={rec.path}
+                title={exists ? rec.path : "File unavailable on disk"}
               >
                 {#if rec.thumbnail}
                   <img
                     src={rec.thumbnail}
                     alt=""
-                    class="w-8 h-10 object-cover rounded border border-slate-800 shrink-0 bg-slate-950"
+                    class="w-8 h-10 object-cover rounded border border-slate-800 shrink-0 bg-slate-950 {exists
+                      ? ''
+                      : 'grayscale brightness-75'}"
                   />
                 {:else}
                   <div
@@ -250,11 +261,15 @@
                   </div>
                 {/if}
                 <div class="min-w-0 flex-1">
-                  <div class="text-[11px] font-medium text-slate-200 truncate">
+                  <div
+                    class="text-[11px] font-medium truncate {exists
+                      ? 'text-slate-200'
+                      : 'text-slate-500'}"
+                  >
                     {rec.name}
                   </div>
                   <div class="text-[9px] text-slate-600 truncate">
-                    {rec.path}
+                    {exists ? rec.path : "Unavailable"}
                   </div>
                 </div>
               </button>
@@ -393,5 +408,10 @@
   }
   .doc-tab-strip::-webkit-scrollbar-track {
     background: transparent;
+  }
+
+  /* Unavailable rows stay listed; never show the forbidden (not-allowed) cursor */
+  button[aria-disabled="true"] {
+    cursor: default !important;
   }
 </style>

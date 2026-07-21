@@ -5,13 +5,13 @@
 
 import {
 	clearFormMemory as clearPure,
+	type FormMemoryData,
 	isRemembered as isRememberedPure,
 	loadFormMemory,
 	persistFormMemory,
 	rememberValue as rememberPure,
 	removeValue as removePure,
 	suggestionsFor as suggestionsPure,
-	type FormMemoryData,
 } from "./formMemory";
 
 let data = $state<FormMemoryData>(loadFormMemory());

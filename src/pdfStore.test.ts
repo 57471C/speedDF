@@ -105,7 +105,10 @@ describe("setFormFieldValueAction", () => {
 	it("should update an existing value correctly without losing other keys", () => {
 		activeDoc.formValues = { field1: "oldValue1", field2: "value2" };
 		setFormFieldValueAction("field1", "newValue1");
-		expect(activeDoc.formValues).toEqual({ field1: "newValue1", field2: "value2" });
+		expect(activeDoc.formValues).toEqual({
+			field1: "newValue1",
+			field2: "value2",
+		});
 		expect(activeDoc.isDirty).toBe(true);
 	});
 

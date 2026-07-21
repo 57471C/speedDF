@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	arrowHeadSizePct,
 	arrowHeadVertices,
 	createBoxShape,
 	createFreehandShape,
@@ -9,6 +10,7 @@ import {
 	defaultTextBoxHeightPct,
 	hasEmptyTextDraft,
 	lineBoundsFromPoints,
+	lineStrokeEndpoints,
 	withoutEmptyTextDrafts,
 } from "./toolShapes";
 
@@ -59,6 +61,20 @@ describe("createFreehandShape", () => {
 		expect(s.y).toBe(2);
 		expect(s.points).toEqual(pts);
 		expect(s.points).not.toBe(pts);
+	});
+
+	it("forces yellow translucent highlight regardless of toolbar color", () => {
+		const pts = [
+			{ x: 1, y: 2 },
+			{ x: 3, y: 4 },
+		];
+		const s = createFreehandShape("highlight", pts, {
+			color: "#00ff00",
+			thickness: 9,
+		});
+		expect(s.type).toBe("highlight");
+		expect(s.color).toBe("#fff200");
+		expect(s.thickness).toBe(2);
 	});
 });
 
@@ -120,6 +136,58 @@ describe("arrowHeadVertices", () => {
 		// Wings sit behind the tip along -x
 		expect(verts[1].x).toBeLessThan(10);
 		expect(verts[2].x).toBeLessThan(10);
+	});
+});
+
+describe("arrowHeadSizePct", () => {
+	it("scales with thickness and has a usable floor", () => {
+		expect(arrowHeadSizePct(3)).toBeCloseTo(1.55, 5);
+		expect(arrowHeadSizePct(10)).toBeCloseTo(5, 5);
+		expect(arrowHeadSizePct(undefined)).toBeCloseTo(1.55, 5);
+	});
+});
+
+describe("arrowHeadVertices slender angle", () => {
+	it("keeps wings close to the shaft (narrow wing span)", () => {
+		const size = 2;
+		const verts = arrowHeadVertices({ x: 0, y: 0 }, { x: 10, y: 0 }, size);
+		// Wing half-width ≈ size * 0.32
+		expect(Math.abs(verts[1].y)).toBeCloseTo(size * 0.32, 5);
+		expect(Math.abs(verts[2].y)).toBeCloseTo(size * 0.32, 5);
+	});
+});
+
+describe("lineStrokeEndpoints", () => {
+	it("leaves plain lines unchanged", () => {
+		const start = { x: 0, y: 0 };
+		const end = { x: 10, y: 0 };
+		expect(lineStrokeEndpoints(start, end, "plain", 2)).toEqual({
+			start,
+			end,
+		});
+	});
+
+	it("shortens the end when arrow is on the tip", () => {
+		const { start, end } = lineStrokeEndpoints(
+			{ x: 0, y: 0 },
+			{ x: 10, y: 0 },
+			"end",
+			2,
+		);
+		expect(start).toEqual({ x: 0, y: 0 });
+		expect(end.x).toBeCloseTo(8, 5);
+		expect(end.y).toBeCloseTo(0, 5);
+	});
+
+	it("shortens both ends for double arrows", () => {
+		const { start, end } = lineStrokeEndpoints(
+			{ x: 0, y: 0 },
+			{ x: 10, y: 0 },
+			"both",
+			2,
+		);
+		expect(start.x).toBeCloseTo(2, 5);
+		expect(end.x).toBeCloseTo(8, 5);
 	});
 });
 

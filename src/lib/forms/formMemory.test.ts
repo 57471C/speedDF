@@ -49,9 +49,7 @@ describe("formMemory", () => {
 			"ja",
 		);
 		expect(filtered).toEqual(["Jane Doe"]);
-		expect(
-			suggestionsFor(data, ["form:field:Name"], "ne"),
-		).toEqual([]); // "Jane" contains "ne" but does not start with it
+		expect(suggestionsFor(data, ["form:field:Name"], "ne")).toEqual([]); // "Jane" contains "ne" but does not start with it
 
 		const jo = suggestionsFor(data, ["form:field:Name"], "jo");
 		expect(jo[0]).toBe("John Smith");

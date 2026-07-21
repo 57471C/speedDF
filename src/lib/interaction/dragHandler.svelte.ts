@@ -4,8 +4,8 @@
  */
 
 import {
-	activeDoc,
 	type AnnotationShape,
+	activeDoc,
 	pushHistorySnapshot,
 } from "../../pdfStore.svelte";
 import { cacheStampDimensions } from "../annotation/ghostDimensions";
@@ -25,13 +25,13 @@ import {
 	getDisplayCoords as getDisplayCoordsPure,
 	getDisplayPoints as getDisplayPointsPure,
 	normalizeCoordinates as normalizeCoordinatesPure,
-	type RectPct,
 	type PointPct,
+	type RectPct,
 } from "./coordinates";
 import { clampPct, computeResizedBounds } from "./resizeMath";
 import { isBoxShapeTool, SHAPE_TYPES_LIST } from "./shapeTypes";
 
-export { SHAPE_TYPES_LIST, isBoxShapeTool } from "./shapeTypes";
+export { isBoxShapeTool, SHAPE_TYPES_LIST } from "./shapeTypes";
 
 export type PageInteractionDeps = {
 	getPageNumber: () => number;
@@ -59,6 +59,10 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 	let currentY = $state(0);
 
 	let liveHighlightPoints = $state<{ x: number; y: number }[]>([]);
+	/** Running pressure samples for pen strokes (0–1); mouse defaults to 0.5. */
+	let strokePressureSum = 0;
+	let strokePressureCount = 0;
+	let activePointerId: number | null = null;
 
 	/** Line tool: first click placed; rubber-band until second click. */
 	let lineAwaitingEnd = $state(false);
@@ -144,17 +148,10 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		};
 	}
 
-	function normalizeCoordinates(
-		rawX: number,
-		rawY: number,
-	): PointPct {
+	function normalizeCoordinates(rawX: number, rawY: number): PointPct {
 		const pageContainer = getPageContainer();
 		if (activeDoc.fileType === "image") {
-			return normalizeCoordinatesPure(
-				rawX,
-				rawY,
-				buildNormalizeCtx(1, 1),
-			);
+			return normalizeCoordinatesPure(rawX, rawY, buildNormalizeCtx(1, 1));
 		}
 		if (!pageContainer) return { x: 0, y: 0 };
 		const rect = dragPageRect || pageContainer.getBoundingClientRect();
@@ -251,9 +248,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		if (activeDoc.fileType === "image") {
 			const rot = activeDoc.imageRotation || 0;
 			const baseH =
-				rot === 90 || rot === 270
-					? getBasePageWidth()
-					: getBasePageHeight();
+				rot === 90 || rot === 270 ? getBasePageWidth() : getBasePageHeight();
 			pageHeightPx = Math.max(1, baseH) * (zoom / 100);
 		} else if (pageContainer) {
 			pageHeightPx = pageContainer.getBoundingClientRect().height;
@@ -285,13 +280,60 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		activeDoc.selectedShapes = [sel];
 	}
 
-	function handleMouseDown(e: MouseEvent) {
+	/** Primary tip only (mouse LMB / pen tip / single touch). Skip eraser & multi-touch. */
+	function isPrimaryDrawPointer(e: PointerEvent): boolean {
+		if (e.isPrimary === false) return false;
+		// Pen eraser barrel often reports button 5 / buttons & 32
+		if (e.pointerType === "pen" && (e.button === 5 || (e.buttons & 32) !== 0)) {
+			return false;
+		}
+		// button 0 = primary; during move buttons may be non-zero
+		if (e.type === "pointerdown" && e.button !== 0) return false;
+		return true;
+	}
+
+	function samplePressure(e: PointerEvent): number {
+		// Mouse / non-pressure devices report 0; treat as mid pressure
+		if (e.pointerType === "mouse" || e.pressure === 0) return 0.5;
+		return Math.min(1, Math.max(0.05, e.pressure));
+	}
+
+	function capturePagePointer(e: PointerEvent) {
 		const pageContainer = getPageContainer();
-		const pageNumber = getPageNumber();
 		if (!pageContainer) return;
+		try {
+			pageContainer.setPointerCapture(e.pointerId);
+			activePointerId = e.pointerId;
+		} catch {
+			/* ignore capture failures */
+		}
+	}
+
+	function releasePagePointer(e?: PointerEvent) {
+		const pageContainer = getPageContainer();
+		const id = e?.pointerId ?? activePointerId;
+		if (pageContainer && id !== null) {
+			try {
+				if (pageContainer.hasPointerCapture?.(id)) {
+					pageContainer.releasePointerCapture(id);
+				}
+			} catch {
+				/* ignore */
+			}
+		}
+		activePointerId = null;
+	}
+
+	function handlePointerDown(e: PointerEvent) {
+		const pageContainer = getPageContainer();
+		const _pageNumber = getPageNumber();
+		if (!pageContainer) return;
+		if (!isPrimaryDrawPointer(e)) return;
+
 		const targetElement = e.target as HTMLElement;
 		if (
 			targetElement.closest("input") ||
+			targetElement.closest("textarea") ||
 			targetElement.closest(".resize-handle-node")
 		)
 			return;
@@ -341,6 +383,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 				rawStartY = e.clientY;
 				rawCurrentX = e.clientX;
 				rawCurrentY = e.clientY;
+				// No long-lived capture — second click + UI remain free
 			} else {
 				commitLineShape(lineStartPct, {
 					x: mousePctX,
@@ -367,6 +410,10 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			rawCurrentX = e.clientX;
 			rawCurrentY = e.clientY;
 			rawLiveHighlightPoints = [{ x: mousePctX, y: mousePctY }];
+			const p = samplePressure(e);
+			strokePressureSum = p;
+			strokePressureCount = 1;
+			capturePagePointer(e);
 			return;
 		}
 
@@ -393,6 +440,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		}
 
 		if (isBoxShapeTool(activeDoc.activeTool)) {
+			e.preventDefault();
 			isDrawing = true;
 			startX = e.clientX - rect.left;
 			startY = e.clientY - rect.top;
@@ -400,10 +448,12 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			currentY = startY;
 
 			dragActive = true;
-			rawStartX = startX;
-			rawStartY = startY;
-			rawCurrentX = startX;
-			rawCurrentY = startY;
+			// Store absolute client coords (matches pointermove) so pen capture stays consistent
+			rawStartX = e.clientX;
+			rawStartY = e.clientY;
+			rawCurrentX = e.clientX;
+			rawCurrentY = e.clientY;
+			capturePagePointer(e);
 		}
 	}
 
@@ -473,7 +523,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 				groupDragElements = rawGroupInitialPositions
 					.map(
 						(pos) =>
-							pageContainer!.querySelector(
+							pageContainer?.querySelector(
 								`[data-shape-idx="${pos.index}"]`,
 							) as HTMLElement,
 					)
@@ -561,11 +611,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 
 		const handleWindowMouseUp = (upEvent: MouseEvent) => {
 			upEvent.stopPropagation();
-			window.removeEventListener(
-				"mousemove",
-				handleWindowMouseMove,
-				true,
-			);
+			window.removeEventListener("mousemove", handleWindowMouseMove, true);
 			window.removeEventListener("mouseup", handleWindowMouseUp, true);
 		};
 
@@ -580,20 +626,14 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		// Case 1: Pen / Highlight drawing
 		if (
 			isDrawing &&
-			(activeDoc.activeTool === "highlight" ||
-				activeDoc.activeTool === "pen")
+			(activeDoc.activeTool === "highlight" || activeDoc.activeTool === "pen")
 		) {
 			liveHighlightPoints = [...rawLiveHighlightPoints];
 		}
 
 		// Case 1b: Line rubber-band preview (percentage space)
-		else if (
-			isDrawing &&
-			lineAwaitingEnd &&
-			activeDoc.activeTool === "line"
-		) {
-			const rect =
-				dragPageRect || pageContainer.getBoundingClientRect();
+		else if (isDrawing && lineAwaitingEnd && activeDoc.activeTool === "line") {
+			const rect = dragPageRect || pageContainer.getBoundingClientRect();
 			const { x, y } = normalizeCoordinates(
 				rawCurrentX - rect.left,
 				rawCurrentY - rect.top,
@@ -603,8 +643,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 
 		// Case 2: Shape moving
 		else if (isMovingShape && activeDoc.selectedShape) {
-			const rect =
-				dragPageRect || pageContainer.getBoundingClientRect();
+			const rect = dragPageRect || pageContainer.getBoundingClientRect();
 			const startNorm = normalizeCoordinates(
 				rawStartX - rect.left,
 				rawStartY - rect.top,
@@ -631,10 +670,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 						y: clampPct(p.y + deltaPctY),
 					}));
 					if (shape.type === "line" && shape.points.length >= 2) {
-						const b = lineBoundsFromPoints(
-							shape.points[0],
-							shape.points[1],
-						);
+						const b = lineBoundsFromPoints(shape.points[0], shape.points[1]);
 						shape.x = b.x;
 						shape.y = b.y;
 						shape.width = b.width;
@@ -651,10 +687,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 				activeDoc.shapes = { ...activeDoc.shapes };
 			}
 
-			if (
-				rawGroupInitialPositions.length > 1 &&
-				groupDragElements.length > 0
-			) {
+			if (rawGroupInitialPositions.length > 1 && groupDragElements.length > 0) {
 				groupDragElements.forEach((el) => {
 					if (el)
 						el.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
@@ -665,13 +698,8 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		}
 
 		// Case 3: Shape resizing / line endpoint drag
-		else if (
-			draggingHandle &&
-			activeDoc.selectedShape &&
-			initialShapeState
-		) {
-			const rect =
-				dragPageRect || pageContainer.getBoundingClientRect();
+		else if (draggingHandle && activeDoc.selectedShape && initialShapeState) {
+			const rect = dragPageRect || pageContainer.getBoundingClientRect();
 			const { x: mousePctX, y: mousePctY } = normalizeCoordinates(
 				rawCurrentX - rect.left,
 				rawCurrentY - rect.top,
@@ -685,8 +713,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 				resizeShape?.type === "line" &&
 				initialLinePoints &&
 				initialLinePoints.length >= 2 &&
-				(draggingHandle === "line-start" ||
-					draggingHandle === "line-end")
+				(draggingHandle === "line-start" || draggingHandle === "line-end")
 			) {
 				const next = initialLinePoints.map((p) => ({
 					x: p.x,
@@ -707,8 +734,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 				activeDoc.shapes = { ...activeDoc.shapes };
 			} else if (dragTargetElement) {
 				// Text boxes: top-left anchor only — force BR geometry (never move x/y)
-				const handle =
-					resizeShape?.type === "text" ? "br" : draggingHandle;
+				const handle = resizeShape?.type === "text" ? "br" : draggingHandle;
 				const { x, y, width, height } = computeResizedBounds(
 					handle,
 					initialShapeState,
@@ -740,31 +766,37 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 
 		// Case 4: Shape drawing
 		else if (isDrawing && isBoxShapeTool(activeDoc.activeTool)) {
-			const rect =
-				dragPageRect || pageContainer.getBoundingClientRect();
+			const rect = dragPageRect || pageContainer.getBoundingClientRect();
 			currentX = rawCurrentX - rect.left;
 			currentY = rawCurrentY - rect.top;
 		}
 	}
 
-	function handleMouseMove(e: MouseEvent) {
+	function handlePointerMove(e: PointerEvent) {
 		const pageContainer = getPageContainer();
 		if (!pageContainer) return;
+
+		// Ignore non-tracked multi-pointer noise while a stroke is captured
+		if (
+			activePointerId !== null &&
+			e.pointerId !== activePointerId &&
+			(dragActive || isDrawing)
+		) {
+			return;
+		}
 
 		// Drop unfinished rubber-band if the user switched tools
 		if (lineAwaitingEnd && activeDoc.activeTool !== "line") {
 			clearLineDrawingState();
 			isDrawing = false;
 			dragActive = false;
+			releasePagePointer(e);
 		}
 
 		const rect = dragPageRect || pageContainer.getBoundingClientRect();
 		const rawX = e.clientX - rect.left;
 		const rawY = e.clientY - rect.top;
-		const { x: mousePctX, y: mousePctY } = normalizeCoordinates(
-			rawX,
-			rawY,
-		);
+		const { x: mousePctX, y: mousePctY } = normalizeCoordinates(rawX, rawY);
 		hoverPctX = mousePctX;
 		hoverPctY = mousePctY;
 
@@ -775,10 +807,12 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 
 			if (
 				isDrawing &&
-				(activeDoc.activeTool === "highlight" ||
-					activeDoc.activeTool === "pen")
+				(activeDoc.activeTool === "highlight" || activeDoc.activeTool === "pen")
 			) {
 				rawLiveHighlightPoints.push({ x: mousePctX, y: mousePctY });
+				const p = samplePressure(e);
+				strokePressureSum += p;
+				strokePressureCount += 1;
 			}
 
 			// Keep line rubber-band tracking even when dragActive was cleared on leave/re-enter
@@ -796,37 +830,67 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		}
 	}
 
-	function handleMouseUp(e: MouseEvent) {
+	function handlePointerUp(e: PointerEvent) {
 		const pageContainer = getPageContainer();
 		const pageNumber = getPageNumber();
+
+		if (
+			activePointerId !== null &&
+			e.pointerId !== activePointerId &&
+			(dragActive || isDrawing)
+		) {
+			return;
+		}
 
 		if (animationFrameId) {
 			cancelAnimationFrame(animationFrameId);
 			animationFrameId = null;
 		}
 
-		// Line tool uses click-click (not drag-release); ignore mouseup while awaiting end
+		// Line tool uses click-click (not drag-release). Release capture after each click
+		// so the rest of the UI stays interactive; rubber-band continues via pointermove.
 		if (activeDoc.activeTool === "line" && lineAwaitingEnd) {
+			releasePagePointer(e);
 			return;
 		}
 
 		if (
 			isDrawing &&
-			(activeDoc.activeTool === "highlight" ||
-				activeDoc.activeTool === "pen")
+			(activeDoc.activeTool === "highlight" || activeDoc.activeTool === "pen")
 		) {
 			const currentTool = activeDoc.activeTool;
 			isDrawing = false;
 			dragActive = false;
 			dragPageRect = null;
+			releasePagePointer(e);
 
-			if (liveHighlightPoints.length > 1) {
+			// Flush any points still only in the raw buffer (last rAF may not have run)
+			const points =
+				rawLiveHighlightPoints.length > liveHighlightPoints.length
+					? [...rawLiveHighlightPoints]
+					: liveHighlightPoints;
+
+			if (points.length > 1) {
+				// Highlighter ignores toolbar color/thickness (factory forces yellow).
+				// Pen optionally scales thickness with stylus pressure.
+				let thickness = activeDoc.activeThickness || 3;
+				if (currentTool === "pen") {
+					const avgPressure =
+						strokePressureCount > 0
+							? strokePressureSum / strokePressureCount
+							: 0.5;
+					const pressureScale = 0.55 + avgPressure * 0.9;
+					thickness = Math.max(
+						1,
+						Math.round(thickness * pressureScale * 10) / 10,
+					);
+				}
 				const newFreehand = createFreehandShape(
 					currentTool as "highlight" | "pen",
-					liveHighlightPoints,
+					points,
 					{
 						color: activeDoc.activeColor,
-						thickness: activeDoc.activeThickness,
+						thickness,
 					},
 				);
 				const existing = activeDoc.shapes[pageNumber] || [];
@@ -837,6 +901,8 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			}
 			liveHighlightPoints = [];
 			rawLiveHighlightPoints = [];
+			strokePressureSum = 0;
+			strokePressureCount = 0;
 			return;
 		}
 
@@ -844,6 +910,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			isMovingShape = false;
 			dragActive = false;
 			dragPageRect = null;
+			releasePagePointer(e);
 
 			const rect = pageContainer
 				? pageContainer.getBoundingClientRect()
@@ -871,10 +938,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 							y: clampPct(p.y + deltaPctY),
 						}));
 						if (shape.type === "line" && shape.points.length >= 2) {
-							const b = lineBoundsFromPoints(
-								shape.points[0],
-								shape.points[1],
-							);
+							const b = lineBoundsFromPoints(shape.points[0], shape.points[1]);
 							shape.x = b.x;
 							shape.y = b.y;
 							shape.width = b.width;
@@ -907,6 +971,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		if (draggingHandle && activeDoc.selectedShape) {
 			dragActive = false;
 			dragPageRect = null;
+			releasePagePointer(e);
 			const shapesList = [...(activeDoc.shapes[pageNumber] || [])];
 			const index = activeDoc.selectedShape.index;
 			const shape = shapesList[index];
@@ -914,15 +979,11 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 				// Line endpoints already updated live during drag
 				if (
 					shape.type === "line" &&
-					(draggingHandle === "line-start" ||
-						draggingHandle === "line-end")
+					(draggingHandle === "line-start" || draggingHandle === "line-end")
 				) {
 					// ensure bounds match final points
 					if (shape.points && shape.points.length >= 2) {
-						const b = lineBoundsFromPoints(
-							shape.points[0],
-							shape.points[1],
-						);
+						const b = lineBoundsFromPoints(shape.points[0], shape.points[1]);
 						shape.x = b.x;
 						shape.y = b.y;
 						shape.width = b.width;
@@ -970,11 +1031,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 						shape.width &&
 						shape.height
 					) {
-						cacheStampDimensions(
-							shape.type,
-							shape.width,
-							shape.height,
-						);
+						cacheStampDimensions(shape.type, shape.width, shape.height);
 					}
 				}
 				// Clear live inline overrides so Svelte styles take over cleanly
@@ -997,19 +1054,17 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			return;
 		}
 
-		if (
-			!isDrawing ||
-			!pageContainer ||
-			!isBoxShapeTool(activeDoc.activeTool)
-		) {
+		if (!isDrawing || !pageContainer || !isBoxShapeTool(activeDoc.activeTool)) {
 			dragActive = false;
 			dragPageRect = null;
+			releasePagePointer(e);
 			return;
 		}
 
 		isDrawing = false;
 		dragActive = false;
 		dragPageRect = null;
+		releasePagePointer(e);
 
 		const rect = pageContainer.getBoundingClientRect();
 		const finalCurrentX = rawCurrentX - rect.left;
@@ -1035,14 +1090,8 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			// Pointer is the top-right corner; shape extends left and down.
 			const zoom = Math.max(5, Math.abs(getZoomScale()));
 			const defaultSizePx = zoom * 1.5;
-			const startNorm = normalizeCoordinates(
-				startX - defaultSizePx,
-				startY,
-			);
-			const endNorm = normalizeCoordinates(
-				startX,
-				startY + defaultSizePx,
-			);
+			const startNorm = normalizeCoordinates(startX - defaultSizePx, startY);
+			const endNorm = normalizeCoordinates(startX, startY + defaultSizePx);
 			newShape = createBoxShape(toolType, startNorm, endNorm, boxOpts);
 		}
 
@@ -1053,11 +1102,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		};
 	}
 
-	function initHandleDrag(
-		e: MouseEvent,
-		index: number,
-		handleType: string,
-	) {
+	function initHandleDrag(e: MouseEvent, index: number, handleType: string) {
 		const pageContainer = getPageContainer();
 		const pageNumber = getPageNumber();
 		if (!pageContainer) return;
@@ -1122,10 +1167,11 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		}
 	}
 
-	function handleMouseLeave() {
+	function handlePointerLeave() {
 		isMouseOverPage = false;
-		// Keep line rubber-band alive across brief leave; only cancel freehand/box draw
-		if (lineAwaitingEnd) {
+		// With pointer capture, leave is non-fatal for in-progress strokes.
+		// Keep line rubber-band alive; freehand continues via capture until up.
+		if (lineAwaitingEnd || activePointerId !== null) {
 			return;
 		}
 		dragPageRect = null;
@@ -1139,9 +1185,20 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		}
 	}
 
-	function handleMouseEnter() {
+	function handlePointerEnter() {
 		isMouseOverPage = true;
 	}
+
+	/** @deprecated Prefer handlePointer* — kept as aliases for any residual callers */
+	const handleMouseDown = handlePointerDown as unknown as (
+		e: MouseEvent,
+	) => void;
+	const handleMouseMove = handlePointerMove as unknown as (
+		e: MouseEvent,
+	) => void;
+	const handleMouseUp = handlePointerUp as unknown as (e: MouseEvent) => void;
+	const handleMouseLeave = handlePointerLeave;
+	const handleMouseEnter = handlePointerEnter;
 
 	function finalizeTextEdit(
 		index: number,
@@ -1156,7 +1213,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 
 		const existing = activeDoc.shapes[pageNumber] || [];
 		const shape = existing[index];
-		if (!shape || shape.type !== "text") {
+		if (shape?.type !== "text") {
 			activelyEditingIndex = null;
 			textEditBaseline = "";
 			return;
@@ -1166,9 +1223,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		// (focus race / select-tool click), fall back to bound text then edit baseline
 		// so an existing annotation is never accidentally deleted as "empty".
 		const finalText = (
-			element.isConnected
-				? element.value
-				: shape.text || textEditBaseline || ""
+			element.isConnected ? element.value : shape.text || textEditBaseline || ""
 		).trim();
 
 		// End the session first so any concurrent/stale finalize calls no-op.
@@ -1256,6 +1311,11 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		normalizeCoordinates,
 		getDisplayCoords,
 		getDisplayPoints,
+		handlePointerDown,
+		handlePointerMove,
+		handlePointerUp,
+		handlePointerLeave,
+		handlePointerEnter,
 		handleMouseDown,
 		handleMouseMove,
 		handleMouseUp,

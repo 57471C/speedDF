@@ -54,11 +54,13 @@ export function initialsFromName(firstName: string, lastName: string): string {
 	// Single-field fallback: first letters of words
 	const words = `${f} ${l}`.trim().split(/\s+/).filter(Boolean);
 	if (words.length === 0) return "You";
-	return words
-		.map((w) => w.charAt(0).toUpperCase())
-		.join("")
-		.replace(/[^A-Z]/g, "")
-		.slice(0, 4) || "You";
+	return (
+		words
+			.map((w) => w.charAt(0).toUpperCase())
+			.join("")
+			.replace(/[^A-Z]/g, "")
+			.slice(0, 4) || "You"
+	);
 }
 
 /** Saved-set label e.g. "Terry Minett:" */
@@ -72,13 +74,19 @@ export function getCommentAuthorProfile(): CommentAuthorProfile {
 		const raw = localStorage.getItem(AUTHOR_PROFILE_STORAGE_KEY);
 		if (raw) {
 			const parsed = JSON.parse(raw) as Partial<CommentAuthorProfile>;
-			const initials = String(parsed.initials || "").trim().slice(0, 8);
-			const fullName = String(parsed.fullName || "").trim().slice(0, 128);
+			const initials = String(parsed.initials || "")
+				.trim()
+				.slice(0, 8);
+			const fullName = String(parsed.fullName || "")
+				.trim()
+				.slice(0, 128);
 			if (initials || fullName) {
 				return {
 					initials: initials || fullName.slice(0, 2).toUpperCase() || "You",
 					fullName: fullName || initials || "You",
-					email: parsed.email ? String(parsed.email).trim().slice(0, 254) : undefined,
+					email: parsed.email
+						? String(parsed.email).trim().slice(0, 254)
+						: undefined,
 				};
 			}
 		}
@@ -88,7 +96,7 @@ export function getCommentAuthorProfile(): CommentAuthorProfile {
 	// Legacy single-string author key
 	try {
 		const stored = localStorage.getItem(AUTHOR_STORAGE_KEY);
-		if (stored && stored.trim()) {
+		if (stored?.trim()) {
 			const name = stored.trim().slice(0, 64);
 			return { initials: name.slice(0, 8), fullName: name };
 		}
@@ -124,7 +132,8 @@ export function setCommentAuthor(name: string): void {
 
 export function setCommentAuthorProfile(profile: CommentAuthorProfile): void {
 	const initials = (profile.initials || "You").trim().slice(0, 8) || "You";
-	const fullName = (profile.fullName || initials).trim().slice(0, 128) || initials;
+	const fullName =
+		(profile.fullName || initials).trim().slice(0, 128) || initials;
 	const email = profile.email?.trim().slice(0, 254) || undefined;
 	try {
 		localStorage.setItem(
@@ -138,20 +147,39 @@ export function setCommentAuthorProfile(profile: CommentAuthorProfile): void {
 }
 
 export function createCommentId(): string {
-	if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+	if (
+		typeof crypto !== "undefined" &&
+		typeof crypto.randomUUID === "function"
+	) {
 		return crypto.randomUUID();
 	}
 	return `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/** Drop C0 controls (except HT/LF/CR) and DEL without a control-char regex. */
+function stripControlChars(text: string): string {
+	let out = "";
+	for (let i = 0; i < text.length; i++) {
+		const code = text.charCodeAt(i);
+		if (code === 9 || code === 10 || code === 13) {
+			out += text[i];
+		} else if (code < 32 || code === 127) {
+		} else {
+			out += text[i];
+		}
+	}
+	return out;
+}
+
 export function sanitizeCommentText(text: string): string {
-	return (text || "")
-		.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+	return stripControlChars(text || "")
 		.trim()
 		.slice(0, 4000);
 }
 
-export function countComments(comments: PageComment[] | undefined | null): number {
+export function countComments(
+	comments: PageComment[] | undefined | null,
+): number {
 	const list = comments || [];
 	return list.reduce((acc, c) => acc + 1 + (c.replies?.length || 0), 0);
 }
@@ -197,7 +225,9 @@ export function decodeCommentsFromKeywords(
 		// Fallback: substring after first prefix occurrence
 		const idx = raw.indexOf(COMMENTS_KEYWORD_PREFIX);
 		if (idx < 0) return null;
-		const rest = raw.slice(idx + COMMENTS_KEYWORD_PREFIX.length).split(/[\s;]/)[0];
+		const rest = raw
+			.slice(idx + COMMENTS_KEYWORD_PREFIX.length)
+			.split(/[\s;]/)[0];
 		return parseCommentsPayload(rest);
 	}
 	return parseCommentsPayload(token.slice(COMMENTS_KEYWORD_PREFIX.length));

@@ -127,11 +127,28 @@ export function createBoxShape(
 	};
 }
 
+/** Fixed highlighter look — never inherits line/pen color or thickness. */
+export const HIGHLIGHT_COLOR = "#fff200";
+/** ViewBox-% stroke width for highlighter ink (thick translucent marker). */
+export const HIGHLIGHT_STROKE_WIDTH = 2.0;
+export const HIGHLIGHT_OPACITY = 0.42;
+
 export function createFreehandShape(
 	toolType: "highlight" | "pen",
 	points: { x: number; y: number }[],
 	opts: { color: string; thickness: number },
 ): AnnotationShape {
+	// Highlighter always neon yellow; color/thickness from the toolbar are ignored
+	if (toolType === "highlight") {
+		return {
+			type: "highlight",
+			x: points[0].x,
+			y: points[0].y,
+			points: [...points],
+			color: HIGHLIGHT_COLOR,
+			thickness: HIGHLIGHT_STROKE_WIDTH,
+		};
+	}
 	return {
 		type: toolType,
 		x: points[0].x,
@@ -190,14 +207,27 @@ export function createLineShape(
 }
 
 /**
+ * Arrowhead length in page-% space, scaled with stroke thickness.
+ * Slightly longer so slender heads still read past the stroke cap.
+ */
+export function arrowHeadSizePct(thickness: number | undefined): number {
+	return Math.max(1.55, (thickness || 3) * 0.5);
+}
+
+/**
  * Filled arrowhead polygon (percentage space) pointing toward `tip` from `from`.
  * Returns three vertices for SVG polygon / canvas path.
+ * Narrow wing angle (slender chevron) rather than a wide triangle.
  */
 export function arrowHeadVertices(
 	from: { x: number; y: number },
 	tip: { x: number; y: number },
 	sizePct = 1.6,
-): [{ x: number; y: number }, { x: number; y: number }, { x: number; y: number }] {
+): [
+	{ x: number; y: number },
+	{ x: number; y: number },
+	{ x: number; y: number },
+] {
 	const dx = tip.x - from.x;
 	const dy = tip.y - from.y;
 	const len = Math.hypot(dx, dy) || 1;
@@ -205,9 +235,10 @@ export function arrowHeadVertices(
 	const uy = dy / len;
 	const px = -uy;
 	const py = ux;
+	// Base sits behind the tip; narrow wings = more acute / slender angle
 	const baseX = tip.x - ux * sizePct;
 	const baseY = tip.y - uy * sizePct;
-	const wing = sizePct * 0.5;
+	const wing = sizePct * 0.32;
 	return [
 		{ x: tip.x, y: tip.y },
 		{ x: baseX + px * wing, y: baseY + py * wing },
@@ -215,13 +246,45 @@ export function arrowHeadVertices(
 	];
 }
 
+/**
+ * Stroke endpoints shortened to the arrow-head base(s) so the line does not
+ * protrude past the tip. Geometry points (handles/export tips) stay unchanged.
+ */
+export function lineStrokeEndpoints(
+	start: { x: number; y: number },
+	end: { x: number; y: number },
+	lineEnds: LineEnds | string | undefined,
+	sizePct: number,
+): { start: { x: number; y: number }; end: { x: number; y: number } } {
+	const ends = lineEnds || "plain";
+	if (ends === "plain" || sizePct <= 0) {
+		return { start, end };
+	}
+	const dx = end.x - start.x;
+	const dy = end.y - start.y;
+	const len = Math.hypot(dx, dy) || 1;
+	// Never shorten more than ~45% of the segment so tiny lines still draw.
+	const maxTrim = len * 0.45;
+	const trim = Math.min(sizePct, maxTrim);
+	const ux = dx / len;
+	const uy = dy / len;
+	let s = start;
+	let e = end;
+	if (ends === "end" || ends === "both") {
+		e = { x: end.x - ux * trim, y: end.y - uy * trim };
+	}
+	if (ends === "both") {
+		s = { x: start.x + ux * trim, y: start.y + uy * trim };
+	}
+	return { start: s, end: e };
+}
+
 /** True when page has an empty draft text box that should be cleared before placing another. */
 export function hasEmptyTextDraft(
 	shapes: AnnotationShape[] | undefined,
 ): boolean {
 	return (shapes || []).some(
-		(s) =>
-			s && s.type === "text" && (!s.text || s.text.trim().length === 0),
+		(s) => s && s.type === "text" && (!s.text || s.text.trim().length === 0),
 	);
 }
 
@@ -229,7 +292,6 @@ export function withoutEmptyTextDrafts(
 	shapes: AnnotationShape[],
 ): AnnotationShape[] {
 	return shapes.filter(
-		(s) =>
-			!(s && s.type === "text" && (!s.text || s.text.trim().length === 0)),
+		(s) => !(s && s.type === "text" && (!s.text || s.text.trim().length === 0)),
 	);
 }
