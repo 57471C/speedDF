@@ -11,7 +11,6 @@ import {
 	rememberValue as rememberPure,
 	removeValue as removePure,
 	suggestionsFor as suggestionsPure,
-	totalMemoryCount,
 	type FormMemoryData,
 } from "./formMemory";
 
@@ -31,10 +30,6 @@ export function getFormMemoryData(): FormMemoryData {
 
 export function getFormMemoryRevision(): number {
 	return revision;
-}
-
-export function getMemoryCount(): number {
-	return totalMemoryCount(data);
 }
 
 export function getSuggestions(keys: string[], query = ""): string[] {
