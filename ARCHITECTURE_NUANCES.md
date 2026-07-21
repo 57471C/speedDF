@@ -337,7 +337,7 @@ If a box-tool gesture is effectively a click (&lt; 2×2 CSS px drag):
 
 ### Multi-select
 
-`hasModifier = e.shiftKey || e.ctrlKey || e.metaKey` on shape move and text select paths. Shift was the missing piece for users who expect OS-style multi-select.
+`hasModifier = e.ctrlKey || e.metaKey` on shape move and text select paths. Grouping is Ctrl/Cmd only (Shift is not a multi-select modifier).
 
 ---
 

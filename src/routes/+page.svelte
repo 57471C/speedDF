@@ -1327,7 +1327,7 @@
 
     checkForApplicationUpdates();
 
-    // 🛡️ Capturing Phase Firewall: Drops native browser print commands instantly
+    // 🛡️ Capturing Phase Firewall: Drops native browser print / refresh commands instantly
     const trapBrowserPrintShortcut = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
         e.preventDefault();
@@ -1340,6 +1340,17 @@
 
         // Trigger headless print routines only if document is active
         triggerHeadlessPrintSpool();
+        return;
+      }
+
+      // Block F5 / Shift+F5 (and Ctrl/Cmd+R) so the webview never hard-refreshes mid-edit
+      if (
+        e.key === "F5" ||
+        e.code === "F5" ||
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r")
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
         return;
       }
     };

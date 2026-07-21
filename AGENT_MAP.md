@@ -20,7 +20,7 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/lib/links/hyperlinks.ts`**: URI Link annotation extraction (PDF.js), safe-scheme validation (`http` / `https` / `mailto` only), and per-page link helpers. Pure URL helpers have no top-level PDF.js import (tests stay Node-safe).
 * **`src/lib/export/flatten.ts`**: Workspace flatten/export pipeline (PDF + image compilation, annotation draw including **lines + arrowheads**, form bake, post-save thumbnail generation). Called from `TitleBar.svelte`; UI chrome stays in TitleBar.
 * **`src/lib/comments/comments.ts`**: Threaded page comments, author profile, and Keywords embed/decode for save.
-* **`src/lib/interaction/dragHandler.svelte.ts`**: Page drag, multi-select (Shift/Ctrl/Cmd), resize, **line click–click rubber-band**, line endpoint handles, text edit sessions (`activelyEditingIndex` + `textEditBaseline`), box click-to-drop defaults, and pointer event session for `WorkspacePage`.
+* **`src/lib/interaction/dragHandler.svelte.ts`**: Page drag, multi-select (Ctrl/Cmd only), resize, **line click–click rubber-band**, line endpoint handles, text edit sessions (`activelyEditingIndex` + `textEditBaseline`), box click-to-drop defaults, and pointer event session for `WorkspacePage`.
 * **`src/lib/interaction/coordinates.ts`**: Percentage coordinate transforms (including image rotation).
 * **`src/lib/render/pageRenderer.ts`**: PDF.js / image / TIFF canvas paint + text-layer pipeline.
 * **`src/components/WorkspacePage.svelte`**: Page shell — layout, observers, bookmarks; delegates paint, interaction, annotation overlay, form overlay, and **link overlay**. Global Delete/Backspace skips when focus is in a text control or a text edit session is open.
@@ -67,7 +67,7 @@ Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary
 * **`activeTool`**: e.g. `"select"`, `"text"`, `"rect"`, `"line"`, `"signature"`, `"highlight"`, `"pen"`.
 * **`activeColor`**, **`activeThickness`**, **`activeLineStyle`**, **`activeLineEnds`**: Stroke/fill modifiers. `activeLineEnds` is `"plain" | "end" | "both"` (arrow heads on the Line tool).
 * **`activeFontFamily`**, **`defaultFont`**, **`defaultSize`**, **`defaultStyle`**, **`activeTextAlignment`**: Text-tool defaults. **Persisted** in `localStorage` key `speeddf_text_settings` so they survive restarts and do not need reselect every session. On document open/switch (`resetSessionUiForDocumentSwitch`), font resets to **Helvetica** (UI: Standard Sans).
-* **`selectedShape`** / **`selectedShapes`**: Selection for multi-select move / property override. Toggle with **Shift+Click** or **Ctrl/Cmd+Click** on shapes and text.
+* **`selectedShape`** / **`selectedShapes`**: Selection for multi-select move / property override. Toggle with **Ctrl/Cmd+Click** on shapes and text (Shift is not a group modifier).
 * **`savedSignatureSets`** / **`activeStampDataUrl`**: Signature stamp library (shared across tabs) and currently armed free-stamp image.
 
 ### Central Lifecycle Functions
@@ -75,7 +75,7 @@ Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary
 * **`initializeNewDocument(fileName, filePath)`**: Creates a workspace with a new `workspaceId` and activates it.
 * **`documentKey(doc)`**: Returns stable tab id (`workspaceId`, with path/name fallback).
 * **`switchActiveDocument(id)`** / **`closeDocumentWorkspace(id)`**: Tab switch/close by id (workspaceId preferred).
-* **`commitActiveDocumentAfterSave({ compiledBytes, filePath?, fileName? })`**: Post-save rebind of bytes/path/name, clear dirty, re-extract form fields **and hyperlinks**, **upsert Recent Documents** for the saved path. Does **not** change `workspaceId` / remount the tab.
+* **`commitActiveDocumentAfterSave({ compiledBytes, filePath?, fileName? })`**: Post-save rebind of bytes/path/name, **clear shapes + selection + history** (annotations are baked into bytes), reset rotations / sequential page order, re-extract form fields **and hyperlinks**, **upsert Recent Documents** for the saved path. Does **not** change `workspaceId` / remount the tab.
 * **`setFormFieldValueAction(name, value)`**: Updates one AcroForm value (text / checkbox / dropdown / signature data URL) and marks dirty.
 * **`extractFormFields(bytes)`** / **`applyAndFlattenFormValues(pdfDoc, values)`** (`lib/forms/formFields.ts`): Detect widgets on open; bake values (including signature stamps drawn into Sig widgets) on save.
 * **`extractHyperlinksFromDocument(pdf)`** / **`extractHyperlinks(bytes)`** (`lib/links/hyperlinks.ts`): Detect URI Link annotations on open / post-save; scheme-filtered.

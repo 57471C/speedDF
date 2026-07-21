@@ -262,7 +262,12 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			zoom,
 		);
 
-		const newTextShape = createTextShape(mousePctX, mousePctY, {
+		// Top-left of the text box at the pointer. I-beam hotspot is mid-glyph,
+		// so nudge up by half a line so the box top aligns with the cursor tip
+		// (not the cursor center). Clamp so we never go off-page.
+		const topY = Math.max(0, mousePctY - textHeight * 0.5);
+
+		const newTextShape = createTextShape(mousePctX, topY, {
 			fontFamily: activeDoc.activeFontFamily,
 			size: activeDoc.defaultSize,
 			style: activeDoc.defaultStyle,
@@ -481,8 +486,8 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			return;
 		e.stopPropagation();
 
-		// Shift (and Ctrl/Cmd) multi-select — toggle without starting a drag
-		const hasModifier = e.shiftKey || e.ctrlKey || e.metaKey;
+		// Ctrl/Cmd multi-select — toggle without starting a drag (Shift is not a group modifier)
+		const hasModifier = e.ctrlKey || e.metaKey;
 		const isAlreadySelected = activeDoc.selectedShapes.some(
 			(s) => s.pageNumber === pageNumber && s.index === index,
 		);
@@ -563,8 +568,8 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		e.stopPropagation();
 		e.preventDefault();
 
-		// Shift/Ctrl/Cmd multi-select for text (same as shapes)
-		const hasModifier = e.shiftKey || e.ctrlKey || e.metaKey;
+		// Ctrl/Cmd multi-select for text (same as shapes; Shift is not a group modifier)
+		const hasModifier = e.ctrlKey || e.metaKey;
 		if (activeDoc.activeTool === "select" && hasModifier) {
 			toggleMultiSelect(pageNumber, index);
 			return;

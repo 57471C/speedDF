@@ -520,6 +520,7 @@ export function switchActiveDocument(id: string) {
  * After a successful Save / Save As:
  * - keep the same open-document object as the active tab (update path/name only)
  * - replace in-memory bytes with the compiled output so the UI matches disk
+ * - clear live annotation overlays (they are baked into compiledBytes)
  * - clear dirty and refresh form field defs from the saved PDF
  * - upsert Recent Documents for the saved path (Save As creates a new path)
  *
@@ -559,6 +560,70 @@ export async function commitActiveDocumentAfterSave(opts: {
 	// Prefer a real ArrayBuffer-backed copy (detached views from save can be fragile)
 	doc.rawBytes = new Uint8Array(opts.compiledBytes);
 	doc.isDirty = false;
+
+	// Flatten bakes annotations into the written bytes. Drop the live overlay so
+	// the canvas does not show duplicate ink (burned-in + editable shapes).
+	const priorPageOrder = [...(doc.pageOrder || [])];
+	doc.shapes = {};
+	selectedShape = null;
+	selectedShapes = [];
+	undoStack.length = 0;
+	redoStack.length = 0;
+
+	// Rotations are applied during flatten — zero them so re-render does not double-rotate.
+	doc.rotations = {};
+	doc.imageRotation = 0;
+
+	// Flatten writes pages in pageOrder sequence as PDF pages 1..N.
+	// Remap session page indices so bookmarks/comments/current page stay correct.
+	if (doc.fileType === "pdf" || doc.fileType === "tiff") {
+		const n = priorPageOrder.length > 0 ? priorPageOrder.length : doc.pageCount;
+		const pageIndexMap = new Map<number, number>();
+		for (let i = 0; i < priorPageOrder.length; i++) {
+			pageIndexMap.set(priorPageOrder[i], i + 1);
+		}
+		if (n > 0) {
+			doc.pageCount = n;
+			doc.pageOrder = Array.from({ length: n }, (_, i) => i + 1);
+			const mapPage = (p: number) => pageIndexMap.get(p) ?? p;
+			if (doc.bookmarks?.length) {
+				doc.bookmarks = doc.bookmarks.map((b) => ({
+					...b,
+					pageNum: mapPage(b.pageNum),
+				}));
+			}
+			if (doc.comments?.length) {
+				doc.comments = doc.comments.map((c) => ({
+					...c,
+					pageNum: mapPage(c.pageNum),
+				}));
+			}
+			doc.currentPage = mapPage(doc.currentPage) || 1;
+		}
+		// TIFF Save As writes a PDF; switch the workspace to PDF mode so re-render
+		// uses the flattened bytes (with baked annotations) instead of raw tiff pages.
+		if (doc.fileType === "tiff") {
+			doc.fileType = "pdf";
+			doc.tiffPages = [];
+		}
+	}
+
+	// Image flatten bakes annotations + rotation into pixels — refresh the display URL.
+	if (doc.fileType === "image" && doc.rawBytes) {
+		try {
+			if (doc.imageUrl) {
+				URL.revokeObjectURL(doc.imageUrl);
+			}
+			const lower = (doc.filePath || doc.fileName || "").toLowerCase();
+			let mime = "image/jpeg";
+			if (lower.endsWith(".png")) mime = "image/png";
+			else if (lower.endsWith(".webp")) mime = "image/webp";
+			const blob = new Blob([doc.rawBytes as BlobPart], { type: mime });
+			doc.imageUrl = URL.createObjectURL(blob);
+		} catch (err) {
+			console.warn("Post-save image URL refresh failed:", err);
+		}
+	}
 
 	// Always keep active id on the stable workspace key (path may have changed)
 	activeDocumentId = documentKey(doc);
