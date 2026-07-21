@@ -20,9 +20,7 @@ export const GHOST_STAMP_TOOLS = [
 	"dash",
 ] as const;
 
-export function getGhostDimensions(
-	tool: string | null | undefined,
-): GhostSize {
+export function getGhostDimensions(tool: string | null | undefined): GhostSize {
 	if (!tool || !(tool in DEFAULTS)) return { w: 0, h: 0 };
 
 	const cachedWidth = localStorage.getItem(`speeddf_stamp_${tool}_w`);

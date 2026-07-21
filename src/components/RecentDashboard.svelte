@@ -10,6 +10,7 @@
   let {
     recentFiles,
     fileStatusMap,
+    openDocumentPaths = [],
     openRecentFile,
     handleCompress,
     handleClearFromRecents,
@@ -17,11 +18,22 @@
   }: {
     recentFiles: RecentFile[];
     fileStatusMap: Record<string, boolean>;
+    /** Paths already open as tabs — hidden from the dashboard list. */
+    openDocumentPaths?: string[];
     openRecentFile: (name: string, path: string) => void;
     handleCompress: (file: any) => void;
     handleClearFromRecents: (targetId: string) => void;
     handleDeleteFromHDD: (file: any) => void;
   } = $props();
+
+  let visibleRecents = $derived.by(() => {
+    const open = new Set(
+      (openDocumentPaths || []).map((p) => p.toLowerCase()).filter(Boolean),
+    );
+    return (recentFiles || []).filter(
+      (f) => f.path && !open.has(f.path.toLowerCase()),
+    );
+  });
 </script>
 
 <div
@@ -189,7 +201,7 @@
     </p>
   </div>
 
-  {#if recentFiles.length > 0}
+  {#if visibleRecents.length > 0}
     <div
       class="w-full border-t border-slate-900/40 pt-5 max-w-5xl animate-fade-in pointer-events-auto mt-auto"
     >
@@ -202,18 +214,26 @@
       <div
         class="grid grid-cols-5 gap-x-4 gap-y-12 pt-10 pb-6 px-4 w-full overflow-visible justify-items-center"
       >
-        {#each recentFiles || [] as file}
+        {#each visibleRecents as file}
           {@const exists = fileStatusMap[file.path] !== false}
           {@const isLandscape = file.orientation === "landscape"}
           {@const doc = { ...file, id: file.path }}
 
           <div class="flex-shrink-0 relative snap-start {isLandscape ? 'w-64 h-40' : 'w-40 h-52'}">
             <div
-              onclick={() => exists && openRecentFile(file.name, file.path)}
-              onkeydown={(e) => e.key === "Enter" && exists && openRecentFile(file.name, file.path)}
+              onclick={() => {
+                if (exists) openRecentFile(file.name, file.path);
+              }}
+              onkeydown={(e) => {
+                if (e.key === "Enter" && exists) openRecentFile(file.name, file.path);
+              }}
               role="button"
-              tabindex="0"
-              class="recent-card-item w-full h-full relative flex flex-col items-center bg-slate-950 rounded-none cursor-pointer select-none group p-0 border border-slate-900/40 will-change-transform transform-gpu subpixel-antialiased [backface-visibility:hidden] {!exists ? 'opacity-40 cursor-default' : ''}"
+              tabindex={exists ? 0 : -1}
+              aria-disabled={!exists}
+              title={exists ? file.path : "File unavailable on disk"}
+              class="recent-card-item w-full h-full relative flex flex-col items-center bg-slate-950 rounded-none select-none group p-0 border border-slate-900/40 will-change-transform transform-gpu subpixel-antialiased [backface-visibility:hidden] {exists
+                ? 'cursor-pointer'
+                : 'recent-card-item--disabled opacity-40 cursor-default'}"
             >
               <div class="absolute -top-5 left-0 right-0 text-[10.5px] font-medium text-slate-400 group-hover:text-cyan-400 overflow-hidden whitespace-nowrap px-0.5 pointer-events-none w-full select-none">
                 {#if file.name.length > 22}
@@ -302,14 +322,28 @@
     z-index: 10;
   }
 
-  .recent-card-item:hover {
+  .recent-card-item:hover:not(.recent-card-item--disabled) {
     transform: scale(1.06) translateY(-10px) !important;
     z-index: 50 !important;
     border-color: #22d3ee !important; /* cyan-400 structural highlight */
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85), 0 0 20px rgba(34, 211, 238, 0.2) !important;
   }
 
-  .recent-card-item:hover .bottom-dock-tray {
+  .recent-card-item:hover:not(.recent-card-item--disabled) .bottom-dock-tray {
+    opacity: 1 !important;
+  }
+
+  /* Unavailable: listed + dimmed, still interactive for "remove from recents".
+     Never use not-allowed — keep default arrow so the list feels usable. */
+  .recent-card-item--disabled {
+    cursor: default !important;
+  }
+  .recent-card-item--disabled:hover {
+    transform: scale(0.9) translateY(0) !important;
+    border-color: rgb(15 23 42 / 0.4) !important;
+    box-shadow: none !important;
+  }
+  .recent-card-item--disabled:hover .bottom-dock-tray {
     opacity: 1 !important;
   }
 </style>

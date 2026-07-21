@@ -6,10 +6,10 @@ import {
 	decodeCommentsFromKeywords,
 	encodeCommentsKeyword,
 	initialsFromName,
+	type PageComment,
 	pageHasComments,
 	sanitizeCommentText,
 	signatureSetLabel,
-	type PageComment,
 } from "./comments";
 
 function sampleComments(): PageComment[] {
@@ -67,10 +67,10 @@ describe("comments helpers", () => {
 		const restored = decodeCommentsFromKeywords(keyword);
 		expect(restored).not.toBeNull();
 		expect(restored).toHaveLength(2);
-		expect(restored![0].text).toBe("Root note");
-		expect(restored![0].replies).toHaveLength(1);
-		expect(restored![0].replies[0].text).toBe("Reply one");
-		expect(restored![1].pageNum).toBe(3);
+		expect(restored?.[0].text).toBe("Root note");
+		expect(restored?.[0].replies).toHaveLength(1);
+		expect(restored?.[0].replies[0].text).toBe("Reply one");
+		expect(restored?.[1].pageNum).toBe(3);
 	});
 
 	it("extracts marker from mixed Keywords string", () => {

@@ -11,10 +11,10 @@ import {
 	PDFCheckBox,
 	PDFDocument,
 	PDFDropdown,
-	PDFSignature,
-	PDFTextField,
 	type PDFImage,
 	type PDFPage,
+	PDFSignature,
+	PDFTextField,
 } from "pdf-lib";
 
 export type FormFieldType = "text" | "checkbox" | "dropdown" | "signature";
@@ -120,6 +120,9 @@ export async function extractFormFields(
 				continue;
 			}
 
+			if (!type) continue;
+			const fieldType = type;
+
 			const readOnly = (() => {
 				try {
 					return field.isReadOnly();
@@ -148,7 +151,7 @@ export async function extractFormFields(
 
 					fields.push({
 						name,
-						type: type!,
+						type: fieldType,
 						pageNum,
 						x: clampPct(x),
 						y: clampPct(y),
@@ -192,7 +195,7 @@ export async function applyAndFlattenFormValues(
 	for (const field of form.getFields()) {
 		const name = field.getName();
 		if (!name) continue;
-		const hasOverride = Object.prototype.hasOwnProperty.call(map, name);
+		const hasOverride = Object.hasOwn(map, name);
 		const v = hasOverride ? map[name] : undefined;
 
 		try {
@@ -267,7 +270,14 @@ function removeSignatureFieldSafely(
 		const widgets = field.acroField.getWidgets();
 		for (const widget of widgets) {
 			try {
-				const widgetRef = pdfDoc.context.getObjectRef((widget as any).dict);
+				const widgetRef = pdfDoc.context.getObjectRef(
+					// pdf-lib Widget exposes dict but types omit it
+					(
+						widget as {
+							dict: Parameters<typeof pdfDoc.context.getObjectRef>[0];
+						}
+					).dict,
+				);
 				const page = resolveWidgetPage(pdfDoc, pages, widget);
 				if (page && widgetRef) {
 					page.node.removeAnnot(widgetRef);
@@ -296,7 +306,9 @@ function removeSignatureFieldSafely(
 					const child = kids.get(i);
 					// Only delete object refs (not nested dicts)
 					if (child && "objectNumber" in (child as object)) {
-						pdfDoc.context.delete(child as any);
+						pdfDoc.context.delete(
+							child as Parameters<typeof pdfDoc.context.delete>[0],
+						);
 					}
 				}
 			}
@@ -323,7 +335,10 @@ async function drawSignatureStampOnField(
 	let embedded = imageCache.get(dataUrl);
 	if (!embedded) {
 		// Stamps from canvas are PNG; fall back to JPG if needed
-		if (dataUrl.startsWith("data:image/jpeg") || dataUrl.startsWith("data:image/jpg")) {
+		if (
+			dataUrl.startsWith("data:image/jpeg") ||
+			dataUrl.startsWith("data:image/jpg")
+		) {
 			embedded = await pdfDoc.embedJpg(dataUrl);
 		} else {
 			embedded = await pdfDoc.embedPng(dataUrl);
@@ -381,7 +396,10 @@ function resolveWidgetPage(
 		/* fall through */
 	}
 	try {
-		const widgetRef = doc.context.getObjectRef((widget as any).dict);
+		const widgetRef = doc.context.getObjectRef(
+			// pdf-lib Widget exposes dict but types omit it
+			(widget as { dict: Parameters<typeof doc.context.getObjectRef>[0] }).dict,
+		);
 		if (widgetRef) {
 			return doc.findPageForAnnotationRef(widgetRef);
 		}

@@ -12,6 +12,7 @@
   } from "../pdfStore.svelte";
   import {
     createPageInteraction,
+    isBoxShapeTool,
     SHAPE_TYPES_LIST,
   } from "../lib/interaction/dragHandler.svelte";
   import { createPageRenderer } from "../lib/render/pageRenderer";
@@ -272,18 +273,26 @@
     }
   });
 
-  // Interaction API (drag, selection, pointer) â€” see createPageInteraction
-  const handleMouseDown = ix.handleMouseDown;
-  const handleMouseMove = ix.handleMouseMove;
-  const handleMouseUp = ix.handleMouseUp;
-  const handleMouseLeave = ix.handleMouseLeave;
-  const handleMouseEnter = ix.handleMouseEnter;
+  // Interaction API (pointer events — mouse, touch, and Surface Pen / stylus)
+  const handlePointerDown = ix.handlePointerDown;
+  const handlePointerMove = ix.handlePointerMove;
+  const handlePointerUp = ix.handlePointerUp;
+  const handlePointerLeave = ix.handlePointerLeave;
+  const handlePointerEnter = ix.handlePointerEnter;
   const initShapeMove = ix.initShapeMove;
   const startTextDrag = ix.startTextDrag;
   const initHandleDrag = ix.initHandleDrag;
   const finalizeTextEdit = ix.finalizeTextEdit;
   const getDisplayCoords = ix.getDisplayCoords;
   const getDisplayPoints = ix.getDisplayPoints;
+
+  /** Freehand / draw tools need touch-action:none so WebView2 does not pan on pen/touch. */
+  let isInkTool = $derived(
+    activeDoc.activeTool === "pen" ||
+      activeDoc.activeTool === "highlight" ||
+      activeDoc.activeTool === "line" ||
+      isBoxShapeTool(activeDoc.activeTool),
+  );
 
 
   onMount(() => {
@@ -406,12 +415,13 @@
 <div
   bind:this={pageContainer}
   data-page-number={pageNumber}
-  onmousedown={handleMouseDown}
-  onmousemove={handleMouseMove}
-  onmouseup={handleMouseUp}
-  onmouseenter={handleMouseEnter}
-  onmouseleave={handleMouseLeave}
-  class="bg-white relative rounded-sm mb-12 select-none"
+  onpointerdown={handlePointerDown}
+  onpointermove={handlePointerMove}
+  onpointerup={handlePointerUp}
+  onpointercancel={handlePointerUp}
+  onpointerenter={handlePointerEnter}
+  onpointerleave={handlePointerLeave}
+  class="bg-white relative rounded-sm mb-12 select-none {isInkTool ? 'touch-none' : ''}"
   style="box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.65);
          {activeDoc.fileType === 'image'
            ? `width: ${currentWidth * scaleFactor}px; height: ${currentHeight * scaleFactor}px;`

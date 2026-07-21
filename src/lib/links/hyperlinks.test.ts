@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+	type HyperlinkDef,
 	isSafeHyperlinkUrl,
 	linksForPage,
 	normalizeHyperlinkUrl,
-	type HyperlinkDef,
 } from "./hyperlinks";
 
 describe("isSafeHyperlinkUrl", () => {
@@ -14,9 +14,7 @@ describe("isSafeHyperlinkUrl", () => {
 
 	it("allows mailto with a simple address", () => {
 		expect(isSafeHyperlinkUrl("mailto:user@example.com")).toBe(true);
-		expect(isSafeHyperlinkUrl("mailto:user@example.com?subject=Hi")).toBe(
-			true,
-		);
+		expect(isSafeHyperlinkUrl("mailto:user@example.com?subject=Hi")).toBe(true);
 	});
 
 	it("rejects dangerous schemes", () => {
@@ -42,9 +40,7 @@ describe("isSafeHyperlinkUrl", () => {
 
 describe("normalizeHyperlinkUrl", () => {
 	it("trims safe urls and nulls unsafe ones", () => {
-		expect(normalizeHyperlinkUrl("  https://a.test  ")).toBe(
-			"https://a.test",
-		);
+		expect(normalizeHyperlinkUrl("  https://a.test  ")).toBe("https://a.test");
 		expect(normalizeHyperlinkUrl("javascript:x")).toBeNull();
 	});
 });

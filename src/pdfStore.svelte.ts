@@ -419,12 +419,13 @@ let commentsFocusRequest = $state<number | null>(null);
 /** Session-only: workspace is locked while save/flatten runs. */
 let isSaving = $state(false);
 
-function findOpenDocument(id: string | null | undefined): DocumentWorkspace | null {
+function findOpenDocument(
+	id: string | null | undefined,
+): DocumentWorkspace | null {
 	if (!id) return null;
 	return (
 		openDocuments.find(
-			(d) =>
-				d.workspaceId === id || d.filePath === id || d.fileName === id,
+			(d) => d.workspaceId === id || d.filePath === id || d.fileName === id,
 		) || null
 	);
 }
@@ -575,10 +576,7 @@ export async function commitActiveDocumentAfterSave(opts: {
 export function cycleActiveDocument(direction: 1 | -1) {
 	if (openDocuments.length < 2 || activeDocumentId === null) return;
 	const ids = openDocuments.map(documentKey);
-	const current = Math.max(
-		0,
-		ids.indexOf(activeDocumentId),
-	);
+	const current = Math.max(0, ids.indexOf(activeDocumentId));
 	const next =
 		(current + direction + openDocuments.length) % openDocuments.length;
 	switchActiveDocument(ids[next]);
@@ -633,9 +631,7 @@ export function closeDocumentWorkspace(id: string) {
 	);
 
 	if (wasActive) {
-		activeDocumentId = openDocuments[0]
-			? documentKey(openDocuments[0])
-			: null;
+		activeDocumentId = openDocuments[0] ? documentKey(openDocuments[0]) : null;
 		resetSessionUiForDocumentSwitch();
 	}
 }
@@ -662,13 +658,10 @@ export function upsertRecentEntry(
 	if (!filePath) return;
 	try {
 		const name =
-			fileName?.trim() ||
-			filePath.split(/[\\/]/).pop() ||
-			"document.pdf";
+			fileName?.trim() || filePath.split(/[\\/]/).pop() || "document.pdf";
 		const pathMatch = (item: RecentFile) =>
 			item.path === filePath ||
-			(!!item.path &&
-				item.path.toLowerCase() === filePath.toLowerCase());
+			(!!item.path && item.path.toLowerCase() === filePath.toLowerCase());
 
 		const next = [...(recents || [])];
 		const idx = next.findIndex(pathMatch);
@@ -781,7 +774,10 @@ export function updateRecentThumbnail(
 }
 
 function newWorkspaceId(): string {
-	if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+	if (
+		typeof crypto !== "undefined" &&
+		typeof crypto.randomUUID === "function"
+	) {
 		return crypto.randomUUID();
 	}
 	return `ws_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -1376,7 +1372,9 @@ export function replyToCommentAction(
 /** Delete an entire root thread (including replies). */
 export function deleteCommentAction(threadId: string) {
 	const before = activeDoc.comments?.length || 0;
-	activeDoc.comments = (activeDoc.comments || []).filter((c) => c.id !== threadId);
+	activeDoc.comments = (activeDoc.comments || []).filter(
+		(c) => c.id !== threadId,
+	);
 	if ((activeDoc.comments?.length || 0) !== before) {
 		activeDoc.isDirty = true;
 	}
@@ -1395,10 +1393,7 @@ export function deleteReplyAction(threadId: string, replyId: string) {
 }
 
 /** Update a single AcroForm field value (text, checkbox, dropdown, or signature stamp data URL). */
-export function setFormFieldValueAction(
-	name: string,
-	value: FormFieldValue,
-) {
+export function setFormFieldValueAction(name: string, value: FormFieldValue) {
 	if (!name) return;
 	const prev = activeDoc.formValues || {};
 	if (prev[name] === value) return;

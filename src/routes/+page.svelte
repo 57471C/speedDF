@@ -1630,6 +1630,7 @@
           onRequestClose={closeDocumentById}
           onRequestCloseAll={closeAllDocuments}
           recentFiles={recentFiles}
+          {fileStatusMap}
           onOpenRecent={openRecentFile}
         />
         {#if activeDoc.rawBytes}
@@ -1789,6 +1790,9 @@
     <RecentDashboard
       {recentFiles}
       {fileStatusMap}
+      openDocumentPaths={activeDoc.openDocuments
+        .map((d: { filePath?: string | null }) => d.filePath || "")
+        .filter(Boolean)}
       {openRecentFile}
       {handleCompress}
       {handleClearFromRecents}

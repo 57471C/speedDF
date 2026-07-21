@@ -1,15 +1,22 @@
-import { beforeAll } from 'vitest';
-import { JSDOM } from 'jsdom';
-
 // Polyfill DOMMatrix for pdfjs-dist in JSDOM
 class DOMMatrix {
-  a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
-  constructor() {}
+	a = 1;
+	b = 0;
+	c = 0;
+	d = 1;
+	e = 0;
+	f = 0;
 }
-global.DOMMatrix = DOMMatrix as any;
+(globalThis as typeof globalThis & { DOMMatrix: typeof DOMMatrix }).DOMMatrix =
+	DOMMatrix;
+
 class IntersectionObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
+	observe() {}
+	unobserve() {}
+	disconnect() {}
 }
-global.IntersectionObserver = IntersectionObserver as any;
+(
+	globalThis as typeof globalThis & {
+		IntersectionObserver: typeof IntersectionObserver;
+	}
+).IntersectionObserver = IntersectionObserver;

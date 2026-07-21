@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { PDFDocument, PDFHexString, PDFName, StandardFonts } from "pdf-lib";
+import { describe, expect, it } from "vitest";
 import {
 	applyAndFlattenFormValues,
 	extractFormFields,
@@ -113,8 +113,8 @@ describe("formFields", () => {
 		const textField = fields.find((f) => f.name === "Applicant.Name");
 		expect(textField?.type).toBe("text");
 		expect(textField?.pageNum).toBe(1);
-		expect(textField!.width).toBeGreaterThan(0);
-		expect(textField!.height).toBeGreaterThan(0);
+		expect(textField?.width).toBeGreaterThan(0);
+		expect(textField?.height).toBeGreaterThan(0);
 	});
 
 	it("extracts AcroForm signature fields", async () => {
@@ -122,10 +122,10 @@ describe("formFields", () => {
 		const { fields, values } = await extractFormFields(bytes);
 		const sig = fields.find((f) => f.type === "signature");
 		expect(sig).toBeDefined();
-		expect(sig!.name).toBe("Signature1");
-		expect(sig!.pageNum).toBe(1);
-		expect(sig!.width).toBeGreaterThan(0);
-		expect(sig!.height).toBeGreaterThan(0);
+		expect(sig?.name).toBe("Signature1");
+		expect(sig?.pageNum).toBe(1);
+		expect(sig?.width).toBeGreaterThan(0);
+		expect(sig?.height).toBeGreaterThan(0);
 		expect(values.Signature1).toBe("");
 	});
 

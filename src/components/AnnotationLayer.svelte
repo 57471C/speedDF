@@ -2,9 +2,14 @@
   import { activeDoc, FONT_MAP } from "../pdfStore.svelte";
   import type { PageInteraction } from "../lib/interaction/dragHandler.svelte";
   import {
+    arrowHeadSizePct,
     arrowHeadVertices,
     DEFAULT_TEXT_BOX_H,
     DEFAULT_TEXT_BOX_W,
+    HIGHLIGHT_COLOR,
+    HIGHLIGHT_OPACITY,
+    HIGHLIGHT_STROKE_WIDTH,
+    lineStrokeEndpoints,
   } from "../lib/annotation/toolShapes";
   import { ANNOTATION_TEXT_KEY } from "../lib/forms/formMemory";
   import ValueMemoryPopover from "./ValueMemoryPopover.svelte";
@@ -207,12 +212,13 @@
                 activeDoc.selectedShape = { pageNumber, index: idx };
             }}
             points={getDisplayPoints(shape.points).map((p: { x: number; y: number }) => `${p.x},${p.y}`).join(" ")}
-            stroke={shape.color || "#fff200"}
-            stroke-opacity={shape.color && shape.color.length === 9 ? undefined : "0.42"}
+            stroke={HIGHLIGHT_COLOR}
+            stroke-width={HIGHLIGHT_STROKE_WIDTH}
+            stroke-opacity={HIGHLIGHT_OPACITY}
             fill="none"
             stroke-linecap="round"
             stroke-linejoin="round"
-            class="cursor-pointer pointer-events-auto hover:stroke-yellow-300 transition-colors {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke-yellow-300 stroke-opacity-60' : ''}"
+            class="cursor-pointer pointer-events-auto mix-blend-multiply {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke-opacity-60' : ''}"
           />
         {:else if shape && shape.type === "pen" && shape.points}
           <polyline
@@ -236,7 +242,9 @@
           {@const p1 = pts[1]}
           {@const isLineSelected = activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)}
           {@const lineThick = shape.thickness || 3}
-          <!-- Hit stroke (screen px, matches shape stroke scaling) -->
+          {@const arrowSize = arrowHeadSizePct(lineThick)}
+          {@const strokePts = lineStrokeEndpoints(p0, p1, shape.lineEnds, arrowSize)}
+          <!-- Hit stroke uses full geometry (handles still at true endpoints) -->
           <line
             x1={p0.x}
             y1={p0.y}
@@ -251,12 +259,12 @@
               if (activeDoc.activeTool === "select") initShapeMove(e, idx);
             }}
           />
-          <!-- Same thickness model as box shapes: non-scaling stroke in CSS px -->
+          <!-- Visible stroke stops at arrow bases so caps never poke past the tip -->
           <line
-            x1={p0.x}
-            y1={p0.y}
-            x2={p1.x}
-            y2={p1.y}
+            x1={strokePts.start.x}
+            y1={strokePts.start.y}
+            x2={strokePts.end.x}
+            y2={strokePts.end.y}
             stroke={shape.color || "#000000"}
             stroke-width={lineThick}
             stroke-opacity="1"
@@ -268,7 +276,7 @@
             style={isLineSelected ? "filter: drop-shadow(0 0 1.5px rgba(0,210,255,0.7));" : ""}
           />
           {#if shape.lineEnds === "end" || shape.lineEnds === "both"}
-            {@const head = arrowHeadVertices(p0, p1, Math.max(0.9, lineThick * 0.28))}
+            {@const head = arrowHeadVertices(p0, p1, arrowSize)}
             <polygon
               points={head.map((p) => `${p.x},${p.y}`).join(" ")}
               fill={shape.color || "#000000"}
@@ -276,7 +284,7 @@
             />
           {/if}
           {#if shape.lineEnds === "both"}
-            {@const headStart = arrowHeadVertices(p1, p0, Math.max(0.9, lineThick * 0.28))}
+            {@const headStart = arrowHeadVertices(p1, p0, arrowSize)}
             <polygon
               points={headStart.map((p) => `${p.x},${p.y}`).join(" ")}
               fill={shape.color || "#000000"}
@@ -289,12 +297,13 @@
         {#if activeDoc.activeTool === "highlight"}
           <polyline
             points={getDisplayPoints(ix.liveHighlightPoints).map((p: { x: number; y: number }) => `${p.x},${p.y}`).join(" ")}
-            stroke={activeDoc.activeColor || "#fff200"}
-            stroke-width="2.0"
-            stroke-opacity={activeDoc.activeColor && activeDoc.activeColor.length === 9 ? undefined : "0.48"}
+            stroke={HIGHLIGHT_COLOR}
+            stroke-width={HIGHLIGHT_STROKE_WIDTH}
+            stroke-opacity={HIGHLIGHT_OPACITY}
             fill="none"
             stroke-linecap="round"
             stroke-linejoin="round"
+            class="mix-blend-multiply"
           />
         {:else if activeDoc.activeTool === "pen"}
           <polyline
@@ -314,11 +323,13 @@
         {@const rp0 = previewPts[0]}
         {@const rp1 = previewPts[1]}
         {@const previewThick = activeDoc.activeThickness || 3}
+        {@const previewArrow = arrowHeadSizePct(previewThick)}
+        {@const previewStroke = lineStrokeEndpoints(rp0, rp1, activeDoc.activeLineEnds, previewArrow)}
         <line
-          x1={rp0.x}
-          y1={rp0.y}
-          x2={rp1.x}
-          y2={rp1.y}
+          x1={previewStroke.start.x}
+          y1={previewStroke.start.y}
+          x2={previewStroke.end.x}
+          y2={previewStroke.end.y}
           stroke={activeDoc.activeColor || "#000000"}
           stroke-width={previewThick}
           stroke-opacity="0.85"
@@ -327,7 +338,7 @@
           vector-effect="non-scaling-stroke"
         />
         {#if activeDoc.activeLineEnds === "end" || activeDoc.activeLineEnds === "both"}
-          {@const head = arrowHeadVertices(rp0, rp1, Math.max(0.9, previewThick * 0.28))}
+          {@const head = arrowHeadVertices(rp0, rp1, previewArrow)}
           <polygon
             points={head.map((p) => `${p.x},${p.y}`).join(" ")}
             fill={activeDoc.activeColor || "#000000"}
@@ -335,7 +346,7 @@
           />
         {/if}
         {#if activeDoc.activeLineEnds === "both"}
-          {@const headStart = arrowHeadVertices(rp1, rp0, Math.max(0.9, previewThick * 0.28))}
+          {@const headStart = arrowHeadVertices(rp1, rp0, previewArrow)}
           <polygon
             points={headStart.map((p) => `${p.x},${p.y}`).join(" ")}
             fill={activeDoc.activeColor || "#000000"}

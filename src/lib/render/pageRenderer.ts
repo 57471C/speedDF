@@ -33,7 +33,8 @@ function isRenderCancelled(error: unknown): boolean {
 	const err = error as { name?: string; message?: string };
 	if (!err) return false;
 	if (err.name === "RenderingCancelledException") return true;
-	if (typeof err.message === "string" && /cancel/i.test(err.message)) return true;
+	if (typeof err.message === "string" && /cancel/i.test(err.message))
+		return true;
 	return false;
 }
 
@@ -121,7 +122,12 @@ export function createPageRenderer(deps: PageRendererDeps) {
 		scaleFactor?: number,
 	) {
 		const isRotated90 = rotation === 90 || rotation === 270;
-		if (mode === "scaled-base" && baseW != null && baseH != null && scaleFactor != null) {
+		if (
+			mode === "scaled-base" &&
+			baseW != null &&
+			baseH != null &&
+			scaleFactor != null
+		) {
 			const currentWidth = isRotated90 ? baseH : baseW;
 			const currentHeight = isRotated90 ? baseW : baseH;
 			canvas.width = currentWidth * scaleFactor;
@@ -313,11 +319,10 @@ export function createPageRenderer(deps: PageRendererDeps) {
 
 					const loadingTask = pdfjsLib.getDocument({
 						data: pdfBytes.slice(0),
-						cMapUrl: window.location.origin + "/cmaps/",
+						cMapUrl: `${window.location.origin}/cmaps/`,
 						cMapPacked: true,
-						standardFontDataUrl:
-							window.location.origin + "/standard_fonts/",
-						wasmUrl: window.location.origin + "/",
+						standardFontDataUrl: `${window.location.origin}/standard_fonts/`,
+						wasmUrl: `${window.location.origin}/`,
 						worker: globalPdfWorkerInstance.current,
 					});
 					const pdfDocument = await loadingTask.promise;
@@ -389,14 +394,8 @@ export function createPageRenderer(deps: PageRendererDeps) {
 							"--total-scale-factor",
 							String(safeScale),
 						);
-						textLayerContainer.style.setProperty(
-							"--scale-round-x",
-							"1px",
-						);
-						textLayerContainer.style.setProperty(
-							"--scale-round-y",
-							"1px",
-						);
+						textLayerContainer.style.setProperty("--scale-round-x", "1px");
+						textLayerContainer.style.setProperty("--scale-round-y", "1px");
 
 						const textContent = await page.getTextContent();
 						if (generation !== paintGeneration) return;
