@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
 	COMMENTS_KEYWORD_PREFIX,
+	clampCommentPct,
+	commentHasFlag,
 	commentsForPage,
 	countComments,
 	decodeCommentsFromKeywords,
@@ -20,6 +22,8 @@ function sampleComments(): PageComment[] {
 			author: "You",
 			text: "Root note",
 			createdAt: 1000,
+			x: 25,
+			y: 40,
 			replies: [
 				{
 					id: "r1",
@@ -70,7 +74,18 @@ describe("comments helpers", () => {
 		expect(restored?.[0].text).toBe("Root note");
 		expect(restored?.[0].replies).toHaveLength(1);
 		expect(restored?.[0].replies[0].text).toBe("Reply one");
+		expect(restored?.[0].x).toBe(25);
+		expect(restored?.[0].y).toBe(40);
 		expect(restored?.[1].pageNum).toBe(3);
+		expect(restored?.[1].x).toBeUndefined();
+	});
+
+	it("detects flag positions and clamps percents", () => {
+		expect(commentHasFlag(sampleComments()[0])).toBe(true);
+		expect(commentHasFlag(sampleComments()[1])).toBe(false);
+		expect(clampCommentPct(-10)).toBe(0.5);
+		expect(clampCommentPct(150)).toBe(99.5);
+		expect(clampCommentPct(33)).toBe(33);
 	});
 
 	it("extracts marker from mixed Keywords string", () => {

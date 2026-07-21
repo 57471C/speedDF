@@ -14,12 +14,14 @@
     replyToCommentAction,
     deleteCommentAction,
     deleteReplyAction,
+    updateReplyAction,
     globalPdfWorkerInstance,
   } from "../pdfStore.svelte";
   import {
     countComments,
     formatCommentTime,
   } from "../lib/comments/comments";
+  import { autoGrowTextarea } from "../lib/interaction/autoGrowTextarea";
   import {
     computeThumbnailScale,
     debounceLeadingLatest,
@@ -54,6 +56,9 @@
   // --- Comments panel state ---
   let replyDrafts = $state<Record<string, string>>({});
   let openReplyId = $state<string | null>(null);
+  /** Which reply is being edited: `${threadId}:${replyId}` */
+  let editingReplyKey = $state<string | null>(null);
+  let editReplyDraft = $state("");
 
   // --- Bookmark Sorting Logic ---
   // Automatically sorts bookmarks based on their actual position in the document (pageOrder)
@@ -75,13 +80,32 @@
     });
   });
 
-  // Honor page "Add comment" / comment-badge requests from WorkspacePage
+  /** Thread id to briefly highlight after opening comments from a page flag. */
+  let focusedThreadId = $state<string | null>(null);
+
+  // Honor page "Add comment" / flag-click requests from WorkspacePage
   $effect(() => {
     const focusPage = activeDoc.commentsFocusRequest;
+    const focusThread = activeDoc.commentsFocusThreadId;
     if (focusPage != null && focusPage > 0) {
       activeSidebarTab = "comments";
-      // Consume the session signal so it does not re-fire
+      focusedThreadId = focusThread;
+      // Consume the session signals so they do not re-fire
       activeDoc.commentsFocusRequest = null;
+      activeDoc.commentsFocusThreadId = null;
+      // Scroll the focused thread into view after paint
+      if (focusThread) {
+        requestAnimationFrame(() => {
+          const el = document.querySelector(
+            `[data-comment-thread="${CSS.escape(focusThread)}"]`,
+          ) as HTMLElement | null;
+          el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        });
+        // Clear highlight after a short beat
+        setTimeout(() => {
+          if (focusedThreadId === focusThread) focusedThreadId = null;
+        }, 2200);
+      }
     }
   });
 
@@ -92,6 +116,23 @@
       replyDrafts = { ...replyDrafts, [threadId]: "" };
       openReplyId = null;
     }
+  }
+
+  function startEditReply(threadId: string, replyId: string, text: string) {
+    editingReplyKey = `${threadId}:${replyId}`;
+    editReplyDraft = text || "";
+  }
+
+  function saveEditReply(threadId: string, replyId: string) {
+    if (updateReplyAction(threadId, replyId, editReplyDraft)) {
+      editingReplyKey = null;
+      editReplyDraft = "";
+    }
+  }
+
+  function cancelEditReply() {
+    editingReplyKey = null;
+    editReplyDraft = "";
   }
 
   function getSharedPdfjsDoc() {
@@ -1152,11 +1193,17 @@
     <div class="flex flex-col gap-2 p-2 overflow-y-auto w-full h-[calc(100vh-80px)]" style="color-scheme: dark;">
       {#if visibleComments.length === 0}
         <div class="text-center text-[10px] text-slate-600 mt-12 px-3 leading-relaxed">
-          No comments in this document yet. Use the comment bubble on a page to add one.
+          No comments in this document yet. Use the comment bubble on a page, or right-click the page and choose Add Comment Here.
         </div>
       {:else}
         {#each visibleComments as thread (thread.id)}
-          <div class="rounded-lg border border-slate-900/50 bg-[#0e1321]/40 hover:border-slate-700/40 transition-all overflow-hidden">
+          <div
+            data-comment-thread={thread.id}
+            class="rounded-lg border bg-[#0e1321]/40 hover:border-slate-700/40 transition-all overflow-hidden
+              {focusedThreadId === thread.id
+                ? 'border-amber-400/70 ring-1 ring-amber-400/40 shadow-[0_0_12px_rgba(251,191,36,0.15)]'
+                : 'border-slate-900/50'}"
+          >
             <div class="p-2.5">
               <div class="flex items-start justify-between gap-1 mb-1">
                 <div class="min-w-0 flex-1">
@@ -1166,6 +1213,13 @@
                       title={thread.authorFullName || thread.author}
                     >{thread.author}</span>
                     <span class="text-[8px] text-slate-600 font-mono">{formatCommentTime(thread.createdAt)}</span>
+                    {#if typeof thread.x === "number" && typeof thread.y === "number"}
+                      <span
+                        class="text-[9px] text-amber-400/90"
+                        title="On-page flag"
+                        aria-hidden="true"
+                      >⚑</span>
+                    {/if}
                     <button
                       onclick={() => jumpToTargetPage(thread.pageNum)}
                       class="text-[8px] font-bold px-1 py-0.5 rounded bg-slate-900 text-cyan-500/80 uppercase tracking-wider hover:bg-slate-800"
@@ -1200,6 +1254,7 @@
             {#if (thread.replies || []).length > 0}
               <div class="border-t border-slate-900/60 bg-[#0a0e18]/50 px-2.5 py-1.5 space-y-2">
                 {#each thread.replies || [] as reply (reply.id)}
+                  {@const replyEditKey = `${thread.id}:${reply.id}`}
                   <div class="pl-2 border-l-2 border-slate-800">
                     <div class="flex items-start justify-between gap-1">
                       <div class="flex items-center gap-1.5 min-w-0">
@@ -1209,15 +1264,62 @@
                         >{reply.author}</span>
                         <span class="text-[8px] text-slate-600 font-mono">{formatCommentTime(reply.createdAt)}</span>
                       </div>
-                      <button
-                        onclick={() => deleteReplyAction(thread.id, reply.id)}
-                        class="p-0.5 rounded text-slate-700 hover:text-red-400 shrink-0"
-                        title="Delete reply"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                      </button>
+                      <div class="flex items-center gap-0.5 shrink-0">
+                        <button
+                          type="button"
+                          onclick={() => startEditReply(thread.id, reply.id, reply.text)}
+                          class="p-0.5 rounded text-slate-600 hover:text-amber-400 hover:bg-slate-900"
+                          title="Edit reply"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                        </button>
+                        <button
+                          type="button"
+                          onclick={() => deleteReplyAction(thread.id, reply.id)}
+                          class="p-0.5 rounded text-slate-700 hover:text-red-400"
+                          title="Delete reply"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        </button>
+                      </div>
                     </div>
-                    <p class="text-[10px] text-slate-400 leading-relaxed whitespace-pre-wrap break-words mt-0.5 font-sans">{reply.text}</p>
+                    {#if editingReplyKey === replyEditKey}
+                      <div class="flex flex-col gap-1 mt-0.5">
+                        <textarea
+                          use:autoGrowTextarea={{ minRows: 2, maxRows: 8 }}
+                          bind:value={editReplyDraft}
+                          rows="2"
+                          onkeydown={(e) => {
+                            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                              e.preventDefault();
+                              saveEditReply(thread.id, reply.id);
+                            } else if (e.key === "Escape") {
+                              e.preventDefault();
+                              cancelEditReply();
+                            }
+                          }}
+                          class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[10px] text-slate-200 focus:outline-none focus:border-amber-500/50 font-sans resize-none overflow-hidden"
+                        ></textarea>
+                        <div class="flex justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onclick={cancelEditReply}
+                            class="px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-500 hover:text-slate-300"
+                          >Cancel</button>
+                          <button
+                            type="button"
+                            onclick={() => saveEditReply(thread.id, reply.id)}
+                            disabled={!editReplyDraft.trim()}
+                            class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase
+                              {editReplyDraft.trim()
+                                ? 'bg-amber-600/25 text-amber-300 border border-amber-500/40'
+                                : 'bg-slate-900 text-slate-600 border border-slate-800 cursor-not-allowed'}"
+                          >Save</button>
+                        </div>
+                      </div>
+                    {:else}
+                      <p class="text-[10px] text-slate-400 leading-relaxed whitespace-pre-wrap break-words mt-0.5 font-sans">{reply.text}</p>
+                    {/if}
                   </div>
                 {/each}
               </div>

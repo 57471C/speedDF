@@ -550,6 +550,7 @@ export async function flattenWorkspaceToPDF(): Promise<Uint8Array | null> {
 		}
 
 		// Per-page threaded comments → PDF Keywords (pdf-lib / pdf.js readable metadata)
+		// + PDF Text (sticky note) annots for other viewers when flags have positions
 		try {
 			const pageOrderSet = new Set(activeDoc.pageOrder || []);
 			const commentsToSave = (activeDoc.comments || []).filter((c) =>
@@ -557,6 +558,59 @@ export async function flattenWorkspaceToPDF(): Promise<Uint8Array | null> {
 			);
 			if (commentsToSave.length > 0) {
 				destDoc.setKeywords([encodeCommentsKeyword(commentsToSave)]);
+			}
+			// Sticky notes for positioned flags (other PDF viewers)
+			const pages = destDoc.getPages();
+			for (const c of commentsToSave) {
+				if (
+					typeof c.x !== "number" ||
+					typeof c.y !== "number" ||
+					!Number.isFinite(c.x) ||
+					!Number.isFinite(c.y)
+				) {
+					continue;
+				}
+				const pageIndex = activeDoc.pageOrder.indexOf(c.pageNum);
+				if (pageIndex < 0 || pageIndex >= pages.length) continue;
+				const page = pages[pageIndex];
+				const { width: pageWidth, height: pageHeight } = page.getSize();
+				// % top-left → PDF bottom-left
+				const pdfX = (c.x / 100) * pageWidth;
+				const pdfYTop = (c.y / 100) * pageHeight;
+				const icon = 18;
+				const rect = [
+					pdfX - icon * 0.35,
+					pageHeight - pdfYTop - icon * 0.15,
+					pdfX + icon * 0.65,
+					pageHeight - pdfYTop + icon * 0.85,
+				];
+				const contents = [c.text || "Comment"]
+					.concat((c.replies || []).map((r) => `↳ ${r.author}: ${r.text}`))
+					.join("\n");
+				const annotDict = destDoc.context.obj({
+					Type: "Annot",
+					Subtype: "Text",
+					Rect: rect,
+					C: [1, 0.92, 0.05],
+					Open: false,
+					Name: "Comment",
+					F: 4, // Print
+					P: page.ref,
+				});
+				annotDict.set(
+					PDFName.of("Contents"),
+					PDFString.of(contents.slice(0, 2000)),
+				);
+				annotDict.set(
+					PDFName.of("T"),
+					PDFString.of(
+						(c.authorFullName || c.author || "speedDF").slice(0, 64),
+					),
+				);
+				// NM: unique name so speedDF can recognize its own notes if needed
+				annotDict.set(PDFName.of("NM"), PDFString.of(`speeddf-cmt-${c.id}`));
+				const annotRef = destDoc.context.register(annotDict);
+				page.node.addAnnot(annotRef);
 			}
 		} catch (commentsErr) {
 			console.warn("Failed to embed comments into PDF keywords:", commentsErr);

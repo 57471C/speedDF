@@ -19,6 +19,7 @@
   import { getGhostDimensions } from "../lib/annotation/ghostDimensions";
   import { STROKE_DASHARRAYS } from "../lib/annotation/strokeStyles";
   import { pageHasComments, countComments, commentsForPage, formatCommentTime } from "../lib/comments/comments";
+  import { autoGrowTextarea } from "../lib/interaction/autoGrowTextarea";
   import AnnotationLayer from "./AnnotationLayer.svelte";
   import FormLayer from "./FormLayer.svelte";
   import LinkLayer from "./LinkLayer.svelte";
@@ -667,8 +668,9 @@
               <div class="border-t border-slate-800/80"></div>
             {/if}
 
-            <div class="flex items-end gap-1.5">
+            <div class="flex items-start gap-1.5">
               <textarea
+                use:autoGrowTextarea={{ minRows: 2, maxRows: 12 }}
                 bind:value={commentDraft}
                 rows="2"
                 placeholder={pageHasCommentThreads ? "Add another note…" : "Add a note…"}
@@ -683,7 +685,7 @@
                     commentHovered = false;
                   }
                 }}
-                class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/50 flex-1 min-w-0 font-sans resize-none leading-relaxed"
+                class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/50 flex-1 min-w-0 font-sans resize-none leading-relaxed overflow-hidden"
               ></textarea>
               <button
                 onclick={(e) => {
@@ -691,7 +693,7 @@
                   submitPageComment();
                 }}
                 disabled={!commentDraft.trim()}
-                class="p-0.5 rounded shrink-0 transition-colors
+                class="p-0.5 rounded shrink-0 transition-colors mt-0.5
                   {commentDraft.trim()
                     ? 'text-emerald-400 hover:bg-slate-800'
                     : 'text-slate-600 cursor-not-allowed'}"
