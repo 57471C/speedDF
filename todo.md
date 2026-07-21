@@ -19,6 +19,7 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 4. Switch to Bun - could be a big win for speed and bundle size.
 
 ## Fixes
+- [ ] dropping a text annotation is lower than it should be. it seems like the top/r of the text input drops at the center of the cursour. It should be the top.
 - [ ] Disable F5 refresh!
 - [ ] remove "Shift" key for grouping
 ---
@@ -133,6 +134,22 @@ DEBUG CROP: Box target [2] -> x: 959, y: 86, w: 24, h: 19
 ```
 ---
 ## common git commands ##
+- New tag
+```bash
+# 1. Stage and commit all your changes and version bumps
+git add .
+git commit -m "chore: release v1.0.6"
+
+# 2. Create the annotated tag locally
+git tag -a v1.0.6 -m "Release v1.0.6"
+
+# 3. Push your active branch code to GitHub
+git push origin main
+
+# 4. Push the v1.0.6 tag to trigger the GitHub release action
+git push origin v1.0.6
+```
+
 
 - Commit the Missed Version Numbers
 ```bash
