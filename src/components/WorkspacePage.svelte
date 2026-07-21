@@ -20,6 +20,7 @@
   import { pageHasComments, countComments, commentsForPage, formatCommentTime } from "../lib/comments/comments";
   import AnnotationLayer from "./AnnotationLayer.svelte";
   import FormLayer from "./FormLayer.svelte";
+  import LinkLayer from "./LinkLayer.svelte";
 
   let { bytes, pageNumber, zoomScale, isSystemPrinting = false, scrollObserver } = $props<{
     bytes: Uint8Array;
@@ -443,6 +444,11 @@
   <!-- AcroForm fill layer (text / checkbox / dropdown) — above canvas, below freehand SVG ink -->
   {#if activeDoc.fileType === "pdf"}
     <FormLayer {pageNumber} />
+  {/if}
+
+  <!-- URI Link annotations: underline/hover + confirm-to-open (select tool only) -->
+  {#if activeDoc.fileType === "pdf"}
+    <LinkLayer {pageNumber} />
   {/if}
 
   <AnnotationLayer

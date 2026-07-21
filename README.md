@@ -58,7 +58,7 @@ A high-performance, light-weight desktop PDF editor and annotation engine. Built
 ## Key Features
 
 ### 1. Client-Side Vector Flattening Engine (pdf-lib)
-Unlike standard web editors that merely slide floating HTML elements over a canvas view, speedDF features a built-in client compilation compiler. When exporting via Save As.., your text modifications, bounding rectangles, audit stamps, digital signatures, and freehand highlights are mathematically translated and baked permanently into the document's native binary vector tree. The pipeline automatically calculates coordinate transformations, flipping your front-end actions from top-left web space to the true bottom-left point origins required by the PDF specification.
+Unlike standard web editors that merely slide floating HTML elements over a canvas view, speedDF features a built-in client compilation compiler. When exporting via Save As.., your text modifications, bounding rectangles, straight lines (with optional arrow ends), audit stamps, digital signatures, and freehand highlights are mathematically translated and baked permanently into the document's native binary vector tree. The pipeline automatically calculates coordinate transformations, flipping your front-end actions from top-left web space to the true bottom-left point origins required by the PDF specification.
 
 ### 2. Digital Ink Signature & Initial Profiles
 * **Dual-Canvas Drafting Wizard:** Sketch custom signature and initial sets directly inside the tool window. Canvas paths utilise a high-fidelity, segment-by-segment interpolation matrix to perfectly track your pointer tip regardless of display size or layout scale.
@@ -107,6 +107,16 @@ Page restructuring utilises strict immutable list reconciliation tracking loops 
 * **Click-to-drop shapes:** A short click (no drag) places a default square sized at **1.5× zoom level** in CSS pixels (100% zoom → 150×150). The pointer sits on the **top-right** corner; the shape extends left and down.
 * **Drag-to-size** still works for freeform boxes (rect / oval / filled variants).
 * **Multi-select:** **Shift+Click** (and Ctrl/Cmd+Click) toggles shapes and text into a group for batch move / property edits.
+
+### 13. Dedicated Line tool ###
+* **Two-click draw:** Click start point → live rubber-band preview → click end point. Lines are stored as true vector shapes (`points: [start, end]`) and bake on export like other annotations.
+* **Endpoint handles:** With the Select tool, drag compact handles at each end to resize, or drag the line body to move both ends together.
+* **Ends style:** The thickness menu includes an **Ends** section — Plain, End arrow, or Start + End arrows. Lines respect active colour, thickness, and dash style; stroke width matches box shapes (non-scaling CSS-pixel stroke).
+
+### 14. Clickable PDF hyperlinks ###
+* **Detect on open:** Existing URI Link annotations in the PDF are extracted into a per-document overlay (multi-tab safe).
+* **Underline & hover:** Links render with a subtle underline and highlight on hover when the Select tool is active.
+* **Safe open:** Click shows a confirmation dialog, then opens only **http**, **https**, or **mailto** URLs in the system browser. Dangerous schemes (`javascript:`, `data:`, `file:`, etc.) are blocked. Internal page destinations are not activated in v1.
 
 ---
 
@@ -239,6 +249,8 @@ npx tauri build --debug
 - [x] Recent Document structural layout caching for instant skeleton hydration.
 - [x] Form & text value memory (localStorage autocomplete for annotations + AcroForm text).
 - [x] Text/shape polish: colour-matched editing, zoom-scaled shape drop, Shift multi-select, auto-growing text boxes.
+- [x] Dedicated Line tool (click–click rubber-band, endpoint handles, arrow ends, vector export).
+- [x] Clickable PDF hyperlinks (URI Link annotations, scheme allow-list, confirm-before-open).
 
 ---
 

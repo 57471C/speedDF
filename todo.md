@@ -1,11 +1,9 @@
 # Todo List #
 
 ## Features to add ##
-1. Add Text input memory/forms input memory (use differnt stores?)
-2. Hyperlinks (rendering/clickable) - security check!
 3. Obeject alignment
 4. R/click tab - "Open in new window" 
-4. Froms creation (NOT XFA Forms!) + huperlinks
+4. Forms creation (NOT XFA Forms!) + huperlinks
 5. comments should have XY co-ords. not stuck at the top of the page.
 
 ## long term goals (may never do)
