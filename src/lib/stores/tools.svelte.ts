@@ -19,15 +19,20 @@ export type ActiveTool =
 	| "round-rect-fill"
 	| "oval-fill"
 	| "pen"
+	| "line"
 	| "snapshot"
 	| null;
 
 export type ActiveLineStyle = "solid" | "dashed" | "dotted" | "dash-dot";
 
+/** Arrow ends for the dedicated Line tool. */
+export type ActiveLineEnds = "plain" | "end" | "both";
+
 let activeTool = $state<ActiveTool>("select");
 let activeColor = $state("#000000");
 let activeThickness = $state(3);
 let activeLineStyle = $state<ActiveLineStyle>("solid");
+let activeLineEnds = $state<ActiveLineEnds>("plain");
 
 export function getActiveTool(): ActiveTool {
 	return activeTool;
@@ -59,4 +64,12 @@ export function getActiveLineStyle(): ActiveLineStyle {
 
 export function setActiveLineStyle(val: ActiveLineStyle) {
 	activeLineStyle = val;
+}
+
+export function getActiveLineEnds(): ActiveLineEnds {
+	return activeLineEnds;
+}
+
+export function setActiveLineEnds(val: ActiveLineEnds) {
+	activeLineEnds = val;
 }

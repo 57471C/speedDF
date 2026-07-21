@@ -11,6 +11,7 @@ export type ShapeLike = {
 	textColor?: string;
 	thickness?: number;
 	lineStyle?: string;
+	lineEnds?: string;
 	fontFamily?: string;
 	font?: string;
 	alignment?: string;

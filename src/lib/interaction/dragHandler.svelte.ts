@@ -12,11 +12,13 @@ import { cacheStampDimensions } from "../annotation/ghostDimensions";
 import {
 	createBoxShape,
 	createFreehandShape,
+	createLineShape,
 	createSignatureOrInitialShape,
 	createTextShape,
 	createTickOrDashShape,
 	defaultTextBoxHeightPct,
 	hasEmptyTextDraft,
+	lineBoundsFromPoints,
 	withoutEmptyTextDrafts,
 } from "../annotation/toolShapes";
 import {
@@ -58,6 +60,11 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 
 	let liveHighlightPoints = $state<{ x: number; y: number }[]>([]);
 
+	/** Line tool: first click placed; rubber-band until second click. */
+	let lineAwaitingEnd = $state(false);
+	let lineStartPct = $state<PointPct | null>(null);
+	let linePreviewPct = $state<PointPct | null>(null);
+
 	let activelyEditingIndex = $state<number | null>(null);
 	/** Snapshot of text when edit began — guards against accidental empty-delete on blur. */
 	let textEditBaseline = "";
@@ -68,6 +75,8 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		width: number;
 		height: number;
 	} | null>(null);
+	/** Snapshot of line endpoints when dragging a line handle or body. */
+	let initialLinePoints: { x: number; y: number }[] | null = null;
 	let isMovingShape = $state(false);
 	let dragStartMouseX = 0;
 	let dragStartMouseY = 0;
@@ -83,10 +92,41 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 	let rawResizedShapeCoords = { x: 0, y: 0, width: 0, height: 0 };
 	let animationFrameId: number | null = null;
 	let dragPageRect: DOMRect | null = null;
-	// Multi-select group drag cache
-	let rawGroupInitialPositions: { index: number; x: number; y: number }[] =
-		[];
+	// Multi-select group drag cache (points for line shapes)
+	let rawGroupInitialPositions: {
+		index: number;
+		x: number;
+		y: number;
+		points?: { x: number; y: number }[];
+	}[] = [];
 	let groupDragElements: HTMLElement[] = [];
+
+	function clearLineDrawingState() {
+		lineAwaitingEnd = false;
+		lineStartPct = null;
+		linePreviewPct = null;
+	}
+
+	function commitLineShape(start: PointPct, end: PointPct) {
+		const pageNumber = getPageNumber();
+		const dist = Math.hypot(end.x - start.x, end.y - start.y);
+		if (dist < 0.15) {
+			clearLineDrawingState();
+			return;
+		}
+		const newShape = createLineShape(start, end, {
+			color: activeDoc.activeColor,
+			thickness: activeDoc.activeThickness,
+			lineStyle: activeDoc.activeLineStyle,
+			lineEnds: activeDoc.activeLineEnds,
+		});
+		const existing = activeDoc.shapes[pageNumber] || [];
+		activeDoc.shapes = {
+			...activeDoc.shapes,
+			[pageNumber]: [...existing, newShape],
+		};
+		clearLineDrawingState();
+	}
 
 	let isMouseOverPage = $state(false);
 	let hoverPctX = $state(0);
@@ -264,8 +304,16 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			return;
 		}
 
+		// Switching away mid-line cancels an unfinished rubber-band
+		if (activeDoc.activeTool !== "line" && lineAwaitingEnd) {
+			clearLineDrawingState();
+		}
+
 		if (activeDoc.activeTool !== "text") {
-			pushHistorySnapshot();
+			// Second line click finalizes; history already pushed on first click
+			if (!(activeDoc.activeTool === "line" && lineAwaitingEnd)) {
+				pushHistorySnapshot();
+			}
 		}
 
 		dragPageRect = pageContainer.getBoundingClientRect();
@@ -279,6 +327,32 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			activeDoc.selectedShapes = [];
 			return;
 		}
+
+		// Line tool: click start → rubber band → click end
+		if (activeDoc.activeTool === "line") {
+			e.preventDefault();
+			if (!lineAwaitingEnd || !lineStartPct) {
+				lineAwaitingEnd = true;
+				lineStartPct = { x: mousePctX, y: mousePctY };
+				linePreviewPct = { x: mousePctX, y: mousePctY };
+				isDrawing = true;
+				dragActive = true;
+				rawStartX = e.clientX;
+				rawStartY = e.clientY;
+				rawCurrentX = e.clientX;
+				rawCurrentY = e.clientY;
+			} else {
+				commitLineShape(lineStartPct, {
+					x: mousePctX,
+					y: mousePctY,
+				});
+				isDrawing = false;
+				dragActive = false;
+				dragPageRect = null;
+			}
+			return;
+		}
+
 		if (
 			activeDoc.activeTool === "highlight" ||
 			activeDoc.activeTool === "pen"
@@ -387,7 +461,14 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 					.filter((s) => s.pageNumber === pageNumber)
 					.map((s) => {
 						const sh = activeDoc.shapes[pageNumber]?.[s.index];
-						return { index: s.index, x: sh?.x || 0, y: sh?.y || 0 };
+						return {
+							index: s.index,
+							x: sh?.x || 0,
+							y: sh?.y || 0,
+							points: sh?.points
+								? sh.points.map((p) => ({ x: p.x, y: p.y }))
+								: undefined,
+						};
 					});
 				groupDragElements = rawGroupInitialPositions
 					.map(
@@ -400,7 +481,16 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 				dragTargetElement = null;
 			} else {
 				// Single-shape drag
-				rawGroupInitialPositions = [];
+				rawGroupInitialPositions = [
+					{
+						index,
+						x: shape.x || 0,
+						y: shape.y || 0,
+						points: shape.points
+							? shape.points.map((p) => ({ x: p.x, y: p.y }))
+							: undefined,
+					},
+				];
 				groupDragElements = [];
 				dragTargetElement = pageContainer.querySelector(
 					`[data-shape-idx="${index}"]`,
@@ -496,15 +586,75 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			liveHighlightPoints = [...rawLiveHighlightPoints];
 		}
 
+		// Case 1b: Line rubber-band preview (percentage space)
+		else if (
+			isDrawing &&
+			lineAwaitingEnd &&
+			activeDoc.activeTool === "line"
+		) {
+			const rect =
+				dragPageRect || pageContainer.getBoundingClientRect();
+			const { x, y } = normalizeCoordinates(
+				rawCurrentX - rect.left,
+				rawCurrentY - rect.top,
+			);
+			linePreviewPct = { x, y };
+		}
+
 		// Case 2: Shape moving
 		else if (isMovingShape && activeDoc.selectedShape) {
+			const rect =
+				dragPageRect || pageContainer.getBoundingClientRect();
+			const startNorm = normalizeCoordinates(
+				rawStartX - rect.left,
+				rawStartY - rect.top,
+			);
+			const endNorm = normalizeCoordinates(
+				rawCurrentX - rect.left,
+				rawCurrentY - rect.top,
+			);
+			const deltaPctX = endNorm.x - startNorm.x;
+			const deltaPctY = endNorm.y - startNorm.y;
 			const deltaX = rawCurrentX - rawStartX;
 			const deltaY = rawCurrentY - rawStartY;
+			const pageNumber = getPageNumber();
+			const shapesList = activeDoc.shapes[pageNumber] || [];
+
+			// Point-based shapes (lines) must move in data space; boxes use CSS transform
+			let touchedPoints = false;
+			if (rawGroupInitialPositions.length > 0) {
+				for (const pos of rawGroupInitialPositions) {
+					const shape = shapesList[pos.index];
+					if (!shape?.points?.length || !pos.points?.length) continue;
+					shape.points = pos.points.map((p) => ({
+						x: clampPct(p.x + deltaPctX),
+						y: clampPct(p.y + deltaPctY),
+					}));
+					if (shape.type === "line" && shape.points.length >= 2) {
+						const b = lineBoundsFromPoints(
+							shape.points[0],
+							shape.points[1],
+						);
+						shape.x = b.x;
+						shape.y = b.y;
+						shape.width = b.width;
+						shape.height = b.height;
+					} else {
+						shape.x = clampPct(pos.x + deltaPctX);
+						shape.y = clampPct(pos.y + deltaPctY);
+					}
+					touchedPoints = true;
+				}
+			}
+
+			if (touchedPoints) {
+				activeDoc.shapes = { ...activeDoc.shapes };
+			}
+
 			if (
 				rawGroupInitialPositions.length > 1 &&
 				groupDragElements.length > 0
 			) {
-				// Group drag: apply uniform displacement to all selected elements
 				groupDragElements.forEach((el) => {
 					if (el)
 						el.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
@@ -514,12 +664,11 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			}
 		}
 
-		// Case 3: Shape resizing
+		// Case 3: Shape resizing / line endpoint drag
 		else if (
 			draggingHandle &&
 			activeDoc.selectedShape &&
-			initialShapeState &&
-			dragTargetElement
+			initialShapeState
 		) {
 			const rect =
 				dragPageRect || pageContainer.getBoundingClientRect();
@@ -530,34 +679,62 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			const pageNumber = getPageNumber();
 			const resizeShape =
 				activeDoc.shapes[pageNumber]?.[activeDoc.selectedShape.index];
-			// Text boxes: top-left anchor only — force BR geometry (never move x/y)
-			const handle =
-				resizeShape?.type === "text" ? "br" : draggingHandle;
-			const { x, y, width, height } = computeResizedBounds(
-				handle,
-				initialShapeState,
-				mousePctX,
-				mousePctY,
-			);
 
-			if (resizeShape?.type === "text") {
-				// Lock top-left; only grow width/height so handle stays on the outline
-				rawResizedShapeCoords = {
-					x: initialShapeState.x,
-					y: initialShapeState.y,
-					width,
-					height,
+			// Line endpoints: drag start or end handle
+			if (
+				resizeShape?.type === "line" &&
+				initialLinePoints &&
+				initialLinePoints.length >= 2 &&
+				(draggingHandle === "line-start" ||
+					draggingHandle === "line-end")
+			) {
+				const next = initialLinePoints.map((p) => ({
+					x: p.x,
+					y: p.y,
+				}));
+				const idx = draggingHandle === "line-start" ? 0 : 1;
+				next[idx] = {
+					x: clampPct(mousePctX),
+					y: clampPct(mousePctY),
 				};
-				dragTargetElement.style.left = `${initialShapeState.x}%`;
-				dragTargetElement.style.top = `${initialShapeState.y}%`;
-				dragTargetElement.style.width = `${width}%`;
-				dragTargetElement.style.height = `${height}%`;
-			} else {
-				rawResizedShapeCoords = { x, y, width, height };
-				dragTargetElement.style.left = `${x}%`;
-				dragTargetElement.style.top = `${y}%`;
-				dragTargetElement.style.width = `${width}%`;
-				dragTargetElement.style.height = `${height}%`;
+				resizeShape.points = next;
+				const b = lineBoundsFromPoints(next[0], next[1]);
+				resizeShape.x = b.x;
+				resizeShape.y = b.y;
+				resizeShape.width = b.width;
+				resizeShape.height = b.height;
+				rawResizedShapeCoords = b;
+				activeDoc.shapes = { ...activeDoc.shapes };
+			} else if (dragTargetElement) {
+				// Text boxes: top-left anchor only — force BR geometry (never move x/y)
+				const handle =
+					resizeShape?.type === "text" ? "br" : draggingHandle;
+				const { x, y, width, height } = computeResizedBounds(
+					handle,
+					initialShapeState,
+					mousePctX,
+					mousePctY,
+				);
+
+				if (resizeShape?.type === "text") {
+					// Lock top-left; only grow width/height so handle stays on the outline
+					rawResizedShapeCoords = {
+						x: initialShapeState.x,
+						y: initialShapeState.y,
+						width,
+						height,
+					};
+					dragTargetElement.style.left = `${initialShapeState.x}%`;
+					dragTargetElement.style.top = `${initialShapeState.y}%`;
+					dragTargetElement.style.width = `${width}%`;
+					dragTargetElement.style.height = `${height}%`;
+				} else {
+					rawResizedShapeCoords = { x, y, width, height };
+					dragTargetElement.style.left = `${x}%`;
+					dragTargetElement.style.top = `${y}%`;
+					dragTargetElement.style.width = `${width}%`;
+					dragTargetElement.style.height = `${height}%`;
+				}
 			}
 		}
 
@@ -573,6 +750,14 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 	function handleMouseMove(e: MouseEvent) {
 		const pageContainer = getPageContainer();
 		if (!pageContainer) return;
+
+		// Drop unfinished rubber-band if the user switched tools
+		if (lineAwaitingEnd && activeDoc.activeTool !== "line") {
+			clearLineDrawingState();
+			isDrawing = false;
+			dragActive = false;
+		}
+
 		const rect = dragPageRect || pageContainer.getBoundingClientRect();
 		const rawX = e.clientX - rect.left;
 		const rawY = e.clientY - rect.top;
@@ -583,7 +768,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		hoverPctX = mousePctX;
 		hoverPctY = mousePctY;
 
-		if (dragActive) {
+		if (dragActive || lineAwaitingEnd) {
 			e.preventDefault();
 			rawCurrentX = e.clientX;
 			rawCurrentY = e.clientY;
@@ -594,6 +779,11 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 					activeDoc.activeTool === "pen")
 			) {
 				rawLiveHighlightPoints.push({ x: mousePctX, y: mousePctY });
+			}
+
+			// Keep line rubber-band tracking even when dragActive was cleared on leave/re-enter
+			if (lineAwaitingEnd && activeDoc.activeTool === "line") {
+				linePreviewPct = { x: mousePctX, y: mousePctY };
 			}
 
 			if (!animationFrameId) {
@@ -613,6 +803,11 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		if (animationFrameId) {
 			cancelAnimationFrame(animationFrameId);
 			animationFrameId = null;
+		}
+
+		// Line tool uses click-click (not drag-release); ignore mouseup while awaiting end
+		if (activeDoc.activeTool === "line" && lineAwaitingEnd) {
+			return;
 		}
 
 		if (
@@ -665,14 +860,30 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			const deltaPctY = endNorm.y - startNorm.y;
 			const shapesList = [...(activeDoc.shapes[pageNumber] || [])];
 
-			if (
-				rawGroupInitialPositions.length > 1 &&
-				groupDragElements.length > 0
-			) {
-				// Batch-write group coordinate updates in a single store commit
+			if (rawGroupInitialPositions.length > 0) {
+				// Batch-write coordinate updates (incl. line points) from snapshot
 				rawGroupInitialPositions.forEach((pos) => {
 					const shape = shapesList[pos.index];
-					if (shape) {
+					if (!shape) return;
+					if (pos.points?.length) {
+						shape.points = pos.points.map((p) => ({
+							x: clampPct(p.x + deltaPctX),
+							y: clampPct(p.y + deltaPctY),
+						}));
+						if (shape.type === "line" && shape.points.length >= 2) {
+							const b = lineBoundsFromPoints(
+								shape.points[0],
+								shape.points[1],
+							);
+							shape.x = b.x;
+							shape.y = b.y;
+							shape.width = b.width;
+							shape.height = b.height;
+						} else {
+							shape.x = clampPct(pos.x + deltaPctX);
+							shape.y = clampPct(pos.y + deltaPctY);
+						}
+					} else {
 						shape.x = clampPct(pos.x + deltaPctX);
 						shape.y = clampPct(pos.y + deltaPctY);
 					}
@@ -680,22 +891,11 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 				groupDragElements.forEach((el) => {
 					if (el) el.style.transform = "";
 				});
+				if (dragTargetElement) dragTargetElement.style.transform = "";
 				activeDoc.shapes = {
 					...activeDoc.shapes,
 					[pageNumber]: shapesList,
 				};
-			} else if (dragTargetElement && pageContainer) {
-				dragTargetElement.style.transform = "";
-				const index = activeDoc.selectedShape.index;
-				const shape = shapesList[index];
-				if (shape) {
-					shape.x = clampPct(shape.x + deltaPctX);
-					shape.y = clampPct(shape.y + deltaPctY);
-					activeDoc.shapes = {
-						...activeDoc.shapes,
-						[pageNumber]: shapesList,
-					};
-				}
 			}
 
 			groupDragElements = [];
@@ -711,48 +911,71 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			const index = activeDoc.selectedShape.index;
 			const shape = shapesList[index];
 			if (shape && initialShapeState) {
-				const finalW =
-					rawResizedShapeCoords.width > 0
-						? rawResizedShapeCoords.width
-						: initialShapeState.width;
-				const finalH =
-					rawResizedShapeCoords.height > 0
-						? rawResizedShapeCoords.height
-						: initialShapeState.height;
-
-				if (shape.type === "text") {
-					// Top-left fixed; only BR size changes
-					shape.x = initialShapeState.x;
-					shape.y = initialShapeState.y;
-					shape.width = Math.max(0.5, finalW);
-					shape.height = Math.max(0.5, finalH);
-				} else {
-					const finalX =
-						rawResizedShapeCoords.width > 0
-							? rawResizedShapeCoords.x
-							: initialShapeState.x;
-					const finalY =
-						rawResizedShapeCoords.height > 0
-							? rawResizedShapeCoords.y
-							: initialShapeState.y;
-					shape.x = finalX;
-					shape.y = finalY;
-					shape.width = finalW;
-					shape.height = finalH;
-				}
-
+				// Line endpoints already updated live during drag
 				if (
-					[
-						"tick",
-						"dash",
-						"signature",
-						"initial",
-						...SHAPE_TYPES_LIST,
-					].includes(shape.type) &&
-					shape.width &&
-					shape.height
+					shape.type === "line" &&
+					(draggingHandle === "line-start" ||
+						draggingHandle === "line-end")
 				) {
-					cacheStampDimensions(shape.type, shape.width, shape.height);
+					// ensure bounds match final points
+					if (shape.points && shape.points.length >= 2) {
+						const b = lineBoundsFromPoints(
+							shape.points[0],
+							shape.points[1],
+						);
+						shape.x = b.x;
+						shape.y = b.y;
+						shape.width = b.width;
+						shape.height = b.height;
+					}
+				} else {
+					const finalW =
+						rawResizedShapeCoords.width > 0
+							? rawResizedShapeCoords.width
+							: initialShapeState.width;
+					const finalH =
+						rawResizedShapeCoords.height > 0
+							? rawResizedShapeCoords.height
+							: initialShapeState.height;
+
+					if (shape.type === "text") {
+						// Top-left fixed; only BR size changes
+						shape.x = initialShapeState.x;
+						shape.y = initialShapeState.y;
+						shape.width = Math.max(0.5, finalW);
+						shape.height = Math.max(0.5, finalH);
+					} else {
+						const finalX =
+							rawResizedShapeCoords.width > 0
+								? rawResizedShapeCoords.x
+								: initialShapeState.x;
+						const finalY =
+							rawResizedShapeCoords.height > 0
+								? rawResizedShapeCoords.y
+								: initialShapeState.y;
+						shape.x = finalX;
+						shape.y = finalY;
+						shape.width = finalW;
+						shape.height = finalH;
+					}
+
+					if (
+						[
+							"tick",
+							"dash",
+							"signature",
+							"initial",
+							...SHAPE_TYPES_LIST,
+						].includes(shape.type) &&
+						shape.width &&
+						shape.height
+					) {
+						cacheStampDimensions(
+							shape.type,
+							shape.width,
+							shape.height,
+						);
+					}
 				}
 				// Clear live inline overrides so Svelte styles take over cleanly
 				if (dragTargetElement) {
@@ -768,6 +991,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			}
 			draggingHandle = null;
 			initialShapeState = null;
+			initialLinePoints = null;
 			dragTargetElement = null;
 			rawResizedShapeCoords = { x: 0, y: 0, width: 0, height: 0 };
 			return;
@@ -842,6 +1066,8 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		const shape = activeDoc.shapes[pageNumber]?.[index];
 		if (!shape) return;
 
+		pushHistorySnapshot();
+
 		// Text boxes only support bottom-right growth (top-left anchor)
 		const resolvedHandle = shape.type === "text" ? "br" : handleType;
 		draggingHandle = resolvedHandle;
@@ -854,7 +1080,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		let w = shape.width || 0;
 		let h = shape.height || 0;
 		// If dimensions are missing, seed from the live box so resize doesn't jump from 0
-		if (box && (w <= 0 || h <= 0)) {
+		if (box && (w <= 0 || h <= 0) && shape.type !== "line") {
 			const pageRect = pageContainer.getBoundingClientRect();
 			const boxRect = box.getBoundingClientRect();
 			if (pageRect.width > 0 && pageRect.height > 0) {
@@ -869,6 +1095,10 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			width: w,
 			height: h,
 		};
+		initialLinePoints =
+			shape.type === "line" && shape.points
+				? shape.points.map((p) => ({ x: p.x, y: p.y }))
+				: null;
 
 		dragPageRect = pageContainer.getBoundingClientRect();
 		dragActive = true;
@@ -884,7 +1114,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		};
 
 		// Ensure the box has explicit size from the first drag frame (handle sticks to BR)
-		if (box) {
+		if (box && shape.type !== "line") {
 			box.style.left = `${shape.x}%`;
 			box.style.top = `${shape.y}%`;
 			box.style.width = `${w}%`;
@@ -894,6 +1124,10 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 
 	function handleMouseLeave() {
 		isMouseOverPage = false;
+		// Keep line rubber-band alive across brief leave; only cancel freehand/box draw
+		if (lineAwaitingEnd) {
+			return;
+		}
 		dragPageRect = null;
 		if (isDrawing) {
 			isDrawing = false;
@@ -992,6 +1226,15 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		get liveHighlightPoints() {
 			return liveHighlightPoints;
 		},
+		get lineAwaitingEnd() {
+			return lineAwaitingEnd;
+		},
+		get lineStartPct() {
+			return lineStartPct;
+		},
+		get linePreviewPct() {
+			return linePreviewPct;
+		},
 		get activelyEditingIndex() {
 			return activelyEditingIndex;
 		},
@@ -1024,6 +1267,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		finalizeTextEdit,
 		beginTextEdit,
 		cancelAnimation,
+		clearLineDrawingState,
 	};
 }
 

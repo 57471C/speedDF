@@ -20,13 +20,16 @@ import {
 	undoStack,
 } from "./lib/stores/history.svelte";
 import {
+	type ActiveLineEnds,
 	type ActiveLineStyle,
 	type ActiveTool,
 	getActiveColor,
+	getActiveLineEnds,
 	getActiveLineStyle,
 	getActiveThickness,
 	getActiveTool,
 	setActiveColor,
+	setActiveLineEnds,
 	setActiveLineStyle,
 	setActiveThickness,
 	setActiveTool,
@@ -39,7 +42,7 @@ export type { FormFieldDef, FormFieldValue } from "./lib/forms/formFields";
 type PdfJsWorker = InstanceType<typeof import("pdfjs-dist")["PDFWorker"]>;
 
 // Re-export tool types for consumers that want them without deep imports.
-export type { ActiveLineStyle, ActiveTool };
+export type { ActiveLineEnds, ActiveLineStyle, ActiveTool };
 // Re-export history API so existing `from "../pdfStore.svelte"` imports keep working.
 export {
 	executeRedoAction,
@@ -90,14 +93,15 @@ export interface AnnotationShape {
 		| "rect-fill"
 		| "round-rect-fill"
 		| "oval-fill"
-		| "pen";
+		| "pen"
+		| "line";
 	x: number; // Percentage coordinate left (0-100)
 	y: number; // Percentage coordinate top (0-100)
 	width?: number; // Percentage width layout bounds
 	height?: number; // Percentage height layout bounds
 	text?: string; // Text payload string (for text boxes)
 	dataUrl?: string; // Base64 PNG image stream string (for signatures)
-	points?: { x: number; y: number }[]; // Array of percentage nodes tracking freehand highlighters
+	points?: { x: number; y: number }[]; // Freehand nodes, or line start/end (length 2)
 	color?: string; // Captures the unique hexadecimal ink value
 	textColor?: string; // Captures the custom text color
 	thickness?: number;
@@ -105,6 +109,8 @@ export interface AnnotationShape {
 	size?: number; // Custom font size in points
 	style?: "Normal" | "Bold" | "Italic"; // Font style variant
 	lineStyle?: "solid" | "dashed" | "dotted" | "dash-dot";
+	/** Arrow ends for type "line": plain | end (tip at end point) | both. */
+	lineEnds?: "plain" | "end" | "both";
 	fontFamily?:
 		| "Helvetica"
 		| "Times-Roman"
@@ -193,6 +199,7 @@ export interface SharedDocumentState {
 	activeColor: string;
 	activeThickness: number;
 	activeLineStyle: ActiveLineStyle;
+	activeLineEnds: ActiveLineEnds;
 	activeFontFamily:
 		| "Helvetica"
 		| "Times-Roman"
@@ -1010,6 +1017,27 @@ export const activeDoc: SharedDocumentState = {
 			pushHistorySnapshot();
 			activeDoc.shapes = patchSelectedShapes(activeDoc.shapes, selectedShapes, {
 				lineStyle: val,
+			});
+			activeDoc.isDirty = true;
+		}
+	},
+	get activeLineEnds() {
+		return getActiveLineEnds();
+	},
+	set activeLineEnds(val) {
+		setActiveLineEnds(val);
+		if (
+			selectedShapes.length > 0 &&
+			selectionNeedsPropertyUpdate(
+				activeDoc.shapes,
+				selectedShapes,
+				"lineEnds",
+				val,
+			)
+		) {
+			pushHistorySnapshot();
+			activeDoc.shapes = patchSelectedShapes(activeDoc.shapes, selectedShapes, {
+				lineEnds: val,
 			});
 			activeDoc.isDirty = true;
 		}
