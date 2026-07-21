@@ -341,14 +341,8 @@
     }
     const preloadObserver = new IntersectionObserver(
       (entries) => {
-        if (isSystemPrinting) return;
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            isPreloaded = true;
-          } else {
-            isPreloaded = false;
-          }
-        }
+        if (isSystemPrinting || !entries.length) return;
+        isPreloaded = entries[entries.length - 1].isIntersecting;
       },
       {
         root: null,
@@ -359,14 +353,8 @@
 
     const paintObserver = new IntersectionObserver(
       (entries) => {
-        if (isSystemPrinting) return;
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            isRendered = true;
-          } else {
-            isRendered = false;
-          }
-        }
+        if (isSystemPrinting || !entries.length) return;
+        isRendered = entries[entries.length - 1].isIntersecting;
       },
       {
         root: null,
