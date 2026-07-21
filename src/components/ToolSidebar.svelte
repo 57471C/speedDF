@@ -96,6 +96,9 @@
           if (shape.lineStyle && doc.activeLineStyle !== shape.lineStyle) {
             doc.activeLineStyle = shape.lineStyle;
           }
+          if (shape.lineEnds && doc.activeLineEnds !== shape.lineEnds) {
+            doc.activeLineEnds = shape.lineEnds;
+          }
           if (shape.fontFamily && doc.activeFontFamily !== shape.fontFamily) {
             doc.activeFontFamily = shape.fontFamily;
           }
@@ -546,6 +549,28 @@
   </div>
 
   <button
+    onclick={() => (doc.activeTool = "line")}
+    class="w-8 h-8 flex items-center justify-center rounded transition-all {doc.activeTool === 'line'
+      ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]'
+      : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+    title="Line (click start, click end)"
+  >
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <line x1="5" y1="19" x2="19" y2="5" />
+    </svg>
+  </button>
+
+  <button
     onclick={() => (doc.activeTool = "highlight")}
     class="w-8 h-8 flex items-center justify-center rounded transition-all {doc.activeTool ===
     'highlight'
@@ -939,6 +964,53 @@
                   stroke-linecap="round"
                   stroke-dasharray={style.dash} 
                 />
+              </svg>
+            </button>
+          {/each}
+        </div>
+
+        <!-- Vertical Divider -->
+        <div class="w-[1px] bg-slate-800"></div>
+
+        <!-- Column 3: Line ends (arrows) -->
+        <div class="flex flex-col gap-2 min-w-[80px]">
+          <span class="text-[8px] font-bold uppercase text-slate-400 tracking-wider text-center border-b border-slate-800 pb-1">Ends</span>
+          {#each [
+            { id: "plain", name: "Plain" },
+            { id: "end", name: "End arrow" },
+            { id: "both", name: "Start + End" },
+          ] as ends}
+            <button
+              onclick={(e) => {
+                e.stopPropagation();
+                doc.activeLineEnds = ends.id;
+              }}
+              class="w-full flex flex-col items-center justify-center py-1.5 px-2 cursor-pointer hover:bg-slate-800/50 rounded transition-colors {doc.activeLineEnds === ends.id ? 'bg-slate-850/80 text-cyan-400' : 'text-slate-400'}"
+              title={ends.name}
+            >
+              <span class="text-[8px] font-medium tracking-wide mb-1 font-sans">{ends.name}</span>
+              <svg width="48" height="12" class="overflow-visible" viewBox="0 0 48 12">
+                <line
+                  x1="4"
+                  y1="6"
+                  x2={ends.id === "plain" ? 44 : 38}
+                  y2="6"
+                  stroke={doc.activeLineEnds === ends.id ? '#22d3ee' : '#64748b'}
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                />
+                {#if ends.id === "end" || ends.id === "both"}
+                  <polygon
+                    points="44,6 36,2.5 36,9.5"
+                    fill={doc.activeLineEnds === ends.id ? '#22d3ee' : '#64748b'}
+                  />
+                {/if}
+                {#if ends.id === "both"}
+                  <polygon
+                    points="4,6 12,2.5 12,9.5"
+                    fill={doc.activeLineEnds === ends.id ? '#22d3ee' : '#64748b'}
+                  />
+                {/if}
               </svg>
             </button>
           {/each}

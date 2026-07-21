@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+	arrowHeadVertices,
 	createBoxShape,
 	createFreehandShape,
+	createLineShape,
 	createSignatureOrInitialShape,
 	createTextShape,
 	defaultTextBoxHeightPct,
 	hasEmptyTextDraft,
+	lineBoundsFromPoints,
 	withoutEmptyTextDrafts,
 } from "./toolShapes";
 
@@ -56,6 +59,67 @@ describe("createFreehandShape", () => {
 		expect(s.y).toBe(2);
 		expect(s.points).toEqual(pts);
 		expect(s.points).not.toBe(pts);
+	});
+});
+
+describe("createLineShape", () => {
+	it("stores start/end points and axis-aligned bounds", () => {
+		const s = createLineShape(
+			{ x: 40, y: 10 },
+			{ x: 10, y: 50 },
+			{
+				color: "#0ff",
+				thickness: 5,
+				lineStyle: "dashed",
+				lineEnds: "end",
+			},
+		);
+		expect(s.type).toBe("line");
+		expect(s.points).toEqual([
+			{ x: 40, y: 10 },
+			{ x: 10, y: 50 },
+		]);
+		expect(s).toMatchObject({
+			x: 10,
+			y: 10,
+			width: 30,
+			height: 40,
+			color: "#0ff",
+			thickness: 5,
+			lineStyle: "dashed",
+			lineEnds: "end",
+		});
+	});
+
+	it("defaults lineEnds to plain", () => {
+		const s = createLineShape(
+			{ x: 0, y: 0 },
+			{ x: 1, y: 1 },
+			{ color: "#000", thickness: 1, lineStyle: "solid" },
+		);
+		expect(s.lineEnds).toBe("plain");
+	});
+});
+
+describe("lineBoundsFromPoints", () => {
+	it("normalizes inverted corners", () => {
+		expect(lineBoundsFromPoints({ x: 5, y: 8 }, { x: 2, y: 3 })).toEqual({
+			x: 2,
+			y: 3,
+			width: 3,
+			height: 5,
+		});
+	});
+});
+
+describe("arrowHeadVertices", () => {
+	it("returns three vertices with tip first", () => {
+		const verts = arrowHeadVertices({ x: 0, y: 0 }, { x: 10, y: 0 }, 2);
+		expect(verts).toHaveLength(3);
+		expect(verts[0]).toEqual({ x: 10, y: 0 });
+		// Wings sit behind the tip along -x
+		expect(verts[1].x).toBeLessThan(10);
+		expect(verts[2].x).toBeLessThan(10);
 	});
 });
 

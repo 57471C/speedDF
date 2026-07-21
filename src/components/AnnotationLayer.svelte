@@ -2,6 +2,7 @@
   import { activeDoc, FONT_MAP } from "../pdfStore.svelte";
   import type { PageInteraction } from "../lib/interaction/dragHandler.svelte";
   import {
+    arrowHeadVertices,
     DEFAULT_TEXT_BOX_H,
     DEFAULT_TEXT_BOX_W,
   } from "../lib/annotation/toolShapes";
@@ -182,9 +183,11 @@
       'rect-fill',
       'round-rect-fill',
       'oval-fill',
+      'line',
+      'pen',
     ].includes(activeDoc.activeTool || '')
       ? 'pointer-events-auto'
-      : 'pointer-events-none'} {[...shapeTypesList, 'highlight', 'pen'].includes(
+      : 'pointer-events-none'} {[...shapeTypesList, 'highlight', 'pen', 'line'].includes(
       activeDoc.activeTool || '',
     )
       ? 'cursor-crosshair'
@@ -211,22 +214,73 @@
             stroke-linejoin="round"
             class="cursor-pointer pointer-events-auto hover:stroke-yellow-300 transition-colors {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke-yellow-300 stroke-opacity-60' : ''}"
           />
-        {:else}
-          {#if shape && shape.type === "pen" && shape.points}
-            <polyline
-              onclick={(e) => {
-                e.stopPropagation();
-                if (activeDoc.activeTool === "select")
-                  activeDoc.selectedShape = { pageNumber, index: idx };
-              }}
-              points={getDisplayPoints(shape.points).map((p: { x: number; y: number }) => `${p.x},${p.y}`).join(" ")}
-              stroke={shape.color || "#ef4444"}
-              stroke-width={(shape.thickness || 3) * 0.22}
-              stroke-opacity="1"
-              fill="none"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="cursor-pointer pointer-events-auto hover:stroke-cyan-400 transition-colors {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke-cyan-400' : ''}"
+        {:else if shape && shape.type === "pen" && shape.points}
+          <polyline
+            onclick={(e) => {
+              e.stopPropagation();
+              if (activeDoc.activeTool === "select")
+                activeDoc.selectedShape = { pageNumber, index: idx };
+            }}
+            points={getDisplayPoints(shape.points).map((p: { x: number; y: number }) => `${p.x},${p.y}`).join(" ")}
+            stroke={shape.color || "#ef4444"}
+            stroke-width={(shape.thickness || 3) * 0.22}
+            stroke-opacity="1"
+            fill="none"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="cursor-pointer pointer-events-auto hover:stroke-cyan-400 transition-colors {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke-cyan-400' : ''}"
+          />
+        {:else if shape && shape.type === "line" && shape.points && shape.points.length >= 2}
+          {@const pts = getDisplayPoints(shape.points)}
+          {@const p0 = pts[0]}
+          {@const p1 = pts[1]}
+          {@const isLineSelected = activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)}
+          {@const lineThick = shape.thickness || 3}
+          <!-- Hit stroke (screen px, matches shape stroke scaling) -->
+          <line
+            x1={p0.x}
+            y1={p0.y}
+            x2={p1.x}
+            y2={p1.y}
+            stroke="transparent"
+            stroke-width={Math.max(12, lineThick + 8)}
+            stroke-linecap="round"
+            vector-effect="non-scaling-stroke"
+            class="pointer-events-auto cursor-move"
+            onmousedown={(e) => {
+              if (activeDoc.activeTool === "select") initShapeMove(e, idx);
+            }}
+          />
+          <!-- Same thickness model as box shapes: non-scaling stroke in CSS px -->
+          <line
+            x1={p0.x}
+            y1={p0.y}
+            x2={p1.x}
+            y2={p1.y}
+            stroke={shape.color || "#000000"}
+            stroke-width={lineThick}
+            stroke-opacity="1"
+            stroke-dasharray={shape.lineStyle ? strokeDasharrays[shape.lineStyle] : "none"}
+            stroke-linecap="round"
+            vector-effect="non-scaling-stroke"
+            fill="none"
+            class="pointer-events-none {isLineSelected ? 'stroke-cyan-400' : ''}"
+            style={isLineSelected ? "filter: drop-shadow(0 0 1.5px rgba(0,210,255,0.7));" : ""}
+          />
+          {#if shape.lineEnds === "end" || shape.lineEnds === "both"}
+            {@const head = arrowHeadVertices(p0, p1, Math.max(0.9, lineThick * 0.28))}
+            <polygon
+              points={head.map((p) => `${p.x},${p.y}`).join(" ")}
+              fill={shape.color || "#000000"}
+              class="pointer-events-none"
+            />
+          {/if}
+          {#if shape.lineEnds === "both"}
+            {@const headStart = arrowHeadVertices(p1, p0, Math.max(0.9, lineThick * 0.28))}
+            <polygon
+              points={headStart.map((p) => `${p.x},${p.y}`).join(" ")}
+              fill={shape.color || "#000000"}
+              class="pointer-events-none"
             />
           {/if}
         {/if}
@@ -253,6 +307,49 @@
             stroke-linejoin="round"
           />
         {/if}
+      {/if}
+      <!-- Line tool rubber-band preview (non-scaling stroke = same px as shapes) -->
+      {#if ix.lineAwaitingEnd && ix.lineStartPct && ix.linePreviewPct}
+        {@const previewPts = getDisplayPoints([ix.lineStartPct, ix.linePreviewPct])}
+        {@const rp0 = previewPts[0]}
+        {@const rp1 = previewPts[1]}
+        {@const previewThick = activeDoc.activeThickness || 3}
+        <line
+          x1={rp0.x}
+          y1={rp0.y}
+          x2={rp1.x}
+          y2={rp1.y}
+          stroke={activeDoc.activeColor || "#000000"}
+          stroke-width={previewThick}
+          stroke-opacity="0.85"
+          stroke-dasharray={activeDoc.activeLineStyle ? strokeDasharrays[activeDoc.activeLineStyle] : "none"}
+          stroke-linecap="round"
+          vector-effect="non-scaling-stroke"
+        />
+        {#if activeDoc.activeLineEnds === "end" || activeDoc.activeLineEnds === "both"}
+          {@const head = arrowHeadVertices(rp0, rp1, Math.max(0.9, previewThick * 0.28))}
+          <polygon
+            points={head.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill={activeDoc.activeColor || "#000000"}
+            fill-opacity="0.85"
+          />
+        {/if}
+        {#if activeDoc.activeLineEnds === "both"}
+          {@const headStart = arrowHeadVertices(rp1, rp0, Math.max(0.9, previewThick * 0.28))}
+          <polygon
+            points={headStart.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill={activeDoc.activeColor || "#000000"}
+            fill-opacity="0.85"
+          />
+        {/if}
+        <!-- Start point marker (viewBox %; keep tiny) -->
+        <circle
+          cx={rp0.x}
+          cy={rp0.y}
+          r="0.35"
+          fill={activeDoc.activeColor || "#000000"}
+          fill-opacity="0.9"
+        />
       {/if}
     </svg>
 
@@ -573,6 +670,25 @@
             ></div>
           {/if}
         </div>
+      {:else if shape && shape.type === "line" && shape.points && shape.points.length >= 2}
+        {@const linePts = getDisplayPoints(shape.points)}
+        {@const lp0 = linePts[0]}
+        {@const lp1 = linePts[1]}
+        {#if activeDoc.activeTool === "select" && activeDoc.selectedShapes.length === 1 && activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)}
+          <!-- Compact endpoint handles (smaller than box corners — sit on a thin stroke) -->
+          <div
+            onmousedown={(e) => initHandleDrag(e, idx, "line-start")}
+            class="resize-handle-node absolute w-1.5 h-1.5 bg-white border border-[#00d2ff] rounded-full shadow-sm z-50 cursor-move -translate-x-1/2 -translate-y-1/2"
+            style="left: {lp0.x}%; top: {lp0.y}%;"
+            title="Start point"
+          ></div>
+          <div
+            onmousedown={(e) => initHandleDrag(e, idx, "line-end")}
+            class="resize-handle-node absolute w-1.5 h-1.5 bg-white border border-[#00d2ff] rounded-full shadow-sm z-50 cursor-move -translate-x-1/2 -translate-y-1/2"
+            style="left: {lp1.x}%; top: {lp1.y}%;"
+            title="End point"
+          ></div>
+        {/if}
       {/if}
     {/each}
 

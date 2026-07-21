@@ -20,6 +20,7 @@ import {
 	applyLiveThumbnail,
 	updateRecentThumbnail,
 } from "../../pdfStore.svelte";
+import { arrowHeadVertices } from "../annotation/toolShapes";
 import { encodeCommentsKeyword } from "../comments/comments";
 import { applyAndFlattenFormValues } from "../forms/formFields";
 import {
@@ -284,6 +285,65 @@ async function drawAnnotationsOnPage(
           opacity: getHexOpacity(shapeColorHex),
           lineCap: LineCapStyle.Round,
         });
+      }
+    } else if (
+      s.type === "line" &&
+      s.points &&
+      s.points.length >= 2
+    ) {
+      const pStart = s.points[0];
+      const pEnd = s.points[1];
+      const startPdf = {
+        x: (pStart.x / 100) * pageWidth,
+        y: pageHeight - (pStart.y / 100) * pageHeight,
+      };
+      const endPdf = {
+        x: (pEnd.x / 100) * pageWidth,
+        y: pageHeight - (pEnd.y / 100) * pageHeight,
+      };
+      page.drawLine({
+        start: startPdf,
+        end: endPdf,
+        color: resolvedColorRgb,
+        thickness: s.thickness || 3,
+        opacity: getHexOpacity(shapeColorHex),
+        lineCap: LineCapStyle.Round,
+        dashArray: getDashArray(s.lineStyle),
+      });
+
+      const ends = s.lineEnds || "plain";
+      // Arrow size in page % (~ proportional to stroke); drawSvgPath flips Y
+      const arrowSizePct = Math.max(1.2, (s.thickness || 3) * 0.35);
+      const drawArrowHead = (
+        fromPct: { x: number; y: number },
+        tipPct: { x: number; y: number },
+      ) => {
+        const head = arrowHeadVertices(fromPct, tipPct, arrowSizePct);
+        const tipPdfX = (head[0].x / 100) * pageWidth;
+        const tipPdfY = pageHeight - (head[0].y / 100) * pageHeight;
+        // Local SVG coords (y-down) relative to tip; pdf-lib applies scale(1,-1)
+        const local = head.map((v) => {
+          const px = (v.x / 100) * pageWidth;
+          const py = pageHeight - (v.y / 100) * pageHeight;
+          return { x: px - tipPdfX, y: tipPdfY - py };
+        });
+        const path =
+          local
+            .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`)
+            .join(" ") + " Z";
+        page.drawSvgPath(path, {
+          x: tipPdfX,
+          y: tipPdfY,
+          color: resolvedColorRgb,
+          opacity: getHexOpacity(shapeColorHex),
+          borderWidth: 0,
+        });
+      };
+      if (ends === "end" || ends === "both") {
+        drawArrowHead(pStart, pEnd);
+      }
+      if (ends === "both") {
+        drawArrowHead(pEnd, pStart);
       }
     }
   }
@@ -596,6 +656,34 @@ export async function flattenWorkspaceToImage(outputPath: string | null = null):
           }
           ctx.stroke();
         }
+      } else if (shape.type === 'line' && shape.points && shape.points.length >= 2) {
+        const p0 = shape.points[0];
+        const p1 = shape.points[1];
+        const x0 = -W / 2 + (p0.x / 100) * W;
+        const y0 = -H / 2 + (p0.y / 100) * H;
+        const x1 = -W / 2 + (p1.x / 100) * W;
+        const y1 = -H / 2 + (p1.y / 100) * H;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        ctx.lineTo(x1, y1);
+        ctx.stroke();
+
+        const ends = shape.lineEnds || 'plain';
+        const arrowSizePct = Math.max(1.2, (shape.thickness || 3) * 0.35);
+        const drawHead = (from: { x: number; y: number }, tip: { x: number; y: number }) => {
+          const head = arrowHeadVertices(from, tip, arrowSizePct);
+          ctx.beginPath();
+          head.forEach((v, i) => {
+            const px = -W / 2 + (v.x / 100) * W;
+            const py = -H / 2 + (v.y / 100) * H;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          });
+          ctx.closePath();
+          ctx.fill();
+        };
+        if (ends === 'end' || ends === 'both') drawHead(p0, p1);
+        if (ends === 'both') drawHead(p1, p0);
       }
       ctx.restore();
     }

@@ -142,6 +142,79 @@ export function createFreehandShape(
 	};
 }
 
+export type LineEnds = "plain" | "end" | "both";
+
+/** Axis-aligned bounds from two percentage endpoints. */
+export function lineBoundsFromPoints(
+	start: { x: number; y: number },
+	end: { x: number; y: number },
+): { x: number; y: number; width: number; height: number } {
+	return {
+		x: Math.min(start.x, end.x),
+		y: Math.min(start.y, end.y),
+		width: Math.abs(end.x - start.x),
+		height: Math.abs(end.y - start.y),
+	};
+}
+
+/**
+ * Straight vector line from start → end (percentage page space).
+ * `points[0]` is the start; `points[1]` is the end (arrow tip when ends ≠ plain).
+ */
+export function createLineShape(
+	start: { x: number; y: number },
+	end: { x: number; y: number },
+	opts: {
+		color: string;
+		thickness: number;
+		lineStyle: AnnotationShape["lineStyle"];
+		lineEnds?: LineEnds;
+	},
+): AnnotationShape {
+	const bounds = lineBoundsFromPoints(start, end);
+	return {
+		type: "line",
+		x: bounds.x,
+		y: bounds.y,
+		width: bounds.width,
+		height: bounds.height,
+		points: [
+			{ x: start.x, y: start.y },
+			{ x: end.x, y: end.y },
+		],
+		color: opts.color,
+		thickness: opts.thickness,
+		lineStyle: opts.lineStyle,
+		lineEnds: opts.lineEnds || "plain",
+	};
+}
+
+/**
+ * Filled arrowhead polygon (percentage space) pointing toward `tip` from `from`.
+ * Returns three vertices for SVG polygon / canvas path.
+ */
+export function arrowHeadVertices(
+	from: { x: number; y: number },
+	tip: { x: number; y: number },
+	sizePct = 1.6,
+): [{ x: number; y: number }, { x: number; y: number }, { x: number; y: number }] {
+	const dx = tip.x - from.x;
+	const dy = tip.y - from.y;
+	const len = Math.hypot(dx, dy) || 1;
+	const ux = dx / len;
+	const uy = dy / len;
+	const px = -uy;
+	const py = ux;
+	const baseX = tip.x - ux * sizePct;
+	const baseY = tip.y - uy * sizePct;
+	const wing = sizePct * 0.5;
+	return [
+		{ x: tip.x, y: tip.y },
+		{ x: baseX + px * wing, y: baseY + py * wing },
+		{ x: baseX - px * wing, y: baseY - py * wing },
+	];
+}
+
 /** True when page has an empty draft text box that should be cleared before placing another. */
 export function hasEmptyTextDraft(
 	shapes: AnnotationShape[] | undefined,

@@ -132,3 +132,24 @@ DEBUG CROP: Box target [2] -> x: 959, y: 86, w: 24, h: 19
 [BENCH] Avg time per box:     1.166ss
 ===================================
 ```
+---
+## common git commands ##
+
+- Commit the Missed Version Numbers
+```bash
+git add .
+git commit -m "chore: bump version numbers to 1.0.5"
+# git push
+```
+
+- Overwrite the Local Tag
+```bash
+# 1. Push your updated code branch containing the version changes
+git push origin main
+
+# 2. Delete the incorrect tag from GitHub (ignore errors if you never pushed it)
+git push origin --delete v1.0.5
+
+# 3. Push your new, correct tag to GitHub
+git push origin v1.0.5
+```
