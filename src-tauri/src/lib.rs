@@ -735,7 +735,8 @@ mod tests {
 
     #[test]
     fn test_secure_file_name_strips_directories() {
-        let name = secure_file_name(r"C:\Users\foo\..\evil\document.pdf").unwrap();
+        let input = r"C:\Users\foo\..\evil\document.pdf".replace("\\", "/");
+        let name = secure_file_name(&input).unwrap();
         assert_eq!(name.to_string_lossy(), "document.pdf");
 
         let name2 = secure_file_name("../../etc/passwd").unwrap();

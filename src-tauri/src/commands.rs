@@ -3,6 +3,7 @@ use rayon::prelude::*;
 use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
+use sha2::{Sha256, Digest};
 use tauri::ipc::Channel;
 use tauri::{command, AppHandle, Manager};
 use tokio::sync::OnceCell;
@@ -76,12 +77,27 @@ fn sanitize_onnx_parameter_tokens(bytes: &mut [u8]) {
 async fn download_model_if_missing(
     file_path: &std::path::Path,
     url: &str,
+    expected_hash: &str,
     on_progress: &Channel<u32>,
     progress_offset: u32,
     progress_weight: f32,
 ) -> Result<(), String> {
     if file_path.exists() {
-        return Ok(());
+        let mut file = std::fs::File::open(file_path)
+            .map_err(|e| format!("Failed to open existing model cache file: {}", e))?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0; 8192];
+        use std::io::Read;
+        while let Ok(count) = file.read(&mut buffer) {
+            if count == 0 { break; }
+            hasher.update(&buffer[..count]);
+        }
+        let hash = hex::encode(hasher.finalize());
+        if hash == expected_hash {
+            return Ok(());
+        }
+        // Hash mismatch, delete the file and download again
+        let _ = std::fs::remove_file(file_path);
     }
 
     // Ensure the parent directory structure exists
@@ -102,11 +118,13 @@ async fn download_model_if_missing(
 
     let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
+    let mut hasher = Sha256::new();
 
     while let Some(item) = stream.next().await {
         let chunk = item.map_err(|e| format!("Error during chunk download: {}", e))?;
         file.write_all(&chunk)
             .map_err(|e| format!("Failed to write chunk to disk: {}", e))?;
+        hasher.update(&chunk);
 
         downloaded += chunk.len() as u64;
 
@@ -115,6 +133,12 @@ async fn download_model_if_missing(
         let total_percent = progress_offset + (download_percent * progress_weight) as u32;
 
         let _ = on_progress.send(total_percent.min(100));
+    }
+
+    let hash = hex::encode(hasher.finalize());
+    if hash != expected_hash {
+        let _ = std::fs::remove_file(file_path);
+        return Err(format!("Model hash mismatch for {}. Expected: {}, got: {}", file_path.display(), expected_hash, hash));
     }
 
     Ok(())
@@ -139,6 +163,7 @@ pub async fn run_local_ocr(
         download_model_if_missing(
             &path,
             "https://speeddf.com/models/ch_PP-OCRv4_det_infer.onnx",
+            "d2a7720d45a54257208b1e13e36a8479894cb74155a5efe29462512d42f49da9",
             &on_progress,
             0,
             0.5,
@@ -152,6 +177,7 @@ pub async fn run_local_ocr(
         download_model_if_missing(
             &path,
             "https://speeddf.com/models/ppocr_v4_rec.onnx",
+            "4e16deb22c4da6468bdca539b2cd3c8687825538b67109177c47d359ab994cd7",
             &on_progress,
             50,
             0.5,
@@ -698,7 +724,7 @@ mod tests {
         file.write_all(b"dummy data").unwrap();
 
         let channel = tauri::ipc::Channel::new(|_| Ok(()));
-        let result = download_model_if_missing(&file_path, "http://invalid-url.com", &channel, 0, 1.0).await;
+        let result = download_model_if_missing(&file_path, "http://invalid-url.com", "797bb0abff798d7200af7685dca7901edffc52bf26500d5bd97282658ee24152", &channel, 0, 1.0).await;
 
         assert!(result.is_ok());
 
@@ -715,7 +741,7 @@ mod tests {
         }
 
         let channel = tauri::ipc::Channel::new(|_| Ok(()));
-        let result = download_model_if_missing(&file_path, "http://127.0.0.1:0/invalid", &channel, 0, 1.0).await;
+        let result = download_model_if_missing(&file_path, "http://127.0.0.1:0/invalid", "797bb0abff798d7200af7685dca7901edffc52bf26500d5bd97282658ee24152", &channel, 0, 1.0).await;
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err();
