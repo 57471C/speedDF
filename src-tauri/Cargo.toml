@@ -40,6 +40,8 @@ reqwest = { version = "0.12", features = ["stream"] }
 # The Pure-Rust Matrix & Vision Infrastructure
 tract-onnx = "0.21.3"  # 100% Rust NN execution; zero C++ dynamic links
 rayon = "1.10"
+sha2 = "0.11.0"
+hex = "0.4.3"
 
 [profile.release]
 opt-level = 3          # Maximize compilation speed performance optimizations
