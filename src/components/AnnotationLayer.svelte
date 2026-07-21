@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { activeDoc, FONT_MAP } from "../pdfStore.svelte";
+  import {
+    activeDoc,
+    FONT_MAP,
+  } from "../pdfStore.svelte";
   import type { PageInteraction } from "../lib/interaction/dragHandler.svelte";
   import {
     arrowHeadSizePct,
@@ -11,7 +14,12 @@
     HIGHLIGHT_STROKE_WIDTH,
     lineStrokeEndpoints,
   } from "../lib/annotation/toolShapes";
+  import {
+    commentHasFlag,
+    commentsForPage,
+  } from "../lib/comments/comments";
   import { ANNOTATION_TEXT_KEY } from "../lib/forms/formMemory";
+  import CommentPin from "./CommentPin.svelte";
   import ValueMemoryPopover from "./ValueMemoryPopover.svelte";
 
   let {
@@ -48,6 +56,18 @@
   let textMemoryIdx = $state<number | null>(null);
 
   const annotationMemoryKeys = [ANNOTATION_TEXT_KEY];
+
+  /** Comments with on-page flags for this page (percent coords). */
+  let pageFlagComments = $derived(
+    commentsForPage(activeDoc.comments, pageNumber).filter(commentHasFlag),
+  );
+
+  /** Pending pin from right-click "Add Comment Here" on this page. */
+  let pinDraft = $derived(
+    activeDoc.commentPinDraft?.pageNum === pageNumber
+      ? activeDoc.commentPinDraft
+      : null,
+  );
 
   function autofocusAction(node: HTMLInputElement | HTMLTextAreaElement) {
     setTimeout(() => {
@@ -701,6 +721,37 @@
           ></div>
         {/if}
       {/if}
+    {/each}
+
+    <!-- Yellow comment pins (right-click "Add Comment Here" + placed threads) -->
+    {#if pinDraft}
+      {@const draftDisplay = getDisplayCoords({
+        x: pinDraft.x,
+        y: pinDraft.y,
+        width: 0,
+        height: 0,
+      })}
+      <CommentPin
+        {pageNumber}
+        draftX={pinDraft.x}
+        draftY={pinDraft.y}
+        leftPct={draftDisplay.x}
+        topPct={draftDisplay.y}
+      />
+    {/if}
+    {#each pageFlagComments as thread (thread.id)}
+      {@const flagDisplay = getDisplayCoords({
+        x: thread.x ?? 0,
+        y: thread.y ?? 0,
+        width: 0,
+        height: 0,
+      })}
+      <CommentPin
+        {pageNumber}
+        {thread}
+        leftPct={flagDisplay.x}
+        topPct={flagDisplay.y}
+      />
     {/each}
 
     {#if ix.isMouseOverPage && activeDoc.activeTool && !ix.isDrawing}

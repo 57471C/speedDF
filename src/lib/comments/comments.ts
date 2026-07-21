@@ -26,6 +26,29 @@ export interface PageComment {
 	/** Epoch milliseconds */
 	createdAt: number;
 	replies: CommentReply[];
+	/**
+	 * Optional page flag position in percentage coords (0–100, top-left origin).
+	 * When set, a yellow flag is rendered on the page at this point.
+	 */
+	x?: number;
+	y?: number;
+}
+
+/** Clamp a page-% coordinate into a usable on-page range. */
+export function clampCommentPct(n: number): number {
+	if (!Number.isFinite(n)) return 50;
+	return Math.min(99.5, Math.max(0.5, n));
+}
+
+/** True when a comment has a usable on-page flag position. */
+export function commentHasFlag(c: PageComment | null | undefined): boolean {
+	return (
+		!!c &&
+		typeof c.x === "number" &&
+		typeof c.y === "number" &&
+		Number.isFinite(c.x) &&
+		Number.isFinite(c.y)
+	);
 }
 
 /** Active comment author profile (from signature set or manual). */
@@ -281,6 +304,13 @@ function normalizeComment(raw: unknown): PageComment | null {
 	};
 	if (c.authorFullName) {
 		comment.authorFullName = String(c.authorFullName).slice(0, 128);
+	}
+	// Optional on-page flag position (percent space)
+	const x = Number(c.x);
+	const y = Number(c.y);
+	if (Number.isFinite(x) && Number.isFinite(y)) {
+		comment.x = clampCommentPct(x);
+		comment.y = clampCommentPct(y);
 	}
 	return comment;
 }

@@ -19,6 +19,7 @@
   import RecentDashboard from "../components/RecentDashboard.svelte";
   import {
     activeDoc as activeDocStore,
+    beginCommentPinDraft,
     executeUndoAction,
     executeRedoAction,
     rotatePageAction,
@@ -1124,16 +1125,46 @@
   let showMenu = $state(false);
   let menuX = $state(0);
   let menuY = $state(0);
+  /** Page under the cursor when the context menu opened (for "Add Comment Here"). */
+  let contextCommentTarget = $state<{
+    pageNum: number;
+    x: number;
+    y: number;
+  } | null>(null);
 
   function handleRightClick(e: MouseEvent) {
     e.preventDefault();
     menuX = e.clientX;
     menuY = e.clientY;
     showMenu = true;
+
+    // Resolve page + % coords when right-click lands on a document page
+    contextCommentTarget = null;
+    if (!activeDoc.rawBytes || activeDoc.fileType === "image") return;
+    const pageEl = (e.target as HTMLElement | null)?.closest?.(
+      "[data-page-number]",
+    ) as HTMLElement | null;
+    if (!pageEl) return;
+    const pageNum = parseInt(pageEl.getAttribute("data-page-number") || "", 10);
+    if (!Number.isFinite(pageNum) || pageNum < 1) return;
+    const rect = pageEl.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    contextCommentTarget = { pageNum, x, y };
   }
 
   function closeMenu() {
     showMenu = false;
+  }
+
+  function handleAddCommentHere() {
+    const target = contextCommentTarget;
+    showMenu = false;
+    contextCommentTarget = null;
+    if (!target) return;
+    // Place a pin draft + open compose popout (same UX as workspace comment bubble)
+    beginCommentPinDraft(target.pageNum, target.x, target.y);
   }
 
   const appWindow = getCurrentWindow();
@@ -1852,9 +1883,11 @@
   bind:show={showMenu}
   x={menuX}
   y={menuY}
+  showAddComment={!!contextCommentTarget}
   onOpen={openFile}
   onSave={() => titleBarRef?.triggerSave?.()}
   onSaveAs={() => titleBarRef?.triggerSaveAs?.()}
+  onAddComment={handleAddCommentHere}
 />
 
 {#if showToast}

@@ -4,6 +4,7 @@ import {
 } from "./lib/annotation/shapeHelpers";
 import type { PageComment } from "./lib/comments/comments";
 import {
+	clampCommentPct,
 	createCommentId,
 	getCommentAuthor,
 	getCommentAuthorFullName,
@@ -241,6 +242,18 @@ export interface SharedDocumentState {
 	 */
 	commentsFocusRequest: number | null;
 	/**
+	 * Session UI signal: optional thread id to highlight when opening comments.
+	 * Consumed with commentsFocusRequest.
+	 */
+	commentsFocusThreadId: string | null;
+	/**
+	 * Session UI: pending pin draft after right-click "Add Comment Here".
+	 * Compose popout posts with position; null when idle.
+	 */
+	commentPinDraft: { pageNum: number; x: number; y: number } | null;
+	/** Session UI: open thread id for an on-page pin popout. */
+	openCommentPinId: string | null;
+	/**
 	 * Session UI: true while the active document is being flattened/written.
 	 * Blocks workspace edits so the dirty flag cannot flip during save lag.
 	 */
@@ -416,6 +429,19 @@ let recents = $state<RecentFile[]>(loadRecents());
 let thumbnailVersion = $state(0);
 /** Session-only: ask PageSidebar to open the comments tab for a page. */
 let commentsFocusRequest = $state<number | null>(null);
+/** Session-only: scroll/highlight a specific thread when opening the comments tab. */
+let commentsFocusThreadId = $state<string | null>(null);
+/**
+ * Session UI: pending on-page pin placement (compose before commit).
+ * Set by right-click "Add Comment Here"; cleared on post or cancel.
+ */
+let commentPinDraft = $state<{
+	pageNum: number;
+	x: number;
+	y: number;
+} | null>(null);
+/** Session UI: which placed pin's thread popout is open (thread id). */
+let openCommentPinId = $state<string | null>(null);
 /** Session-only: workspace is locked while save/flatten runs. */
 let isSaving = $state(false);
 
@@ -1201,6 +1227,27 @@ export const activeDoc: SharedDocumentState = {
 		commentsFocusRequest = val;
 	},
 
+	get commentsFocusThreadId() {
+		return commentsFocusThreadId;
+	},
+	set commentsFocusThreadId(val) {
+		commentsFocusThreadId = val;
+	},
+
+	get commentPinDraft() {
+		return commentPinDraft;
+	},
+	set commentPinDraft(val) {
+		commentPinDraft = val;
+	},
+
+	get openCommentPinId() {
+		return openCommentPinId;
+	},
+	set openCommentPinId(val) {
+		openCommentPinId = val;
+	},
+
 	get isSaving() {
 		return isSaving;
 	},
@@ -1314,13 +1361,52 @@ export function updateBookmarkNameAction(pageNum: number, newName: string) {
 }
 
 /** Open the comments sidebar panel focused on a page (session UI signal). */
-export function requestCommentsPanel(pageNum: number) {
+export function requestCommentsPanel(
+	pageNum: number,
+	threadId: string | null = null,
+) {
 	activeDoc.currentPage = pageNum;
 	commentsFocusRequest = pageNum;
+	commentsFocusThreadId = threadId;
 }
 
-/** Add a root comment on a page. Returns the new comment id, or null if text empty. */
-export function addCommentAction(pageNum: number, text: string): string | null {
+/**
+ * Start a compose-before-commit pin placement (right-click "Add Comment Here").
+ * Does not create a comment until the user posts text from the pin popout.
+ */
+export function beginCommentPinDraft(
+	pageNum: number,
+	x: number,
+	y: number,
+) {
+	if (pageNum < 1) return;
+	commentPinDraft = {
+		pageNum,
+		x: clampCommentPct(x),
+		y: clampCommentPct(y),
+	};
+	openCommentPinId = null;
+}
+
+export function clearCommentPinDraft() {
+	commentPinDraft = null;
+}
+
+export function setOpenCommentPinId(threadId: string | null) {
+	openCommentPinId = threadId;
+	if (threadId) commentPinDraft = null;
+}
+
+/**
+ * Add a root comment on a page.
+ * Optional `position` (page %) places a yellow flag at that point.
+ * Returns the new comment id, or null if text is empty.
+ */
+export function addCommentAction(
+	pageNum: number,
+	text: string,
+	position?: { x: number; y: number } | null,
+): string | null {
 	const clean = sanitizeCommentText(text);
 	if (!clean || pageNum < 1) return null;
 	const id = createCommentId();
@@ -1333,9 +1419,34 @@ export function addCommentAction(pageNum: number, text: string): string | null {
 		createdAt: Date.now(),
 		replies: [],
 	};
+	if (
+		position &&
+		typeof position.x === "number" &&
+		typeof position.y === "number"
+	) {
+		next.x = clampCommentPct(position.x);
+		next.y = clampCommentPct(position.y);
+	}
 	activeDoc.comments = [...(activeDoc.comments || []), next];
 	activeDoc.isDirty = true;
 	return id;
+}
+
+/** Update root comment text. Returns false if empty or not found. */
+export function updateCommentAction(
+	threadId: string,
+	text: string,
+): boolean {
+	const clean = sanitizeCommentText(text);
+	if (!clean || !threadId) return false;
+	let found = false;
+	activeDoc.comments = (activeDoc.comments || []).map((c) => {
+		if (c.id !== threadId) return c;
+		found = true;
+		return { ...c, text: clean };
+	});
+	if (found) activeDoc.isDirty = true;
+	return found;
 }
 
 /** Reply to a root comment thread. */
@@ -1378,6 +1489,30 @@ export function deleteCommentAction(threadId: string) {
 	if ((activeDoc.comments?.length || 0) !== before) {
 		activeDoc.isDirty = true;
 	}
+}
+
+/** Update a single reply's text under a root thread. */
+export function updateReplyAction(
+	threadId: string,
+	replyId: string,
+	text: string,
+): boolean {
+	const clean = sanitizeCommentText(text);
+	if (!clean || !threadId || !replyId) return false;
+	let found = false;
+	activeDoc.comments = (activeDoc.comments || []).map((c) => {
+		if (c.id !== threadId) return c;
+		return {
+			...c,
+			replies: (c.replies || []).map((r) => {
+				if (r.id !== replyId) return r;
+				found = true;
+				return { ...r, text: clean };
+			}),
+		};
+	});
+	if (found) activeDoc.isDirty = true;
+	return found;
 }
 
 /** Delete a single reply under a root thread. */
