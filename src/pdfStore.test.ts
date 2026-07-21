@@ -12,6 +12,7 @@ import {
 	redoStack,
 	rotatePageAction,
 	saveSignatureSetAction,
+	setFormFieldValueAction,
 	undoStack,
 	updateBookmarkNameAction,
 } from "./pdfStore.svelte.ts";
@@ -79,6 +80,40 @@ describe("loadSavedSets", () => {
 		];
 		localStorage.setItem("speeddf_signature_sets", JSON.stringify(validData));
 		expect(loadSavedSets()).toEqual(validData);
+	});
+});
+
+describe("setFormFieldValueAction", () => {
+	beforeEach(() => {
+		openTestDocument();
+		activeDoc.isDirty = false;
+		activeDoc.formValues = {};
+	});
+
+	it("should do nothing if name is empty", () => {
+		setFormFieldValueAction("", "some-value");
+		expect(activeDoc.formValues).toEqual({});
+		expect(activeDoc.isDirty).toBe(false);
+	});
+
+	it("should add a new form value and set isDirty to true", () => {
+		setFormFieldValueAction("field1", "value1");
+		expect(activeDoc.formValues).toEqual({ field1: "value1" });
+		expect(activeDoc.isDirty).toBe(true);
+	});
+
+	it("should update an existing value correctly without losing other keys", () => {
+		activeDoc.formValues = { field1: "oldValue1", field2: "value2" };
+		setFormFieldValueAction("field1", "newValue1");
+		expect(activeDoc.formValues).toEqual({ field1: "newValue1", field2: "value2" });
+		expect(activeDoc.isDirty).toBe(true);
+	});
+
+	it("should do nothing if the existing value is exactly the same as the new one", () => {
+		activeDoc.formValues = { field1: "value1" };
+		setFormFieldValueAction("field1", "value1");
+		expect(activeDoc.formValues).toEqual({ field1: "value1" });
+		expect(activeDoc.isDirty).toBe(false);
 	});
 });
 
