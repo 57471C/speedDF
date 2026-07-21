@@ -16,6 +16,7 @@
   } from "../lib/export/flatten";
   import { decodeCommentsFromKeywords } from "../lib/comments/comments";
   import { extractFormFields } from "../lib/forms/formFields";
+  import { extractHyperlinks } from "../lib/links/hyperlinks";
 
   let {
     onMinimize,
@@ -133,6 +134,12 @@
           console.warn("Form field detection skipped:", formErr);
           activeDoc.formFields = [];
           activeDoc.formValues = {};
+        }
+        try {
+          activeDoc.hyperlinks = await extractHyperlinks(typedBytes);
+        } catch (linkErr) {
+          console.warn("Hyperlink detection skipped:", linkErr);
+          activeDoc.hyperlinks = [];
         }
       }
     } catch (err) {
@@ -305,6 +312,7 @@
     activeDoc.comments = [];
     activeDoc.formFields = [];
     activeDoc.formValues = {};
+    activeDoc.hyperlinks = [];
   }
 
   function handlePrintClick() {

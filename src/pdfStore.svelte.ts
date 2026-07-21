@@ -11,6 +11,7 @@ import {
 	setCommentAuthorProfile,
 } from "./lib/comments/comments";
 import type { FormFieldDef, FormFieldValue } from "./lib/forms/formFields";
+import type { HyperlinkDef } from "./lib/links/hyperlinks";
 import {
 	bindHistoryDocument,
 	executeRedoAction,
@@ -37,6 +38,7 @@ import {
 
 export type { CommentReply, PageComment } from "./lib/comments/comments";
 export type { FormFieldDef, FormFieldValue } from "./lib/forms/formFields";
+export type { HyperlinkDef } from "./lib/links/hyperlinks";
 
 /** Avoid importing the name `PDFWorker` (clashes with pdfjs-dist's class export in some tooling). */
 type PdfJsWorker = InstanceType<typeof import("pdfjs-dist")["PDFWorker"]>;
@@ -152,6 +154,11 @@ export interface DocumentWorkspace {
 	 * Signature fields store stamp data URLs (or empty string when unsigned).
 	 */
 	formValues: Record<string, FormFieldValue>;
+	/**
+	 * URI Link annotations (http/https/mailto) for clickable overlay.
+	 * Empty for non-PDF or when the document has no external links.
+	 */
+	hyperlinks: HyperlinkDef[];
 	imageRotation?: number;
 	imageUrl?: string | null;
 	isDirty: boolean;
@@ -221,6 +228,7 @@ export interface SharedDocumentState {
 	comments: PageComment[];
 	formFields: FormFieldDef[];
 	formValues: Record<string, FormFieldValue>;
+	hyperlinks: HyperlinkDef[];
 	openDocuments: DocumentWorkspace[];
 	activeDocumentId: string | null;
 	readonly current: DocumentWorkspace | null;
@@ -544,6 +552,14 @@ export async function commitActiveDocumentAfterSave(opts: {
 			doc.formFields = [];
 			doc.formValues = {};
 		}
+		try {
+			const { extractHyperlinks } = await import("./lib/links/hyperlinks");
+			doc.hyperlinks = await extractHyperlinks(doc.rawBytes);
+			openDocuments = [...openDocuments];
+		} catch (err) {
+			console.warn("Post-save hyperlink re-extract failed:", err);
+			doc.hyperlinks = [];
+		}
 	}
 
 	// Ensure Save As path appears in Recent Documents (thumbnail may arrive async)
@@ -802,6 +818,7 @@ export function initializeNewDocument(
 		comments: [],
 		formFields: [],
 		formValues: {},
+		hyperlinks: [],
 		imageRotation: 0,
 		imageUrl: null,
 		isDirty: false,
@@ -906,6 +923,12 @@ export const activeDoc: SharedDocumentState = {
 	},
 	set formValues(val) {
 		if (this.current) this.current.formValues = val;
+	},
+	get hyperlinks() {
+		return this.current?.hyperlinks || [];
+	},
+	set hyperlinks(val) {
+		if (this.current) this.current.hyperlinks = val;
 	},
 	get imageRotation() {
 		return this.current?.imageRotation || 0;

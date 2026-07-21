@@ -341,4 +341,77 @@ If a box-tool gesture is effectively a click (&lt; 2×2 CSS px drag):
 
 ---
 
-**Last Updated:** July 2026 (form/text value memory, text edit session safety, auto-grow + shape drop geometry, Shift multi-select, Helvetica defaults, forms + workspaceId / Save As)
+## Section M: Line Tool Geometry & Stroke Thickness
+
+### Interaction model
+
+Unlike box shapes (mousedown-drag-mouseup), the Line tool is **click → rubber-band → click**:
+
+1. First click sets `lineStartPct` and enters `lineAwaitingEnd`.
+2. Mousemove updates `linePreviewPct` (rubber band in AnnotationLayer).
+3. Second click commits `createLineShape(start, end, …)` and clears drawing state.
+4. `handleMouseUp` must **not** finalize while awaiting end (drag-release would cancel the two-click flow).
+5. Leaving the page does **not** cancel an unfinished line (brief leave is common); switching tools does.
+
+### Storage
+
+```ts
+{
+  type: "line",
+  points: [{ x, y }, { x, y }], // start, end (page %)
+  x, y, width, height,          // axis-aligned bounds from points
+  color, thickness, lineStyle,
+  lineEnds: "plain" | "end" | "both",
+}
+```
+
+Canonical geometry is **`points`**. Bounds are derived for multi-select/move consistency. On body move, translate **both** endpoints (and recompute bounds) — do not only bump `x`/`y`.
+
+### Stroke thickness vs box shapes
+
+Box outlines use `vector-effect="non-scaling-stroke"` with `stroke-width = thickness` in **CSS pixels**.
+
+Lines live in a full-page SVG `viewBox="0 0 100 100"`. Using viewBox-scaled width (e.g. `thickness * 0.22`) makes lines look about **one step thicker** than shapes at the same toolbar size.
+
+**Rule:** line and rubber-band strokes must use `vector-effect="non-scaling-stroke"` and raw `thickness` (same as rect/oval). Keep hit-area stroke non-scaling too (`max(12, thickness + 8)` px). Endpoint handles stay compact (`w-1.5 h-1.5`) so they sit cleanly on a thin stroke.
+
+### Arrow heads
+
+`arrowHeadVertices(from, tip, sizePct)` returns three percentage-space vertices. PDF export must account for pdf-lib `drawSvgPath` applying `scale(1, -1)` — place the path at the tip in PDF space and use local SVG coords relative to the tip.
+
+---
+
+## Section N: PDF Hyperlinks (Safe Open)
+
+### Detection
+
+On PDF open, reuse the loaded PDF.js document:
+
+```ts
+activeDoc.hyperlinks = await extractHyperlinksFromDocument(pdfDocument);
+```
+
+Post-save / alternate load paths may call `extractHyperlinks(bytes)` (dynamic PDF.js import). Results are **document-scoped** on `DocumentWorkspace.hyperlinks` (multi-tab safe). Clear on TIFF/image loads and document close.
+
+Only `subtype === "Link"` annotations with a URI (`url` or `unsafeUrl`) are kept. Internal destinations (`dest`) are ignored in v1.
+
+### Overlay stacking
+
+`LinkLayer.svelte` uses `z-[36]` (above the text layer at `z-[35]`). Container is `pointer-events-none`; individual link hit-areas re-enable `pointer-events-auto` when `activeTool === "select"`. Drawing tools are never stolen.
+
+### Security rules (non-negotiable)
+
+1. **Scheme allow-list only:** `http:`, `https:`, `mailto:`.
+2. **Hard-reject** `javascript:`, `data:`, `file:`, `vbscript:`, `blob:`, `about:`, relative/schemeless strings.
+3. **Confirm** with Tauri `ask` before every open; show the full URL in the dialog.
+4. **Re-validate** with `isSafeHyperlinkUrl` at click time (never trust stored strings alone).
+5. **Multi-tab:** if `activeDocumentId` changed during the dialog, do not open.
+6. Open via `@tauri-apps/plugin-shell` `open` — never in-app navigation.
+
+### Testing note
+
+Do not static-import `pdfjs-dist` at the top of `hyperlinks.ts` — Node vitest lacks `DOMMatrix`. Keep pure helpers import-free; load PDF.js only inside `extractHyperlinks`.
+
+---
+
+**Last Updated:** July 2026 (line tool stroke/geometry, PDF hyperlinks, form/text value memory, text edit session safety, auto-grow + shape drop geometry, Shift multi-select, Helvetica defaults, forms + workspaceId / Save As)

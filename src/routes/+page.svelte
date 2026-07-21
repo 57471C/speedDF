@@ -30,6 +30,7 @@
   } from "../pdfStore.svelte";
   import { decodeCommentsFromKeywords } from "../lib/comments/comments";
   import { extractFormFields } from "../lib/forms/formFields";
+  import { extractHyperlinksFromDocument } from "../lib/links/hyperlinks";
   import DocumentTabs from "../components/DocumentTabs.svelte";
 
   const activeDoc = activeDocStore as any;
@@ -663,6 +664,7 @@
         activeDoc.comments = [];
         activeDoc.formFields = [];
         activeDoc.formValues = {};
+        activeDoc.hyperlinks = [];
       } else if (fileCategory === "image") {
         // Setup the clean single-page layout structure for standard graphics
         activeDoc.fileType = "image";
@@ -678,6 +680,7 @@
         activeDoc.comments = [];
         activeDoc.formFields = [];
         activeDoc.formValues = {};
+        activeDoc.hyperlinks = [];
         activeDoc.imageRotation = 0;
         // Clear any stale per-doc override so sidebar uses live imageUrl until paint
         activeDoc.pageThumbnailOverrides = {};
@@ -806,6 +809,14 @@
           console.warn("Form field detection skipped:", formErr);
           activeDoc.formFields = [];
           activeDoc.formValues = {};
+        }
+
+        // URI Link annotations for clickable overlay (reuse open pdf.js document)
+        try {
+          activeDoc.hyperlinks = await extractHyperlinksFromDocument(pdfDocument);
+        } catch (linkErr) {
+          console.warn("Hyperlink detection skipped:", linkErr);
+          activeDoc.hyperlinks = [];
         }
 
         await registerRecentFile(fileName, filePath, rawBytes);
@@ -971,6 +982,7 @@
       activeDoc.comments = [];
       activeDoc.formFields = [];
       activeDoc.formValues = {};
+      activeDoc.hyperlinks = [];
       activeDoc.isDirty = false;
       showNotification("Created New Blank A4 Document");
     } catch (e) {
