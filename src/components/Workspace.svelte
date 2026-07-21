@@ -4,6 +4,15 @@
   import * as pdfjsLib from "pdfjs-dist";
   import WorkspacePage from "./WorkspacePage.svelte";
   import { activeDoc, FONT_MAP, pushHistorySnapshot } from "../pdfStore.svelte";
+  import { debounceLeadingLatest } from "../lib/render/pdfRenderQueue";
+
+  // Debounced auto-fit handler to prevent layout thrashing.
+  // It guarantees the layout is updated at most once per timeframe.
+  const debouncedShrink = debounceLeadingLatest(() => {
+    if (typeof shrinkToWindow === "function") {
+      shrinkToWindow();
+    }
+  }, 150);
 
   // Auto-fit every newly opened document (PDF / TIFF / image) to the viewport,
   // respecting the page container's actual orientation after layout settles.
@@ -15,18 +24,20 @@
     if (!bytes || !fileKey) return;
 
     // Retry a few times so page shells (and image natural size) have painted.
+    // By keeping the delays, we cover slow-rendering documents.
+    // By delegating to debouncedShrink, we coalesce clustered paints and avoid layout thrashing.
     let cancelled = false;
     const delays = [80, 200, 450, 900];
     for (const ms of delays) {
       setTimeout(() => {
         if (cancelled) return;
-        if (typeof shrinkToWindow === "function") {
-          shrinkToWindow();
-        }
+        debouncedShrink.schedule();
       }, ms);
     }
+
     return () => {
       cancelled = true;
+      debouncedShrink.cancel();
     };
   });
 
