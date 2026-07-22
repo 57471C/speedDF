@@ -1,6 +1,5 @@
 <script lang="ts">
-  import * as pdfjsLib from "pdfjs-dist";
-  import { activeDoc, globalPdfWorkerInstance } from "../pdfStore.svelte";
+  import { activeDoc } from "../pdfStore.svelte";
   import {
     debounceLeadingLatest,
     runWithPdfRenderSlot,
@@ -8,6 +7,10 @@
     THUMBNAIL_MAX_EDGE_PX,
     THUMBNAIL_MAX_SCALE,
   } from "../lib/render/pdfRenderQueue";
+  import {
+    cleanupPdfPage,
+    getSharedWorkspacePdf,
+  } from "../lib/render/sharedPdfDocument";
 
   let { bytes, pageNumber } = $props<{ bytes: Uint8Array; pageNumber: number }>();
   let canvasElement = $state<HTMLCanvasElement | null>(null);
@@ -104,30 +107,14 @@
       async () => {
         if (generation !== paintGeneration) return;
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let page: any = null;
         try {
-          if (!globalPdfWorkerInstance.current) {
-            globalPdfWorkerInstance.current = new pdfjsLib.PDFWorker();
-          }
+          // Shared workspace document — never getDocument() per thumbnail paint.
+          const pdfDocument = await getSharedWorkspacePdf(pdfBytes);
+          if (!pdfDocument || generation !== paintGeneration) return;
 
-          const loadingTask = pdfjsLib.getDocument({
-            data: pdfBytes.slice(0),
-            cMapUrl: window.location.origin + "/cmaps/",
-            cMapPacked: true,
-            standardFontDataUrl: window.location.origin + "/standard_fonts/",
-            wasmUrl: window.location.origin + "/",
-            worker: globalPdfWorkerInstance.current,
-          });
-          const pdfDocument = await loadingTask.promise;
-          if (generation !== paintGeneration) {
-            try {
-              await loadingTask.destroy();
-            } catch {
-              /* ignore */
-            }
-            return;
-          }
-
-          const page = await pdfDocument.getPage(pageNum);
+          page = await pdfDocument.getPage(pageNum);
           if (generation !== paintGeneration) return;
 
           const unscaledViewport = page.getViewport({ scale: 1 });
@@ -176,6 +163,8 @@
         } catch (error: any) {
           if (error?.name === "RenderingCancelledException") return;
           console.error(`Thumbnail generation failed for page ${pageNum}:`, error);
+        } finally {
+          cleanupPdfPage(page);
         }
       },
       () => generation !== paintGeneration,

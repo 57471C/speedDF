@@ -427,6 +427,12 @@ function loadRecents(): RecentFile[] {
 }
 let recents = $state<RecentFile[]>(loadRecents());
 let thumbnailVersion = $state(0);
+/**
+ * Sidebar thumbnail JPEGs keyed by workspaceId → { pageIndex → dataUrl }.
+ * Kept OUTSIDE DocumentWorkspace / openDocuments so trickle-in updates never
+ * reassign openDocuments or re-run main WorkspacePage paint effects.
+ */
+let sessionPageThumbs = $state<Record<string, Record<number, string>>>({});
 /** Session-only: ask PageSidebar to open the comments tab for a page. */
 let commentsFocusRequest = $state<number | null>(null);
 /** Session-only: scroll/highlight a specific thread when opening the comments tab. */
@@ -473,32 +479,77 @@ function resetSessionUiForDocumentSwitch() {
 }
 
 /**
+ * Store a static JPEG data URL for one page.
+ * Updates session thumb map only — never reassigns `openDocuments` or bumps
+ * `thumbnailVersion` (those were re-running main page paints and flashing p1).
+ */
+export function setPageThumbnailOverride(
+	pageIndex: number,
+	thumbnailDataUrl: string,
+	filePath?: string | null,
+) {
+	if (pageIndex < 0 || !thumbnailDataUrl) return;
+	const target =
+		(filePath ? findOpenDocument(filePath) : null) ||
+		findOpenDocument(activeDocumentId);
+	if (!target) return;
+	const wsId = documentKey(target);
+	const prev = sessionPageThumbs[wsId] || target.pageThumbnailOverrides || {};
+	if (prev[pageIndex] === thumbnailDataUrl) return;
+
+	const nextPages = {
+		...prev,
+		[pageIndex]: thumbnailDataUrl,
+	};
+	// Session map: sidebar-only reactivity (no openDocuments identity change)
+	sessionPageThumbs = {
+		...sessionPageThumbs,
+		[wsId]: nextPages,
+	};
+	// Mirror onto the doc for cleanup/multi-doc without array reassignment
+	target.pageThumbnailOverrides = nextPages;
+
+	// Persist to IndexedDB when we have a path (re-open = instant thumbs)
+	if (target.filePath && target.rawBytes) {
+		void import("./lib/render/thumbnailPersist").then(async (persist) => {
+			const key = persist.contentKeyForBytes(target.rawBytes!);
+			await persist.persistThumbnailPage(
+				target.filePath,
+				key,
+				pageIndex,
+				thumbnailDataUrl,
+			);
+		});
+	}
+}
+
+/** Drop session thumbs for a workspace (on close). */
+export function clearSessionPageThumbs(workspaceKey: string): void {
+	if (!workspaceKey || !sessionPageThumbs[workspaceKey]) return;
+	const next = { ...sessionPageThumbs };
+	delete next[workspaceKey];
+	sessionPageThumbs = next;
+}
+
+/**
  * Post-save thumbnail broadcast:
  * 1) write page-0 override map on the matching open document
- * 2) bump thumbnailVersion so `use:renderThumbnail` / $effect re-run
- * 3) Svelte 5-safe recents array reassignment for Recent Documents cards
+ * 2) bump thumbnailVersion / recents for Recent Documents cards
+ * 3) Svelte 5-safe recents array reassignment
  */
 export function applyLiveThumbnail(
 	thumbnailDataUrl: string,
 	filePath?: string | null,
 	pageIndex = 0,
 ) {
-	const target =
-		(filePath ? findOpenDocument(filePath) : null) ||
-		findOpenDocument(activeDocumentId);
-	if (target) {
-		target.pageThumbnailOverrides = {
-			...(target.pageThumbnailOverrides || {}),
-			[pageIndex]: thumbnailDataUrl,
-		};
-		// Ensure array consumers re-read nested mutation
-		openDocuments = [...openDocuments];
-	}
+	setPageThumbnailOverride(pageIndex, thumbnailDataUrl, filePath);
 	if (filePath) {
-		// Bumps thumbnailVersion + updates recents/localStorage
+		// Recents / dashboard only — not main workspace paint
 		updateRecentThumbnail(filePath, thumbnailDataUrl);
-	} else {
-		// No recents path — still invalidate sidebar canvases
+	}
+	// Image sidebar uses {#key thumbnailVersion}; bump only on explicit live apply
+	// (save / image seed), never on every multi-page PDF thumb trickle.
+	if (pageIndex === 0) {
 		thumbnailVersion += 1;
 	}
 }
@@ -514,12 +565,23 @@ export function switchActiveDocument(id: string) {
 	if (!findOpenDocument(id)) return;
 	activeDocumentId = id;
 	resetSessionUiForDocumentSwitch();
+	// Drop the previous tab's shared pdf.js document so memory does not stack.
+	// Keep the global worker alive (other tabs may still be open).
+	void import("./lib/render/sharedPdfDocument").then((m) =>
+		m.destroySharedWorkspacePdf({ destroyWorker: false }),
+	);
+	// New tab must re-claim main paint priority before thumbs run
+	void import("./lib/render/mainViewGate").then((m) => m.resetMainViewReady());
+	void import("./lib/render/pdfRenderQueue").then((m) =>
+		m.setLowPriorityAllowed(false),
+	);
 }
 
 /**
  * After a successful Save / Save As:
  * - keep the same open-document object as the active tab (update path/name only)
  * - replace in-memory bytes with the compiled output so the UI matches disk
+ * - clear live annotation overlays (they are baked into compiledBytes)
  * - clear dirty and refresh form field defs from the saved PDF
  * - upsert Recent Documents for the saved path (Save As creates a new path)
  *
@@ -559,6 +621,74 @@ export async function commitActiveDocumentAfterSave(opts: {
 	// Prefer a real ArrayBuffer-backed copy (detached views from save can be fragile)
 	doc.rawBytes = new Uint8Array(opts.compiledBytes);
 	doc.isDirty = false;
+	// Refresh thumbnail content key so IDB entries match the new bytes
+	void import("./lib/render/thumbnailCache").then((m) =>
+		m.setThumbnailContentKeyFromBytes(doc.rawBytes),
+	);
+
+	// Flatten bakes annotations into the written bytes. Drop the live overlay so
+	// the canvas does not show duplicate ink (burned-in + editable shapes).
+	const priorPageOrder = [...(doc.pageOrder || [])];
+	doc.shapes = {};
+	selectedShape = null;
+	selectedShapes = [];
+	undoStack.length = 0;
+	redoStack.length = 0;
+
+	// Rotations are applied during flatten — zero them so re-render does not double-rotate.
+	doc.rotations = {};
+	doc.imageRotation = 0;
+
+	// Flatten writes pages in pageOrder sequence as PDF pages 1..N.
+	// Remap session page indices so bookmarks/comments/current page stay correct.
+	if (doc.fileType === "pdf" || doc.fileType === "tiff") {
+		const n = priorPageOrder.length > 0 ? priorPageOrder.length : doc.pageCount;
+		const pageIndexMap = new Map<number, number>();
+		for (let i = 0; i < priorPageOrder.length; i++) {
+			pageIndexMap.set(priorPageOrder[i], i + 1);
+		}
+		if (n > 0) {
+			doc.pageCount = n;
+			doc.pageOrder = Array.from({ length: n }, (_, i) => i + 1);
+			const mapPage = (p: number) => pageIndexMap.get(p) ?? p;
+			if (doc.bookmarks?.length) {
+				doc.bookmarks = doc.bookmarks.map((b) => ({
+					...b,
+					pageNum: mapPage(b.pageNum),
+				}));
+			}
+			if (doc.comments?.length) {
+				doc.comments = doc.comments.map((c) => ({
+					...c,
+					pageNum: mapPage(c.pageNum),
+				}));
+			}
+			doc.currentPage = mapPage(doc.currentPage) || 1;
+		}
+		// TIFF Save As writes a PDF; switch the workspace to PDF mode so re-render
+		// uses the flattened bytes (with baked annotations) instead of raw tiff pages.
+		if (doc.fileType === "tiff") {
+			doc.fileType = "pdf";
+			doc.tiffPages = [];
+		}
+	}
+
+	// Image flatten bakes annotations + rotation into pixels — refresh the display URL.
+	if (doc.fileType === "image" && doc.rawBytes) {
+		try {
+			if (doc.imageUrl) {
+				URL.revokeObjectURL(doc.imageUrl);
+			}
+			const lower = (doc.filePath || doc.fileName || "").toLowerCase();
+			let mime = "image/jpeg";
+			if (lower.endsWith(".png")) mime = "image/png";
+			else if (lower.endsWith(".webp")) mime = "image/webp";
+			const blob = new Blob([doc.rawBytes as BlobPart], { type: mime });
+			doc.imageUrl = URL.createObjectURL(blob);
+		} catch (err) {
+			console.warn("Post-save image URL refresh failed:", err);
+		}
+	}
 
 	// Always keep active id on the stable workspace key (path may have changed)
 	activeDocumentId = documentKey(doc);
@@ -628,13 +758,10 @@ export function reorderOpenDocuments(fromIndex: number, toIndex: number) {
 }
 
 /**
- * Close one open document by id (path or fileName).
- * Does not prompt — caller handles dirty confirmation.
+ * Drop all heavy in-memory payloads on a workspace so GC can reclaim them.
+ * Call before removing the document from `openDocuments`.
  */
-export function closeDocumentWorkspace(id: string) {
-	const doc = findOpenDocument(id);
-	if (!doc) return;
-
+export function purgeDocumentResources(doc: DocumentWorkspace): void {
 	if (doc.imageUrl) {
 		try {
 			URL.revokeObjectURL(doc.imageUrl);
@@ -642,12 +769,52 @@ export function closeDocumentWorkspace(id: string) {
 			/* ignore */
 		}
 	}
+	doc.imageUrl = null;
+	// Large PDF/image buffers — explicit null so nothing retains the ArrayBuffer.
+	doc.rawBytes = null;
+	doc.tiffPages = [];
+	doc.shapes = {};
+	doc.pageThumbnailOverrides = {};
+	clearSessionPageThumbs(documentKey(doc));
+	doc.cachedDimensions = undefined;
+	doc.formFields = [];
+	doc.formValues = {};
+	doc.hyperlinks = [];
+	doc.bookmarks = [];
+	doc.comments = [];
+	doc.rotations = {};
+	doc.pageOrder = [];
+	doc.pageCount = 0;
+	doc.currentPage = 1;
+	doc.imageRotation = 0;
+	doc.isDirty = false;
+	doc.fileType = null;
+}
+
+/**
+ * Full close + memory reclaim for one workspace tab.
+ *
+ * - Purges rawBytes, shapes, thumbnails, forms, comments, TIFF pages
+ * - Removes the tab from `openDocuments`
+ * - Destroys the shared PDFDocumentProxy when the active tab closes
+ * - Destroys the global PDFWorker when no documents remain (Wasm heap)
+ *
+ * Prefer this over filtering `openDocuments` by hand.
+ */
+export async function cleanupWorkspace(id: string): Promise<void> {
+	const doc = findOpenDocument(id);
+	if (!doc) return;
 
 	const wasActive =
 		activeDocumentId === documentKey(doc) ||
 		activeDocumentId === doc.filePath ||
-		activeDocumentId === doc.fileName;
+		activeDocumentId === doc.fileName ||
+		activeDocumentId === id;
 
+	// 1. Strip heavy payloads while the object is still reachable.
+	purgeDocumentResources(doc);
+
+	// 2. Drop the tab so WorkspacePage / thumbnails unmount and release canvases.
 	openDocuments = openDocuments.filter(
 		(d) =>
 			d.workspaceId !== id &&
@@ -656,22 +823,53 @@ export function closeDocumentWorkspace(id: string) {
 			d !== doc,
 	);
 
+	const noDocsLeft = openDocuments.length === 0;
+
 	if (wasActive) {
 		activeDocumentId = openDocuments[0] ? documentKey(openDocuments[0]) : null;
 		resetSessionUiForDocumentSwitch();
+	} else if (noDocsLeft) {
+		activeDocumentId = null;
+		resetSessionUiForDocumentSwitch();
 	}
+
+	// 3. Tear down pdf.js shared document. Kill the worker only when the last
+	//    tab closes so open/close cycles do not stack Wasm heaps.
+	if (wasActive || noDocsLeft) {
+		const { destroySharedWorkspacePdf } = await import(
+			"./lib/render/sharedPdfDocument"
+		);
+		await destroySharedWorkspacePdf({ destroyWorker: noDocsLeft });
+		const { resetMainViewReady } = await import("./lib/render/mainViewGate");
+		resetMainViewReady();
+		const { setLowPriorityAllowed } = await import("./lib/render/pdfRenderQueue");
+		setLowPriorityAllowed(false);
+		const { clearThumbnailInflight } = await import(
+			"./lib/render/thumbnailCache"
+		);
+		clearThumbnailInflight();
+	}
+}
+
+/**
+ * Close one open document by id (path, fileName, or workspaceId).
+ * Does not prompt — caller handles dirty confirmation.
+ * Delegates to {@link cleanupWorkspace} for full memory reclaim.
+ */
+export function closeDocumentWorkspace(id: string) {
+	void cleanupWorkspace(id);
 }
 
 /**
  * Close every open document without dirty prompts (caller must confirm first).
  */
-export function closeAllDocumentWorkspaces() {
-	// Copy first — closeDocumentWorkspace mutates the array
+export async function closeAllDocumentWorkspaces() {
+	// Copy first — cleanupWorkspace mutates the array
 	const ids = openDocuments.map(documentKey);
 	for (const id of ids) {
 		const doc = findOpenDocument(id);
 		if (doc) doc.isDirty = false;
-		closeDocumentWorkspace(id);
+		await cleanupWorkspace(id);
 	}
 }
 
@@ -1214,10 +1412,28 @@ export const activeDoc: SharedDocumentState = {
 	},
 
 	get pageThumbnailOverrides() {
-		return this.current?.pageThumbnailOverrides || {};
+		// Prefer session map (sidebar reactivity) over doc field
+		const cur = this.current;
+		if (!cur) return {};
+		const wsId = documentKey(cur);
+		return sessionPageThumbs[wsId] || cur.pageThumbnailOverrides || {};
 	},
 	set pageThumbnailOverrides(val) {
-		if (this.current) this.current.pageThumbnailOverrides = val;
+		const cur = this.current;
+		if (!cur) return;
+		const wsId = documentKey(cur);
+		const pages = val || {};
+		cur.pageThumbnailOverrides = pages;
+		// Keep session map in sync without touching openDocuments
+		if (Object.keys(pages).length === 0) {
+			if (sessionPageThumbs[wsId]) {
+				const next = { ...sessionPageThumbs };
+				delete next[wsId];
+				sessionPageThumbs = next;
+			}
+		} else {
+			sessionPageThumbs = { ...sessionPageThumbs, [wsId]: { ...pages } };
+		}
 	},
 
 	get commentsFocusRequest() {
@@ -1260,16 +1476,20 @@ export const activeDoc: SharedDocumentState = {
 		updateRecentThumbnail(filePath, thumbnailDataUrl);
 	},
 
-	/** Close the currently active document (no dirty prompt). Prefer closeDocumentWorkspace. */
+	/** Close the currently active document (no dirty prompt). Prefer cleanupWorkspace. */
 	flushDocumentState() {
 		const id = activeDocumentId;
 		if (!id) {
+			// Still reclaim shared pdf.js if nothing is open
 			openDocuments = [];
 			activeDocumentId = null;
 			resetSessionUiForDocumentSwitch();
+			void import("./lib/render/sharedPdfDocument").then((m) =>
+				m.destroySharedWorkspacePdf({ destroyWorker: true }),
+			);
 			return;
 		}
-		closeDocumentWorkspace(id);
+		void cleanupWorkspace(id);
 	},
 };
 
@@ -1335,6 +1555,10 @@ export function rotatePageAction(
 		...activeDoc.rotations,
 		[pageNumber]: targetDegree,
 	};
+	// Session rotation is baked into static thumbs — regenerate this page only.
+	void import("./lib/render/thumbnailCache").then((m) =>
+		m.invalidatePageThumbnail(pageNumber),
+	);
 }
 
 export function addOrToggleBookmarkAction(pageNum: number) {

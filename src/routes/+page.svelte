@@ -26,12 +26,22 @@
     initializeNewDocument,
     switchActiveDocument,
     documentKey,
+    cleanupWorkspace,
     closeDocumentWorkspace,
     closeAllDocumentWorkspaces,
   } from "../pdfStore.svelte";
   import { decodeCommentsFromKeywords } from "../lib/comments/comments";
   import { extractFormFields } from "../lib/forms/formFields";
   import { extractHyperlinksFromDocument } from "../lib/links/hyperlinks";
+  import { resetMainViewReady } from "../lib/render/mainViewGate";
+  import { setLowPriorityAllowed } from "../lib/render/pdfRenderQueue";
+  import { getSharedWorkspacePdf } from "../lib/render/sharedPdfDocument";
+  import {
+    hydrateThumbnailsFromDisk,
+    removeDocumentThumbnailCaches,
+    scheduleOrphanThumbnailCleanup,
+    setThumbnailContentKeyFromBytes,
+  } from "../lib/render/thumbnailCache";
   import DocumentTabs from "../components/DocumentTabs.svelte";
 
   const activeDoc = activeDocStore as any;
@@ -603,6 +613,31 @@
     }
   }
 
+  /** Read layout skeleton written on a previous open (same path). */
+  function readDocumentLayoutMetadata(filePath: string): {
+    totalPages: number;
+    pageDimensions: { width: number; height: number }[];
+  } | null {
+    try {
+      const raw = localStorage.getItem(`speeddf_meta_${btoa(filePath)}`);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (
+        parsed?.totalPages > 0 &&
+        Array.isArray(parsed.pageDimensions) &&
+        parsed.pageDimensions.length > 0
+      ) {
+        return {
+          totalPages: parsed.totalPages,
+          pageDimensions: parsed.pageDimensions,
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+
   async function loadDocument(
     rawBytes: Uint8Array,
     fileName: string,
@@ -659,6 +694,8 @@
         activeDoc.filePath = filePath;
         activeDoc.pageCount = decodedPages.length;
         activeDoc.tiffPages = decodedPages.map((page) => new Uint8Array(page));
+        // Clear thumb cache BEFORE pageOrder so sidebar does not generate then wipe.
+        activeDoc.pageThumbnailOverrides = {};
         activeDoc.pageOrder = Array.from(
           { length: decodedPages.length },
           (_, i) => i + 1,
@@ -668,7 +705,6 @@
         // Iteration sites must still use (shapes[page] || []) for unannotated pages.
         activeDoc.shapes = {};
         activeDoc.rotations = {};
-        activeDoc.pageThumbnailOverrides = {};
         activeDoc.bookmarks = [];
         activeDoc.comments = [];
         activeDoc.formFields = [];
@@ -736,119 +772,206 @@
         // Skip PDF.js rendering entirely and log it out
         console.log(`Image Ingestion Setup: Initialized image frame for ${fileName}`);
       } else {
-        // Keep your existing standard PDF.js document load configuration completely untouched here
+        // ── Fast open path for PDFs ─────────────────────────────────────
+        // Warm open (subsequent): layout meta + IDB thumbs → shell + sidebar
+        // instantly; shared pdf.js parse runs in parallel for main paint.
         activeDoc.fileType = "pdf";
         activeDoc.tiffPages = [];
-
-        const loadingTask = pdfjsLib.getDocument({
-          data: rawBytes.slice(0),
-          cMapUrl: window.location.origin + "/cmaps/",
-          cMapPacked: true,
-          standardFontDataUrl: window.location.origin + "/standard_fonts/",
-          wasmUrl: window.location.origin + "/",
-        });
-        const pdfDocument = await loadingTask.promise;
-
         activeDoc.rawBytes = rawBytes;
-        activeDoc.pageCount = pdfDocument.numPages;
-        activeDoc.pageOrder = Array.from(
-          { length: pdfDocument.numPages },
-          (_, idx) => idx + 1,
-        );
-        activeDoc.currentPage = 1;
-        // Empty shapes map for a brand-new multi-page PDF (no prior annotation history).
-        // Page overlay loops use (shapes[page] || []) so missing keys never hit for-of on undefined.
         activeDoc.shapes = {};
         activeDoc.rotations = {};
-        activeDoc.pageThumbnailOverrides = {};
         activeDoc.fileName = fileName;
         activeDoc.filePath = filePath;
+        activeDoc.bookmarks = [];
+        activeDoc.comments = [];
+        activeDoc.formFields = [];
+        activeDoc.formValues = {};
+        activeDoc.hyperlinks = [];
+        activeDoc.pageThumbnailOverrides = {};
+        setThumbnailContentKeyFromBytes(rawBytes);
+        resetMainViewReady();
+        setLowPriorityAllowed(false);
 
-        // Ingestion of outlines / bookmarks
-        try {
-          const outline = await pdfDocument.getOutline();
-          if (outline && outline.length > 0) {
-            const loadedBookmarks = [];
-            const BATCH_SIZE = 50;
-            for (let i = 0; i < outline.length; i += BATCH_SIZE) {
-              const batch = outline.slice(i, i + BATCH_SIZE);
-              const batchResults = await Promise.all(
-                batch.map(async (item) => {
-                  let pageNum = 1;
-                  if (item.dest) {
-                    let destObj: any = item.dest;
-                    if (typeof destObj === "string") {
-                      destObj = await pdfDocument.getDestination(destObj);
-                    }
-                    if (Array.isArray(destObj) && destObj[0]) {
-                      const pageIndex = await pdfDocument.getPageIndex(
-                        destObj[0],
-                      );
-                      pageNum = pageIndex + 1;
-                    }
-                  }
-                  return { pageNum, name: item.title || "" };
-                }),
-              );
-              loadedBookmarks.push(...batchResults);
-            }
-            activeDoc.bookmarks = loadedBookmarks;
-          } else {
-            activeDoc.bookmarks = [];
-          }
-        } catch (outlineErr) {
-          console.error("Failed to parse document outline tree:", outlineErr);
-          activeDoc.bookmarks = [];
-        }
-
-        // Per-page comments from PDF Keywords (speedDF marker)
-        try {
-          const meta = await pdfDocument.getMetadata();
-          const keywords =
-            (meta?.info as { Keywords?: string } | undefined)?.Keywords ??
-            (meta?.info as { keywords?: string } | undefined)?.keywords ??
-            "";
-          const loaded = decodeCommentsFromKeywords(keywords);
-          activeDoc.comments = loaded ?? [];
-        } catch (commentsErr) {
-          console.warn("Failed to load document comments metadata:", commentsErr);
-          activeDoc.comments = [];
-        }
-
-        // AcroForm fields (text / checkbox / dropdown) for interactive fill overlay
-        try {
-          const extracted = await extractFormFields(rawBytes);
-          activeDoc.formFields = extracted.fields;
-          activeDoc.formValues = extracted.values;
-        } catch (formErr) {
-          console.warn("Form field detection skipped:", formErr);
-          activeDoc.formFields = [];
-          activeDoc.formValues = {};
-        }
-
-        // URI Link annotations for clickable overlay (reuse open pdf.js document)
-        try {
-          activeDoc.hyperlinks = await extractHyperlinksFromDocument(pdfDocument);
-        } catch (linkErr) {
-          console.warn("Hyperlink detection skipped:", linkErr);
-          activeDoc.hyperlinks = [];
-        }
-
-        await registerRecentFile(fileName, filePath, rawBytes);
-
-        // Cache layout dimensions for instant skeleton hydration on future opens
-        try {
-          const dimPromises = Array.from({ length: pdfDocument.numPages }, (_, i) =>
-            pdfDocument.getPage(i + 1).then((p: any) => {
-              const vp = p.getViewport({ scale: 1 });
-              return { width: vp.width, height: vp.height };
-            })
+        // Prefer previous open's layout for page shells (no pdf.js wait)
+        const layoutMeta = readDocumentLayoutMetadata(filePath);
+        if (layoutMeta) {
+          activeDoc.pageCount = layoutMeta.totalPages;
+          activeDoc.pageOrder = Array.from(
+            { length: layoutMeta.totalPages },
+            (_, i) => i + 1,
           );
-          const pageDims = await Promise.all(dimPromises);
-          cacheDocumentLayoutMetadata(filePath, pdfDocument.numPages, pageDims);
-        } catch (cacheErr) {
-          console.warn("Layout cache extraction failed:", cacheErr);
+          activeDoc.currentPage = 1;
+          const doc = activeDoc.openDocuments.find(
+            (d: any) => d.workspaceId === activeDoc.activeDocumentId,
+          );
+          if (doc) doc.cachedDimensions = layoutMeta.pageDimensions;
         }
+
+        // Kick shared parse + IDB thumb hydrate in parallel
+        const pdfPromise = getSharedWorkspacePdf(rawBytes);
+        const hydratePromise = hydrateThumbnailsFromDisk(filePath, rawBytes).catch(
+          (hydrateErr) => {
+            console.warn("Thumbnail disk hydrate skipped:", hydrateErr);
+            return false;
+          },
+        );
+
+        // First open (no layout cache): need page count before shells exist
+        if (!layoutMeta) {
+          const pdfDocument = await pdfPromise;
+          const numPages = pdfDocument?.numPages ?? 1;
+          activeDoc.pageCount = numPages;
+          activeDoc.pageOrder = Array.from(
+            { length: numPages },
+            (_, idx) => idx + 1,
+          );
+          activeDoc.currentPage = 1;
+          if (pdfDocument) {
+            try {
+              const p1 = await pdfDocument.getPage(1);
+              const vp = p1.getViewport({ scale: 1 });
+              const doc = activeDoc.openDocuments.find(
+                (d: any) => d.workspaceId === activeDoc.activeDocumentId,
+              );
+              if (doc) {
+                doc.cachedDimensions = Array.from({ length: numPages }, () => ({
+                  width: vp.width,
+                  height: vp.height,
+                }));
+              }
+            } catch {
+              /* WorkspacePage will measure */
+            }
+          }
+        }
+
+        // Apply disk thumbs as soon as ready (may resolve before or after shell)
+        void hydratePromise.then((ok) => {
+          if (ok) {
+            activeDoc.thumbnailVersion =
+              (activeDoc.thumbnailVersion || 0) + 1;
+          }
+        });
+
+        // Unblock UI — main paint uses shared doc; thumbs show from IDB if warm
+        const loadEndTime = performance.now();
+        renderDurationMs = Math.round(loadEndTime - loadStartTime);
+        renderDurationDocId =
+          activeDoc.activeDocumentId || filePath || fileName;
+        console.log(
+          `⏱️ [${telemetryChannel}] Open-to-shell latency: ${(loadEndTime - loadStartTime).toFixed(2)}ms (layoutCache=${!!layoutMeta})`,
+        );
+        isZippingLoader = false;
+
+        // Background metadata after first paint path is free
+        void (async () => {
+          const pdfDocument = await pdfPromise;
+          if (!pdfDocument) return;
+
+          // Align page count if layout cache was stale
+          if (pdfDocument.numPages !== activeDoc.pageCount) {
+            activeDoc.pageCount = pdfDocument.numPages;
+            activeDoc.pageOrder = Array.from(
+              { length: pdfDocument.numPages },
+              (_, idx) => idx + 1,
+            );
+          }
+
+          try {
+            const outline = await pdfDocument.getOutline();
+            if (outline && outline.length > 0) {
+              const loadedBookmarks = [];
+              const BATCH_SIZE = 50;
+              for (let i = 0; i < outline.length; i += BATCH_SIZE) {
+                const batch = outline.slice(i, i + BATCH_SIZE);
+                const batchResults = await Promise.all(
+                  batch.map(async (item: any) => {
+                    let pageNum = 1;
+                    if (item.dest) {
+                      let destObj: any = item.dest;
+                      if (typeof destObj === "string") {
+                        destObj = await pdfDocument.getDestination(destObj);
+                      }
+                      if (Array.isArray(destObj) && destObj[0]) {
+                        const pageIndex = await pdfDocument.getPageIndex(
+                          destObj[0],
+                        );
+                        pageNum = pageIndex + 1;
+                      }
+                    }
+                    return { pageNum, name: item.title || "" };
+                  }),
+                );
+                loadedBookmarks.push(...batchResults);
+              }
+              activeDoc.bookmarks = loadedBookmarks;
+            }
+          } catch (outlineErr) {
+            console.error("Failed to parse document outline tree:", outlineErr);
+          }
+
+          try {
+            const meta = await pdfDocument.getMetadata();
+            const keywords =
+              (meta?.info as { Keywords?: string } | undefined)?.Keywords ??
+              (meta?.info as { keywords?: string } | undefined)?.keywords ??
+              "";
+            const loaded = decodeCommentsFromKeywords(keywords);
+            activeDoc.comments = loaded ?? [];
+          } catch (commentsErr) {
+            console.warn(
+              "Failed to load document comments metadata:",
+              commentsErr,
+            );
+          }
+
+          try {
+            const extracted = await extractFormFields(rawBytes);
+            activeDoc.formFields = extracted.fields;
+            activeDoc.formValues = extracted.values;
+          } catch (formErr) {
+            console.warn("Form field detection skipped:", formErr);
+          }
+
+          try {
+            activeDoc.hyperlinks =
+              await extractHyperlinksFromDocument(pdfDocument);
+          } catch (linkErr) {
+            console.warn("Hyperlink detection skipped:", linkErr);
+          }
+
+          try {
+            await registerRecentFile(fileName, filePath, rawBytes);
+          } catch {
+            /* ignore */
+          }
+
+          // Refresh full layout cache in the background (warms next open)
+          try {
+            const dimPromises = Array.from(
+              { length: pdfDocument.numPages },
+              (_, i) =>
+                pdfDocument.getPage(i + 1).then((p: any) => {
+                  const vp = p.getViewport({ scale: 1 });
+                  return { width: vp.width, height: vp.height };
+                }),
+            );
+            const pageDims = await Promise.all(dimPromises);
+            cacheDocumentLayoutMetadata(
+              filePath,
+              pdfDocument.numPages,
+              pageDims,
+            );
+            const doc = activeDoc.openDocuments.find(
+              (d: any) => d.workspaceId === activeDoc.activeDocumentId,
+            );
+            if (doc) doc.cachedDimensions = pageDims;
+          } catch (cacheErr) {
+            console.warn("Layout cache extraction failed:", cacheErr);
+          }
+        })();
+
+        return;
       }
 
       // Calculate layout compilation completion speeds down to the millisecond
@@ -930,6 +1053,8 @@
   function handleClearFromRecents(targetId: string) {
     activeDoc.recents = activeDoc.recents.filter((f: any) => f.path !== targetId);
     localStorage.setItem("speeddf_recents", JSON.stringify(activeDoc.recents));
+    // Drop IDB page thumbs + layout meta for this path (non-blocking)
+    void removeDocumentThumbnailCaches(targetId);
     showNotification("Removed document from recents list");
   }
 
@@ -947,6 +1072,7 @@
       await invoke("delete_file_from_disk", { filePath: file.path });
 
       // 3. Chain into your existing working clear method to scrub the UI card asset
+      //    (also clears thumbnail / layout caches via handleClearFromRecents)
       handleClearFromRecents(file.path);
 
       showNotification(`Deleted file permanently: ${file.name}`);
@@ -1031,7 +1157,7 @@
     );
   }
 
-  function closeDocumentById(docId: string) {
+  async function closeDocumentById(docId: string) {
     const doc = activeDoc.openDocuments.find(
       (d: any) =>
         d.workspaceId === docId ||
@@ -1046,14 +1172,14 @@
         "You have unsaved markup changes on this layout drawing. Are you sure you want to close this document and discard your progress?";
       pendingNavigationAction = () => {
         doc.isDirty = false;
-        closeDocumentWorkspace(id);
-        closeSearch();
+        void cleanupWorkspace(id).then(() => closeSearch());
       };
       showUnsavedModal = true;
       return;
     }
 
-    closeDocumentWorkspace(id);
+    // Await full reclaim so rapid open/close cycles do not stack pdf.js heaps
+    await cleanupWorkspace(id);
     closeSearch();
   }
 
@@ -1063,10 +1189,10 @@
       activeDoc.flushDocumentState();
       return;
     }
-    closeDocumentById(id);
+    void closeDocumentById(id);
   }
 
-  function closeAllDocuments() {
+  async function closeAllDocuments() {
     const docs = [...activeDoc.openDocuments];
     if (docs.length === 0) return;
 
@@ -1075,7 +1201,7 @@
     const cleanDocs = docs.filter((d: any) => !d.isDirty);
 
     for (const d of cleanDocs) {
-      closeDocumentWorkspace(documentKey(d));
+      await cleanupWorkspace(documentKey(d));
     }
 
     if (dirtyDocs.length === 0) {
@@ -1089,8 +1215,7 @@
         : `You have unsaved changes on ${dirtyDocs.length} remaining tabs. Close them and discard progress?`;
     pendingNavigationAction = () => {
       // Only dirty tabs should still be open
-      closeAllDocumentWorkspaces();
-      closeSearch();
+      void closeAllDocumentWorkspaces().then(() => closeSearch());
     };
     showUnsavedModal = true;
   }
@@ -1327,7 +1452,7 @@
 
     checkForApplicationUpdates();
 
-    // 🛡️ Capturing Phase Firewall: Drops native browser print commands instantly
+    // 🛡️ Capturing Phase Firewall: Drops native browser print / refresh commands instantly
     const trapBrowserPrintShortcut = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
         e.preventDefault();
@@ -1342,6 +1467,17 @@
         triggerHeadlessPrintSpool();
         return;
       }
+
+      // Block F5 / Shift+F5 (and Ctrl/Cmd+R) so the webview never hard-refreshes mid-edit
+      if (
+        e.key === "F5" ||
+        e.code === "F5" ||
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "r")
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
     };
     window.addEventListener("keydown", trapBrowserPrintShortcut, {
       capture: true,
@@ -1352,7 +1488,7 @@
     if (stored) {
       try {
         activeDoc.recents = JSON.parse(stored);
-        const paths = activeDoc.recents.map((f: any) => f.path);
+        const paths = activeDoc.recents.map((f: any) => f.path).filter(Boolean);
         if (paths.length > 0) {
           invoke<Record<string, boolean>>("check_files_exist", { paths })
             .then((res) => {
@@ -1360,9 +1496,14 @@
             })
             .catch((err) => console.error("Recent status check failed:", err));
         }
+        // Drop IDB thumbs for files no longer in recents (idle, non-blocking)
+        scheduleOrphanThumbnailCleanup(paths);
       } catch (e) {
         console.error("Failed to parse recent files queue:", e);
       }
+    } else {
+      // Empty recents — still prune any leftover IDB thumb rows
+      scheduleOrphanThumbnailCleanup([]);
     }
 
     // Primary path for double-click / "Open with": Rust loads the file during

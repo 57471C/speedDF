@@ -24,14 +24,6 @@ function commit(next: FormMemoryData) {
 	persistFormMemory(next);
 }
 
-export function getFormMemoryData(): FormMemoryData {
-	return data;
-}
-
-export function getFormMemoryRevision(): number {
-	return revision;
-}
-
 export function getSuggestions(keys: string[], query = ""): string[] {
 	// Touch revision so callers re-run when memory mutates
 	void revision;

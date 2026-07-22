@@ -550,12 +550,17 @@ export async function flattenWorkspaceToPDF(): Promise<Uint8Array | null> {
 		}
 
 		// Per-page threaded comments → PDF Keywords (pdf-lib / pdf.js readable metadata)
-		// + PDF Text (sticky note) annots for other viewers when flags have positions
+		// + PDF Text (sticky note) annots for other viewers when flags have positions.
+		// Dest pages are written in pageOrder sequence as 1..N — remap pageNum to match.
 		try {
-			const pageOrderSet = new Set(activeDoc.pageOrder || []);
-			const commentsToSave = (activeDoc.comments || []).filter((c) =>
-				pageOrderSet.has(c.pageNum),
-			);
+			const pageOrder = activeDoc.pageOrder || [];
+			const pageOrderSet = new Set(pageOrder);
+			const commentsToSave = (activeDoc.comments || [])
+				.filter((c) => pageOrderSet.has(c.pageNum))
+				.map((c) => {
+					const destPage = pageOrder.indexOf(c.pageNum) + 1;
+					return destPage > 0 ? { ...c, pageNum: destPage } : c;
+				});
 			if (commentsToSave.length > 0) {
 				destDoc.setKeywords([encodeCommentsKeyword(commentsToSave)]);
 			}
@@ -570,7 +575,7 @@ export async function flattenWorkspaceToPDF(): Promise<Uint8Array | null> {
 				) {
 					continue;
 				}
-				const pageIndex = activeDoc.pageOrder.indexOf(c.pageNum);
+				const pageIndex = c.pageNum - 1;
 				if (pageIndex < 0 || pageIndex >= pages.length) continue;
 				const page = pages[pageIndex];
 				const { width: pageWidth, height: pageHeight } = page.getSize();

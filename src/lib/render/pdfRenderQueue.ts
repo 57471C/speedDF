@@ -5,12 +5,21 @@
  * main-page + thumbnail paints exhaust Wasm memory. This queue caps how many
  * page.render() / paint jobs run at once and prefers main-view (high) work
  * over background thumbnails (low).
+ *
+ * Pair with `sharedPdfDocument.ts`: one PDFDocumentProxy per workspace bytes,
+ * never getDocument() per page paint (that was the large-PDF idle leak).
  */
 
 export type PdfRenderPriority = "high" | "low";
 
 /** Max simultaneous pdf.js paint slots (main + thumbs combined). */
 export const PDF_RENDER_MAX_CONCURRENT = 2;
+
+/**
+ * While false, only high-priority (main page) jobs run.
+ * Set true after the first main page paint so open stays snappy.
+ */
+let lowPriorityAllowed = false;
 
 type QueueEntry = {
 	priority: PdfRenderPriority;
@@ -23,11 +32,48 @@ let activeCount = 0;
 let seqCounter = 0;
 const waitQueue: QueueEntry[] = [];
 
+/** True when any paint slot is held (main or thumbnail). */
+export function isPdfRenderBusy(): boolean {
+	return activeCount > 0 || waitQueue.length > 0;
+}
+
+/** Gate background thumbnail paints until the main page is visible. */
+export function setLowPriorityAllowed(allowed: boolean): void {
+	lowPriorityAllowed = allowed;
+	if (allowed) pump();
+}
+
+export function isLowPriorityAllowed(): boolean {
+	return lowPriorityAllowed;
+}
+
+/**
+ * Unblock every waiter that has not yet received a slot.
+ * Balances `activeCount` so each waiter's `finally` still decrements safely.
+ * Call on document close so orphaned paints do not keep the worker busy.
+ */
+export function clearPdfRenderQueue(): void {
+	while (waitQueue.length > 0) {
+		const entry = waitQueue.shift();
+		if (!entry) break;
+		// Grant the slot so the awaiter proceeds; isCancelled / destroyed doc
+		// will short-circuit fn, and finally will release the count.
+		activeCount += 1;
+		entry.run();
+	}
+	// After close, keep low priority blocked until next main paint
+	lowPriorityAllowed = false;
+}
+
 function pump(): void {
 	while (activeCount < PDF_RENDER_MAX_CONCURRENT && waitQueue.length > 0) {
 		// Prefer high-priority (main page) jobs over thumbnail work.
 		let idx = waitQueue.findIndex((e) => e.priority === "high");
-		if (idx < 0) idx = 0;
+		if (idx < 0) {
+			// Hold low-priority (thumbs) until main view has painted once.
+			if (!lowPriorityAllowed) break;
+			idx = 0;
+		}
 		const entry = waitQueue.splice(idx, 1)[0];
 		activeCount += 1;
 		entry.run();

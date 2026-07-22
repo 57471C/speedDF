@@ -8,8 +8,14 @@
  */
 
 import * as pdfjsLib from "pdfjs-dist";
-import { activeDoc, globalPdfWorkerInstance } from "../../pdfStore.svelte";
+import { activeDoc } from "../../pdfStore.svelte";
 import { runWithPdfRenderSlot } from "./pdfRenderQueue";
+import { markMainViewReady } from "./mainViewGate";
+import {
+	cleanupPdfPage,
+	getSharedWorkspacePdf,
+	type SharedPdfPage,
+} from "./sharedPdfDocument";
 
 export type PageRendererDeps = {
 	getPageNumber: () => number;
@@ -51,9 +57,27 @@ export function createPageRenderer(deps: PageRendererDeps) {
 
 	let activeTextLayer: InstanceType<typeof pdfjsLib.TextLayer> | null = null;
 	let activeRenderTask: RenderTaskLike | null = null;
-	let activePdfPage: { cleanup: () => void } | null = null;
+	let activePdfPage: SharedPdfPage | null = null;
+	/** Last canvas bound via canvasLifecycle / renderPageSheet. */
+	let boundCanvas: HTMLCanvasElement | null = null;
 	/** Bumped on every paint/cancel so in-flight async work can bail out. */
 	let paintGeneration = 0;
+
+	function releaseActivePdfPage() {
+		cleanupPdfPage(activePdfPage);
+		activePdfPage = null;
+	}
+
+	/** Drop GPU/bitmap backing store while keeping the canvas node. */
+	function zeroCanvasBuffer(canvas: HTMLCanvasElement | null) {
+		if (!canvas || getIsSystemPrinting()) return;
+		try {
+			canvas.width = 0;
+			canvas.height = 0;
+		} catch {
+			/* ignore */
+		}
+	}
 
 	function cancelTextLayerOnly() {
 		if (activeTextLayer) {
@@ -102,14 +126,9 @@ export function createPageRenderer(deps: PageRendererDeps) {
 		if (textLayerEl) {
 			textLayerEl.replaceChildren();
 		}
-		if (activePdfPage) {
-			try {
-				activePdfPage.cleanup();
-			} catch {
-				/* ignore */
-			}
-			activePdfPage = null;
-		}
+		releaseActivePdfPage();
+		// Free canvas bitmap for off-screen pages (DOM node kept for reuse).
+		zeroCanvasBuffer(boundCanvas);
 	}
 
 	function paintRotatedImage(
@@ -165,6 +184,7 @@ export function createPageRenderer(deps: PageRendererDeps) {
 	}
 
 	function canvasLifecycle(node: HTMLCanvasElement) {
+		boundCanvas = node;
 		setCanvasElement(node);
 		const pageNumber = getPageNumber();
 		const zoomScale = getZoomScale();
@@ -191,11 +211,10 @@ export function createPageRenderer(deps: PageRendererDeps) {
 			return {
 				destroy() {
 					void cancelInFlight();
-					if (!getIsSystemPrinting()) {
-						node.width = 0;
-						node.height = 0;
-						setCanvasElement(null);
-					}
+					releaseActivePdfPage();
+					zeroCanvasBuffer(node);
+					if (boundCanvas === node) boundCanvas = null;
+					setCanvasElement(null);
 				},
 			};
 		}
@@ -217,11 +236,10 @@ export function createPageRenderer(deps: PageRendererDeps) {
 			return {
 				destroy() {
 					void cancelInFlight();
-					if (!getIsSystemPrinting()) {
-						node.width = 0;
-						node.height = 0;
-						setCanvasElement(null);
-					}
+					releaseActivePdfPage();
+					zeroCanvasBuffer(node);
+					if (boundCanvas === node) boundCanvas = null;
+					setCanvasElement(null);
 				},
 			};
 		}
@@ -229,11 +247,10 @@ export function createPageRenderer(deps: PageRendererDeps) {
 		return {
 			destroy() {
 				void cancelInFlight();
-				if (!getIsSystemPrinting()) {
-					node.width = 0;
-					node.height = 0;
-					setCanvasElement(null);
-				}
+				releaseActivePdfPage();
+				zeroCanvasBuffer(node);
+				if (boundCanvas === node) boundCanvas = null;
+				setCanvasElement(null);
 			},
 		};
 	}
@@ -276,6 +293,7 @@ export function createPageRenderer(deps: PageRendererDeps) {
 						basePageHeight,
 						zoomScale / 100,
 					);
+					markMainViewReady();
 				};
 				img.src = activeDoc.imageUrl;
 			}
@@ -299,6 +317,7 @@ export function createPageRenderer(deps: PageRendererDeps) {
 					if (generation !== paintGeneration) return;
 					paintRotatedImage(canvas, img, rotation, "native");
 					URL.revokeObjectURL(url);
+					markMainViewReady();
 				};
 				img.src = url;
 			}
@@ -311,43 +330,35 @@ export function createPageRenderer(deps: PageRendererDeps) {
 			async () => {
 				if (generation !== paintGeneration) return;
 
-				try {
-					// Prefer the app-wide PDFWorker so we do not spawn extra Wasm heaps.
-					if (!globalPdfWorkerInstance.current) {
-						globalPdfWorkerInstance.current = new pdfjsLib.PDFWorker();
-					}
+				let page: SharedPdfPage | null = null;
 
-					const loadingTask = pdfjsLib.getDocument({
-						data: pdfBytes.slice(0),
-						cMapUrl: `${window.location.origin}/cmaps/`,
-						cMapPacked: true,
-						standardFontDataUrl: `${window.location.origin}/standard_fonts/`,
-						wasmUrl: `${window.location.origin}/`,
-						worker: globalPdfWorkerInstance.current,
-					});
-					const pdfDocument = await loadingTask.promise;
+				try {
+					// One shared PDFDocumentProxy for the workspace — never getDocument per paint.
+					const pdfDocument = await getSharedWorkspacePdf(pdfBytes);
+					if (!pdfDocument || generation !== paintGeneration) return;
+
+					// PDFPageProxy — typed loosely so we don't couple to pdf.js internals.
+					// eslint-disable-next-line @typescript-eslint/no-explicit-any
+					const nextPage: any = await pdfDocument.getPage(pageNum);
 					if (generation !== paintGeneration) {
-						try {
-							await loadingTask.destroy();
-						} catch {
-							/* ignore */
-						}
+						cleanupPdfPage(nextPage);
 						return;
 					}
-
-					const page = await pdfDocument.getPage(pageNum);
-					if (generation !== paintGeneration) return;
-					activePdfPage = page;
+					// Drop prior page resources before adopting the new page proxy.
+					releaseActivePdfPage();
+					page = nextPage;
+					activePdfPage = nextPage;
+					boundCanvas = canvas;
 
 					const dpr = window.devicePixelRatio || 1;
 					const safeScale = Math.max(0.1, scale / 100);
-					const rotation = (page.rotate + rotationAngle) % 360;
-					const adjustedViewport = page.getViewport({
+					const rotation = (nextPage.rotate + rotationAngle) % 360;
+					const adjustedViewport = nextPage.getViewport({
 						scale: safeScale * dpr,
 						rotation,
 					});
 					// CSS-pixel viewport for the text layer (matches on-screen canvas size)
-					const textViewport = page.getViewport({
+					const textViewport = nextPage.getViewport({
 						scale: safeScale,
 						rotation,
 					});
@@ -366,13 +377,17 @@ export function createPageRenderer(deps: PageRendererDeps) {
 						canvas.style.width = `${adjustedViewport.width / dpr}px`;
 						canvas.style.height = `${adjustedViewport.height / dpr}px`;
 
-						const renderTask = page.render({
+						const renderTask = nextPage.render({
 							canvas: canvas,
 							viewport: adjustedViewport,
 						});
 						activeRenderTask = renderTask;
 						try {
 							await renderTask.promise;
+							// First successful main paint → unlock background thumbnails
+							if (generation === paintGeneration) {
+								markMainViewReady();
+							}
 						} catch (error: unknown) {
 							if (isRenderCancelled(error)) return;
 							throw error;
@@ -397,7 +412,7 @@ export function createPageRenderer(deps: PageRendererDeps) {
 						textLayerContainer.style.setProperty("--scale-round-x", "1px");
 						textLayerContainer.style.setProperty("--scale-round-y", "1px");
 
-						const textContent = await page.getTextContent();
+						const textContent = await nextPage.getTextContent();
 						if (generation !== paintGeneration) return;
 
 						const textLayer = new pdfjsLib.TextLayer({
@@ -413,11 +428,24 @@ export function createPageRenderer(deps: PageRendererDeps) {
 							throw error;
 						}
 					}
+
+					// Free operator lists / fonts for this page; canvas pixels remain.
+					// Shared document stays alive for other pages / thumbs.
+					if (generation === paintGeneration) {
+						cleanupPdfPage(page);
+						if (activePdfPage === page) activePdfPage = null;
+					}
 				} catch (error: unknown) {
 					if (isRenderCancelled(error)) {
 						return;
 					}
 					console.error(error);
+				} finally {
+					// If we were cancelled mid-flight after getPage, free the page proxy.
+					if (generation !== paintGeneration && page) {
+						cleanupPdfPage(page);
+						if (activePdfPage === page) activePdfPage = null;
+					}
 				}
 			},
 			() => generation !== paintGeneration,

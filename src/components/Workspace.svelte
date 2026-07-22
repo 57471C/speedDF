@@ -506,7 +506,7 @@
   onpointerup={handlePointerUp}
   onpointerleave={handlePointerLeave}
   onwheel={() => settleLoadBurnIn()}
-  class="flex-1 min-w-0 h-full overflow-auto bg-[#070a12] flex flex-col items-center pt-8 px-4 relative workspace-scroll-container transition-colors duration-200
+  class="flex-1 min-w-0 h-full overflow-auto bg-[#070a12] flex flex-col pt-8 px-4 relative workspace-scroll-container transition-colors duration-200
     {isDragging ? '' : 'scroll-smooth'}
     [&::-webkit-scrollbar]:w-2 
     [&::-webkit-scrollbar-track]:bg-transparent 
@@ -670,7 +670,16 @@
   {/if}
 
   {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
-    <div class="flex flex-col items-center gap-6 pb-24 origin-top transition-transform duration-150">
+    <!--
+      Horizontal centering via w-max + mx-auto (not parent items-center).
+      Flex items-center on an overflow-auto scroller clips left overflow so
+      scrollLeft cannot reach the page's left edge when zoomed in.
+      mx-auto collapses to 0 when content is wider than the viewport, so both
+      edges remain pan-able.
+    -->
+    <div
+      class="w-max max-w-none mx-auto flex flex-col items-center gap-6 pb-24 origin-top transition-transform duration-150"
+    >
       {#each activeDoc.pageOrder || [] as pageNumber (pageNumber)}
         <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} {isSystemPrinting} {scrollObserver} />
       {/each}
