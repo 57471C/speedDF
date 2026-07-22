@@ -1,5 +1,4 @@
 <script lang="ts">
-  import * as pdfjsLib from "pdfjs-dist";
   import { onMount, untrack } from "svelte";
   import {
     activeDoc,
@@ -16,6 +15,10 @@
     SHAPE_TYPES_LIST,
   } from "../lib/interaction/dragHandler.svelte";
   import { createPageRenderer } from "../lib/render/pageRenderer";
+  import {
+    cleanupPdfPage,
+    getSharedWorkspacePdf,
+  } from "../lib/render/sharedPdfDocument";
   import { getGhostDimensions } from "../lib/annotation/ghostDimensions";
   import { STROKE_DASHARRAYS } from "../lib/annotation/strokeStyles";
   import { pageHasComments, countComments, commentsForPage, formatCommentTime } from "../lib/comments/comments";
@@ -113,23 +116,30 @@
         return;
       }
       if (isPreloaded) {
-        const loadingTask = pdfjsLib.getDocument({
-          data: bytes.slice(0),
-          cMapUrl: window.location.origin + "/cmaps/",
-          cMapPacked: true,
-          standardFontDataUrl: window.location.origin + "/standard_fonts/",
-          wasmUrl: window.location.origin + "/"
-        });
-        loadingTask.promise.then((pdfDocument) => {
-          return pdfDocument.getPage(pageNumber);
-        }).then((page) => {
-          const viewport = page.getViewport({ scale: 1 });
-          basePageWidth = viewport.width;
-          basePageHeight = viewport.height;
-          loadedDimensions = true;
-        }).catch(err => {
-          console.error("Failed to load page dimensions:", err);
-        });
+        // Prefer shared workspace PDF — never getDocument() per page for layout.
+        let cancelled = false;
+        void getSharedWorkspacePdf(bytes)
+          .then(async (pdfDocument) => {
+            if (cancelled || !pdfDocument || loadedDimensions) return;
+            const page = await pdfDocument.getPage(pageNumber);
+            try {
+              if (cancelled || loadedDimensions) return;
+              const viewport = page.getViewport({ scale: 1 });
+              basePageWidth = viewport.width;
+              basePageHeight = viewport.height;
+              loadedDimensions = true;
+            } finally {
+              cleanupPdfPage(page);
+            }
+          })
+          .catch((err) => {
+            if (!cancelled) {
+              console.error("Failed to load page dimensions:", err);
+            }
+          });
+        return () => {
+          cancelled = true;
+        };
       }
     }
   });

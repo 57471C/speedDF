@@ -15,7 +15,6 @@
     deleteCommentAction,
     deleteReplyAction,
     updateReplyAction,
-    globalPdfWorkerInstance,
   } from "../pdfStore.svelte";
   import {
     countComments,
@@ -23,12 +22,9 @@
   } from "../lib/comments/comments";
   import { autoGrowTextarea } from "../lib/interaction/autoGrowTextarea";
   import {
-    computeThumbnailScale,
-    debounceLeadingLatest,
-    runWithPdfRenderSlot,
-    thumbnailScalePlanForBytes,
-    THUMBNAIL_DEBOUNCE_MS,
-  } from "../lib/render/pdfRenderQueue";
+    ensureAllPageThumbnails,
+    ensurePageThumbnail,
+  } from "../lib/render/thumbnailCache";
 
   let sidebarContainer = $state<HTMLDivElement | null>(null);
   let thumbnailElements = $state<Record<number, HTMLDivElement>>({});
@@ -45,9 +41,6 @@
       activeSidebarTab = 'thumbnails';
     }
   });
-
-  let cachedRawBytes: Uint8Array | null = null;
-  let sharedPdfjsDocPromise: Promise<any> | null = null;
 
   // --- Bookmark Editing State ---
   let editingBookmarkId = $state<number | null>(null);
@@ -135,44 +128,6 @@
     editReplyDraft = "";
   }
 
-  function getSharedPdfjsDoc() {
-    if (activeDoc.fileType === "tiff" || activeDoc.fileType === "image" || !activeDoc.rawBytes) return null;
-    
-    // If the byte array reference changes, re-initialize the single master parsing handle
-    if (activeDoc.rawBytes !== cachedRawBytes) {
-      cachedRawBytes = activeDoc.rawBytes;
-      console.log("PageSidebar: New document bytes detected. Instantiating single master worker channel...");
-      
-      if (!globalPdfWorkerInstance.current) {
-        console.log("Instantiating true global application master Wasm worker channel...");
-        globalPdfWorkerInstance.current = new pdfjsLib.PDFWorker();
-      } else {
-        console.log("Reusing warm persistent master Wasm worker channel...");
-      }
-
-      const loadingTask = pdfjsLib.getDocument({
-        data: activeDoc.rawBytes.slice(0),
-        cMapUrl: window.location.origin + "/cmaps/",
-        cMapPacked: true,
-        standardFontDataUrl: window.location.origin + "/standard_fonts/",
-        wasmUrl: window.location.origin + "/",
-        worker: globalPdfWorkerInstance.current,
-        // Large colour PDFs: avoid extra font-face + XFA work on the shared thumb pipeline
-        useSystemFonts: true,
-        enableXfa: false,
-      });
-      sharedPdfjsDocPromise = loadingTask.promise.catch((err: unknown) => {
-        // Allow a later retry if the first parse fails under memory pressure
-        console.error("PageSidebar: shared PDF load failed, will retry on next request", err);
-        cachedRawBytes = null;
-        sharedPdfjsDocPromise = null;
-        throw err;
-      });
-    }
-    
-    return sharedPdfjsDocPromise;
-  }
-
   // ⚡ Visibility Tracking State: Fully hides the red box until an actual scroll happens
   let hasUserScrolled = $state(false);
 
@@ -247,283 +202,37 @@
     };
   });
 
-  function renderThumbnail(
-    node: HTMLCanvasElement,
-    { pageNum, rotation, version }: { pageNum: number; rotation: number; version?: number },
-  ) {
-    if (activeDoc.fileType === "tiff") {
-      const pageData = activeDoc.tiffPages[pageNum - 1];
-      const rotation = activeDoc.rotations[pageNum] ?? 0;
-      
-      if (pageData) {
-        const blob = new Blob([pageData as any], { type: "image/png" });
-        const url = URL.createObjectURL(blob);
-        const img = new Image();
-        img.onload = () => {
-          // Swap visual frame dimensions dynamically if rotated on its side (90° or 270°)
-          if (rotation === 90 || rotation === 270) {
-            node.width = img.height;
-            node.height = img.width;
-          } else {
-            node.width = img.width;
-            node.height = img.height;
-          }
-
-          const ctx = node.getContext("2d");
-          if (ctx) {
-            ctx.clearRect(0, 0, node.width, node.height);
-            ctx.save();
-            
-            // Translate coordinate space origin to the physical center of the updated canvas layout
-            ctx.translate(node.width / 2, node.height / 2);
-            ctx.rotate((rotation * Math.PI) / 180);
-            
-            // Draw the blueprint anchored neatly over the center coordinate pivot
-            ctx.drawImage(img, -img.width / 2, -img.height / 2);
-            ctx.restore();
-          }
-          URL.revokeObjectURL(url);
-        };
-        img.src = url;
-      }
-      return;
-    }
-
-    type RenderTaskLike = { cancel: () => void; promise: Promise<unknown> };
-    let activeRenderTask: RenderTaskLike | null = null;
-    let paintGeneration = 0;
-    let pendingPageNum = pageNum;
-    let pendingRotation = rotation;
-
-    function paintPlaceholder(label: string, edge = 64) {
-      try {
-        const w = edge;
-        const h = Math.round(edge * 1.3);
-        node.width = w;
-        node.height = h;
-        const ctx = node.getContext("2d");
-        if (!ctx) return;
-        ctx.fillStyle = "#f1f5f9";
-        ctx.fillRect(0, 0, w, h);
-        ctx.strokeStyle = "#cbd5e1";
-        ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
-        ctx.fillStyle = "#94a3b8";
-        ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(label, w / 2, h / 2);
-      } catch {
-        /* ignore placeholder failures */
-      }
-    }
-
-    async function cancelActiveRender(): Promise<void> {
-      const task = activeRenderTask;
-      if (!task) return;
-      activeRenderTask = null;
-      try {
-        task.cancel();
-      } catch {
-        /* ignore */
-      }
-      try {
-        await task.promise;
-      } catch {
-        /* cancelled — canvas is free */
-      }
-    }
-
-    async function paintPageAtScale(
-      page: any,
-      rot: number,
-      maxEdgePx: number,
-      maxScale: number,
-      generation: number,
-    ): Promise<boolean> {
-      const unrotatedViewport = page.getViewport({ scale: 1 });
-      const currentRotation = (page.rotate + rot) % 360;
-      const isVerticalFactor = currentRotation % 180 === 0;
-      const renderWidth = isVerticalFactor
-        ? unrotatedViewport.width
-        : unrotatedViewport.height;
-      const calculatedScale = computeThumbnailScale(
-        renderWidth,
-        maxEdgePx,
-        maxScale,
-      );
-
-      const viewport = page.getViewport({
-        scale: calculatedScale,
-        rotation: currentRotation,
-      });
-
-      if (generation !== paintGeneration) return false;
-
-      await cancelActiveRender();
-      if (generation !== paintGeneration) return false;
-
-      // Cap bitmap dimensions hard (ICC/Wasm safety net)
-      const capW = Math.min(Math.ceil(viewport.width), maxEdgePx * 2);
-      const capH = Math.min(Math.ceil(viewport.height), maxEdgePx * 3);
-      node.width = Math.max(1, capW);
-      node.height = Math.max(1, capH);
-
-      // Prefer CSS scaling if viewport differs slightly from capped canvas
-      node.style.width = `${Math.min(viewport.width, maxEdgePx)}px`;
-      node.style.height = "auto";
-
-      const renderTask = page.render({
-        canvas: node,
-        viewport,
-        // Skip form/annotation layers — thumbs only need page artwork
-        annotationMode: pdfjsLib.AnnotationMode?.DISABLE ?? 0,
-        intent: "display",
-      });
-      activeRenderTask = renderTask;
-      try {
-        await renderTask.promise;
-        return generation === paintGeneration;
-      } catch (err: any) {
-        if (err?.name === "RenderingCancelledException") return false;
-        throw err;
-      } finally {
-        if (activeRenderTask === renderTask) {
-          activeRenderTask = null;
-        }
-      }
-    }
-
-    async function executeRender(pNum: number, rot: number) {
-      if (!activeDoc.rawBytes) return;
-
-      const generation = ++paintGeneration;
-      // Always free this thumbnail canvas before a new pdf.js paint
-      await cancelActiveRender();
-      if (generation !== paintGeneration) return;
-
-      // Immediate light placeholder so large PDFs don't look "stuck blank"
-      paintPlaceholder(`p.${pNum}`, 56);
-
-      // Check if a live override snapshot exists for this page index
-      const liveOverride = (activeDoc.pageThumbnailOverrides || {})[pNum - 1];
-      if (liveOverride) {
-        const overrideImg = new Image();
-        overrideImg.onload = () => {
-          if (generation !== paintGeneration) return;
-          const ctx = node.getContext("2d");
-          if (ctx) {
-            node.width = overrideImg.width;
-            node.height = overrideImg.height;
-            ctx.clearRect(0, 0, node.width, node.height);
-            ctx.drawImage(overrideImg, 0, 0, node.width, node.height);
-          }
-        };
-        overrideImg.onerror = () => {
-          if (generation !== paintGeneration) return;
-          paintPlaceholder(`p.${pNum}`);
-        };
-        overrideImg.src = liveOverride;
-        return;
-      }
-
-      const plan = thumbnailScalePlanForBytes(activeDoc.rawBytes?.byteLength);
-
-      // Low-priority slot: yields to main workspace paints; max concurrent globally capped.
-      await runWithPdfRenderSlot(
-        "low",
-        async () => {
-          if (generation !== paintGeneration) return;
-
-          try {
-            const docPromise = getSharedPdfjsDoc();
-            if (!docPromise) {
-              paintPlaceholder(`p.${pNum}`);
-              return;
-            }
-
-            const pdfDocument = await docPromise;
-            if (generation !== paintGeneration) return;
-            const page = await pdfDocument.getPage(pNum);
-            if (generation !== paintGeneration) return;
-
-            try {
-              const ok = await paintPageAtScale(
-                page,
-                rot,
-                plan.maxEdgePx,
-                plan.maxScale,
-                generation,
-              );
-              if (ok || generation !== paintGeneration) return;
-            } catch (firstErr: any) {
-              if (firstErr?.name === "RenderingCancelledException") return;
-              console.warn(
-                `Thumbnail primary render failed for page ${pNum}, retrying smaller:`,
-                firstErr?.message || firstErr,
-              );
-            }
-
-            // Retry once at a much smaller scale (ICC/Wasm recovery path)
-            if (generation !== paintGeneration) return;
-            try {
-              const okRetry = await paintPageAtScale(
-                page,
-                rot,
-                plan.retryMaxEdgePx,
-                plan.retryMaxScale,
-                generation,
-              );
-              if (okRetry || generation !== paintGeneration) return;
-            } catch (retryErr: any) {
-              if (retryErr?.name === "RenderingCancelledException") return;
-              console.error(
-                `Thumbnail retry failed for page ${pNum}:`,
-                retryErr,
-              );
-            }
-
-            if (generation === paintGeneration) {
-              paintPlaceholder(`p.${pNum}`);
-            }
-          } catch (err: any) {
-            if (err?.name === "RenderingCancelledException") return;
-            console.error(`Thumbnail render failed for page ${pNum}:`, err);
-            if (generation === paintGeneration) {
-              paintPlaceholder(`p.${pNum}`);
-            }
-          }
-        },
-        () => generation !== paintGeneration,
-      );
-    }
-
-    const debounced = debounceLeadingLatest(() => {
-      void executeRender(pendingPageNum, pendingRotation);
-    }, THUMBNAIL_DEBOUNCE_MS);
-
-    debounced.schedule();
+  /**
+   * Svelte action: request a one-time static JPEG for this page.
+   * Once `pageThumbnailOverrides[pageNum-1]` exists, the template swaps to `<img>`
+   * and this action is destroyed — no re-render on zoom/scroll/tab focus.
+   */
+  function requestStaticThumb(_node: HTMLElement, pageNum: number) {
+    void ensurePageThumbnail(pageNum);
     return {
-      update(newParams: { pageNum: number; rotation: number; version?: number }) {
-        pendingPageNum = newParams.pageNum;
-        pendingRotation = newParams.rotation;
-        // Overrides / version bumps (incl. leaving grid) paint promptly
-        if (
-          (activeDoc.pageThumbnailOverrides || {})[newParams.pageNum - 1] ||
-          newParams.version != null
-        ) {
-          debounced.cancel();
-          void executeRender(newParams.pageNum, newParams.rotation);
-          return;
-        }
-        debounced.schedule();
-      },
-      destroy() {
-        debounced.cancel();
-        paintGeneration += 1;
-        void cancelActiveRender();
+      update(nextPage: number) {
+        void ensurePageThumbnail(nextPage);
       },
     };
   }
+
+  /**
+   * Fill missing static JPEGs after main page is prioritised.
+   * Do NOT depend on pageThumbnailOverrides — that re-fires on every thumb
+   * trickle and was part of the main-page flash loop.
+   */
+  $effect(() => {
+    void activeDoc.pageOrder;
+    void activeDoc.rawBytes;
+    void activeDoc.fileType;
+    void activeDoc.activeDocumentId;
+    void activeDoc.tiffPages?.length;
+    if (activeDoc.fileType === "image") return;
+    if (!activeDoc.rawBytes && activeDoc.fileType !== "tiff") return;
+    // Defer a tick so main high-priority paints queue first
+    const t = setTimeout(() => ensureAllPageThumbnails(), 0);
+    return () => clearTimeout(t);
+  });
 
   $effect(() => {
     const activePage = activeDoc.currentPage;
@@ -641,16 +350,13 @@
     isGridViewOpen = opening;
     if (opening) {
       selectedPages = [activeDoc.currentPage];
-    } else {
-      // Grid mounts its own canvases; force sidebar thumbs to repaint when returning
-      activeDoc.thumbnailVersion = (activeDoc.thumbnailVersion || 0) + 1;
     }
+    // Static JPEG cache is shared between sidebar and grid — no repaint needed.
   }
 
   function closeGridView() {
     if (!isGridViewOpen) return;
     isGridViewOpen = false;
-    activeDoc.thumbnailVersion = (activeDoc.thumbnailVersion || 0) + 1;
   }
 
   function handleGridSelect(e: MouseEvent, pageNum: number) {
@@ -935,17 +641,25 @@
               {/key}
             </div>
           {:else}
+            {@const cachedThumb = (activeDoc.pageThumbnailOverrides || {})[pageNum - 1]}
             <div
               class="w-[84px] min-h-[60px] bg-white/5 rounded border border-slate-900/40 overflow-hidden flex items-center justify-center mt-3 shadow-inner relative thumbnail-footprint"
             >
-              <canvas
-                use:renderThumbnail={{
-                  pageNum,
-                  rotation: activeDoc.rotations[pageNum] ?? 0,
-                  version: activeDoc.thumbnailVersion,
-                }}
-                class="block h-auto max-w-full bg-white filter tracking-tight"
-              ></canvas>
+              {#if cachedThumb}
+                <img
+                  src={cachedThumb}
+                  alt="Page {pageNum}"
+                  class="block h-auto max-w-full bg-white"
+                  draggable="false"
+                />
+              {:else}
+                <div
+                  use:requestStaticThumb={pageNum}
+                  class="w-full min-h-[60px] flex items-center justify-center text-[9px] font-mono text-slate-500 select-none"
+                >
+                  p.{pageNum}
+                </div>
+              {/if}
             </div>
           {/if}
 
@@ -1413,14 +1127,21 @@
             {/if}
             
             <div class="w-[100px] min-h-[80px] bg-white/5 rounded-lg border border-slate-900/60 overflow-hidden flex items-center justify-center mt-4 shadow-inner relative pointer-events-none">
-              <canvas
-                use:renderThumbnail={{
-                  pageNum,
-                  rotation: activeDoc.rotations[pageNum] ?? 0,
-                  version: activeDoc.thumbnailVersion,
-                }}
-                class="block h-auto max-w-full bg-white filter tracking-tight transition-transform"
-              ></canvas>
+              {#if (activeDoc.pageThumbnailOverrides || {})[pageNum - 1]}
+                <img
+                  src={(activeDoc.pageThumbnailOverrides || {})[pageNum - 1]}
+                  alt="Page {pageNum}"
+                  class="block h-auto max-w-full bg-white"
+                  draggable="false"
+                />
+              {:else}
+                <div
+                  use:requestStaticThumb={pageNum}
+                  class="w-full min-h-[80px] flex items-center justify-center text-[9px] font-mono text-slate-500 select-none"
+                >
+                  p.{pageNum}
+                </div>
+              {/if}
             </div>
           </div>
         {/each}

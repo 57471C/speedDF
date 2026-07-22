@@ -23,6 +23,9 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/lib/interaction/dragHandler.svelte.ts`**: Page drag, multi-select (Ctrl/Cmd only), resize, **line click–click rubber-band**, line endpoint handles, text edit sessions (`activelyEditingIndex` + `textEditBaseline`), box click-to-drop defaults, and pointer event session for `WorkspacePage`.
 * **`src/lib/interaction/coordinates.ts`**: Percentage coordinate transforms (including image rotation).
 * **`src/lib/render/pageRenderer.ts`**: PDF.js / image / TIFF canvas paint + text-layer pipeline.
+* **`src/lib/render/sharedPdfDocument.ts`**: Single shared `PDFDocumentProxy` for active workspace bytes + idle `cleanup()`; used by main paints and thumbnails (avoids per-paint `getDocument` leaks).
+* **`src/lib/render/pdfRenderQueue.ts`**: Global pdf.js paint concurrency gate (high = main, low = thumbs).
+* **`src/lib/render/thumbnailCache.ts`**: One-shot page JPEG generation into `pageThumbnailOverrides`; sidebar/grid serve static `<img>` (no re-render on zoom/view).
 * **`src/components/WorkspacePage.svelte`**: Page shell — layout, observers, bookmarks; delegates paint, interaction, annotation overlay, form overlay, and **link overlay**. Global Delete/Backspace skips when focus is in a text control or a text edit session is open.
 * **`src/components/AnnotationLayer.svelte`**: SVG/DOM annotation overlay (shapes, **lines**, handles, ghosts, live drawing previews). Freehand signature/initial stamps live here (not AcroForm Sig fields). Hosts text editing UI, auto-grow text boxes, and value-memory popover for annotations. Line strokes use `vector-effect="non-scaling-stroke"` so thickness matches box shapes in CSS px.
 * **`src/components/FormLayer.svelte`**: AcroForm overlay (text / checkbox / dropdown / signature widgets). Signature widgets open a stamp picker reusing `savedSignatureSets` (no new drawing on form fields). Text widgets wire value-memory autocomplete.
@@ -74,7 +77,8 @@ Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary
 * **`pushHistorySnapshot()`** (`pdfStore` / history module): Deep-clones shapes + layout onto `undoStack`. Call before document mutations.
 * **`initializeNewDocument(fileName, filePath)`**: Creates a workspace with a new `workspaceId` and activates it.
 * **`documentKey(doc)`**: Returns stable tab id (`workspaceId`, with path/name fallback).
-* **`switchActiveDocument(id)`** / **`closeDocumentWorkspace(id)`**: Tab switch/close by id (workspaceId preferred).
+* **`cleanupWorkspace(id)`**: Full tab close + memory reclaim — purges `rawBytes`/shapes/thumbnails/forms, destroys shared `PDFDocumentProxy`, kills the global PDFWorker when the last tab closes.
+* **`switchActiveDocument(id)`** / **`closeDocumentWorkspace(id)`**: Tab switch/close by id (close delegates to `cleanupWorkspace`).
 * **`commitActiveDocumentAfterSave({ compiledBytes, filePath?, fileName? })`**: Post-save rebind of bytes/path/name, **clear shapes + selection + history** (annotations are baked into bytes), reset rotations / sequential page order, re-extract form fields **and hyperlinks**, **upsert Recent Documents** for the saved path. Does **not** change `workspaceId` / remount the tab.
 * **`setFormFieldValueAction(name, value)`**: Updates one AcroForm value (text / checkbox / dropdown / signature data URL) and marks dirty.
 * **`extractFormFields(bytes)`** / **`applyAndFlattenFormValues(pdfDoc, values)`** (`lib/forms/formFields.ts`): Detect widgets on open; bake values (including signature stamps drawn into Sig widgets) on save.

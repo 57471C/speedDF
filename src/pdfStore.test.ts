@@ -3,11 +3,14 @@ import {
 	type AnnotationShape,
 	activeDoc,
 	addOrToggleBookmarkAction,
+	cleanupWorkspace,
 	deleteBookmarkAction,
+	documentKey,
 	executeRedoAction,
 	executeUndoAction,
 	initializeNewDocument,
 	loadSavedSets,
+	purgeDocumentResources,
 	pushHistorySnapshot,
 	redoStack,
 	rotatePageAction,
@@ -435,5 +438,87 @@ describe("addOrToggleBookmarkAction", () => {
 		];
 		addOrToggleBookmarkAction(1);
 		expect(activeDoc.bookmarks).toEqual([{ pageNum: 2, name: "Test 2" }]);
+	});
+});
+
+describe("purgeDocumentResources / cleanupWorkspace", () => {
+	beforeEach(() => {
+		activeDoc.flushDocumentState();
+	});
+
+	it("purgeDocumentResources clears heavy fields in place", () => {
+		const doc = initializeNewDocument("big.pdf", "C:/tmp/big.pdf");
+		doc.fileType = "pdf";
+		doc.rawBytes = new Uint8Array([1, 2, 3, 4]);
+		doc.shapes = { 1: [shapeStub("rect", 1, 2)] };
+		doc.pageThumbnailOverrides = { 0: "data:image/jpeg;base64,xx" };
+		doc.cachedDimensions = [{ width: 612, height: 792 }];
+		doc.tiffPages = [new Uint8Array([9])];
+		doc.formFields = [{ name: "f", type: "text" } as never];
+		doc.formValues = { f: "v" };
+		doc.hyperlinks = [{ url: "https://x.test" } as never];
+		doc.bookmarks = [{ pageNum: 1, name: "B" }];
+		doc.comments = [{ id: "c1", pageNum: 1, text: "hi" } as never];
+		doc.rotations = { 1: 90 };
+		doc.pageOrder = [1, 2];
+		doc.pageCount = 2;
+		doc.isDirty = true;
+
+		purgeDocumentResources(doc);
+
+		expect(doc.rawBytes).toBeNull();
+		expect(doc.shapes).toEqual({});
+		expect(doc.pageThumbnailOverrides).toEqual({});
+		expect(doc.cachedDimensions).toBeUndefined();
+		expect(doc.tiffPages).toEqual([]);
+		expect(doc.formFields).toEqual([]);
+		expect(doc.formValues).toEqual({});
+		expect(doc.hyperlinks).toEqual([]);
+		expect(doc.bookmarks).toEqual([]);
+		expect(doc.comments).toEqual([]);
+		expect(doc.rotations).toEqual({});
+		expect(doc.pageOrder).toEqual([]);
+		expect(doc.pageCount).toBe(0);
+		expect(doc.isDirty).toBe(false);
+		expect(doc.fileType).toBeNull();
+	});
+
+	it("cleanupWorkspace removes the tab and clears heavy data", async () => {
+		const doc = initializeNewDocument("close-me.pdf", "C:/tmp/close-me.pdf");
+		const id = documentKey(doc);
+		// Mutate via activeDoc facade so we hit the live $state proxy entry
+		activeDoc.rawBytes = new Uint8Array(1024);
+		activeDoc.shapes = { 1: [shapeStub("text", 0, 0)] };
+		activeDoc.pageThumbnailOverrides = { 0: "data:image/png;base64,aa" };
+		activeDoc.pageOrder = [1];
+		activeDoc.pageCount = 1;
+		activeDoc.fileType = "pdf";
+		activeDoc.isDirty = true;
+
+		expect(activeDoc.openDocuments.some((d) => documentKey(d) === id)).toBe(
+			true,
+		);
+		expect(activeDoc.rawBytes?.byteLength).toBe(1024);
+
+		await cleanupWorkspace(id);
+
+		expect(activeDoc.openDocuments.some((d) => documentKey(d) === id)).toBe(
+			false,
+		);
+		// Live store no longer exposes the closed document's payloads
+		expect(activeDoc.rawBytes).toBeNull();
+		expect(activeDoc.shapes).toEqual({});
+		expect(activeDoc.pageThumbnailOverrides).toEqual({});
+		expect(activeDoc.activeDocumentId).toBeNull();
+		// Original handle (may be $state proxy) should also have been purged
+		expect(doc.rawBytes).toBeNull();
+		expect(doc.shapes).toEqual({});
+	});
+
+	it("cleanupWorkspace is safe to call twice", async () => {
+		const doc = initializeNewDocument("once.pdf", null);
+		const id = documentKey(doc);
+		await cleanupWorkspace(id);
+		await expect(cleanupWorkspace(id)).resolves.toBeUndefined();
 	});
 });

@@ -4,6 +4,40 @@ This document serves as the permanent engineering log for hidden project quirks 
 
 ---
 
+## Section A0: Shared PDF Document (Memory Leak Guard)
+
+### The Problem
+
+On large PDFs (~25MB+), memory climbed continuously with **no user interaction**. Root cause: every main-page paint and many thumbnail/dimension paths called `pdfjsLib.getDocument({ data: bytes.slice(0) })` and never destroyed the resulting `PDFDocumentProxy`. Viewport preload + sidebar thumbs meant many full-document parses stacked in the worker heap.
+
+### The Solution
+
+- **`src/lib/render/sharedPdfDocument.ts`**: one shared document per `rawBytes` identity for the active workspace.
+- Main paints (`pageRenderer`), page dimension preload (`WorkspacePage`), and thumbnails (`PageSidebar` / `ThumbnailCanvas`) all use `getSharedWorkspacePdf`.
+- After each page paint: `page.cleanup()`; off-screen pages zero canvas bitmaps via `releaseWhenUnrendered`.
+- Idle: every 30s call `doc.cleanup(true)` only when the render queue is idle (`isPdfRenderBusy()`).
+- On tab switch / close of active doc: `destroySharedWorkspacePdf()` (loadingTask.destroy + cleanup).
+- On **last tab close** (`cleanupWorkspace`): also `PDFWorker.destroy()` so Wasm heaps do not stack across open/close cycles; next open creates a fresh worker.
+- `purgeDocumentResources(doc)` nulls `rawBytes`, shapes, thumbnail overrides, TIFF pages, forms, etc. **before** dropping the tab so GC can reclaim.
+
+**Do not** reintroduce per-paint `getDocument` on workspace bytes.
+
+### Static sidebar thumbnails
+
+- Generate each page thumb **once** via `ensurePageThumbnail` → JPEG in `pageThumbnailOverrides[pageIndex]`.
+- Sidebar/grid render `<img src={override}>` — no canvas/pdf.js on zoom, scroll, tab focus, or grid toggle.
+- Re-generate only on **page rotate** (`invalidatePageThumbnail`) or **save** (`applyLiveThumbnail` / `syncLiveThumbnail` for annotated page 0).
+- Lazy: placeholder mounts `requestStaticThumb` only while cache miss.
+- **Main-first open:** low-priority paints blocked until `markMainViewReady()` (first main canvas paint) or 2.5s fallback (`mainViewGate.ts` + `setLowPriorityAllowed`).
+- **Persistent cache:** IndexedDB `speeddf_page_thumbs_v1` keyed by path + content fingerprint (`thumbnailPersist.ts`). Hydrated on open before `pageOrder` mounts.
+
+### Fast PDF open
+
+- Single shared `getSharedWorkspacePdf` parse (no second load-time `getDocument`).
+- Unblock UI after bytes + pageOrder + page-1 dim seed; outline / forms / links / full layout cache run in background.
+
+---
+
 ## Section A: PDF.js Web Worker Security Workaround
 
 ### How the Worker is Embedded
