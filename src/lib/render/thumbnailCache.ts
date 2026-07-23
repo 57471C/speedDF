@@ -3,7 +3,9 @@
  *
  * Generate once (lazy) into `pageThumbnailOverrides` as JPEG data URLs, then
  * serve as `<img>` — never re-run pdf.js on zoom/scroll/tab focus.
- * Background generation waits until the main page is ready.
+ * After the main page paints, a low-priority background job fills every
+ * uncached page one-at-a-time (visible cards can still jump the queue via
+ * IntersectionObserver / ensurePageThumbnail).
  * Persists to IndexedDB for instant thumbs on re-open.
  */
 
@@ -43,7 +45,129 @@ const thumbState = {
 	inflight: new Map<string, Promise<void>>(),
 	/** Content key for the active document bytes (for IDB). */
 	activeContentKey: null as string | null,
+	/**
+	 * Bumped on document close/switch to cancel the background fill loop.
+	 * Each startBackgroundThumbnailGeneration captures the generation at kickoff.
+	 */
+	bgGeneration: 0,
+	/** True while a background fill loop is scheduled or running. */
+	bgRunning: false,
+	/** Workspace id the running bg job was started for. */
+	bgWorkspaceId: null as string | null,
 };
+
+/** Yield between thumbs so main paints / idle cleanup can run. */
+function yieldToMain(): Promise<void> {
+	return new Promise((resolve) => {
+		if (typeof requestIdleCallback === "function") {
+			requestIdleCallback(() => resolve(), { timeout: 120 });
+		} else {
+			setTimeout(resolve, 24);
+		}
+	});
+}
+
+/** Two animation frames so sidebar cards can bind + layout after main paint. */
+function waitTwoFrames(): Promise<void> {
+	return new Promise((resolve) => {
+		if (typeof requestAnimationFrame !== "function") {
+			setTimeout(resolve, 32);
+			return;
+		}
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => resolve());
+		});
+	});
+}
+
+/**
+ * Page numbers whose sidebar/grid cards are currently visible (or within
+ * rootMargin of the scroll container). Sorted top-to-bottom for natural fill.
+ * Matches requestStaticThumb IntersectionObserver margin (~240px).
+ */
+export function collectVisibleSidebarPages(
+	rootMarginPx = 240,
+): number[] {
+	if (typeof document === "undefined") return [];
+	try {
+		const cards = document.querySelectorAll<HTMLElement>("[data-sidebar-page]");
+		if (cards.length === 0) return [];
+
+		// Prefer the scroll container that actually hosts visible cards
+		let rootRect: { top: number; bottom: number } | null = null;
+		const scrolls = document.querySelectorAll<HTMLElement>(
+			"[data-sidebar-thumb-scroll]",
+		);
+		for (const scroll of scrolls) {
+			const r = scroll.getBoundingClientRect();
+			// Pick a container that is on-screen and has height
+			if (r.height > 8 && r.bottom > 0 && r.top < window.innerHeight) {
+				rootRect = { top: r.top, bottom: r.bottom };
+				break;
+			}
+		}
+		if (!rootRect) {
+			rootRect = { top: 0, bottom: window.innerHeight };
+		}
+
+		const bandTop = rootRect.top - rootMarginPx;
+		const bandBottom = rootRect.bottom + rootMarginPx;
+		const hits: { page: number; top: number }[] = [];
+		const seen = new Set<number>();
+
+		for (const el of cards) {
+			const pageNum = Number(el.getAttribute("data-sidebar-page"));
+			if (!Number.isFinite(pageNum) || pageNum < 1 || seen.has(pageNum)) {
+				continue;
+			}
+			const r = el.getBoundingClientRect();
+			// Skip fully collapsed / display:none nodes
+			if (r.width < 1 && r.height < 1) continue;
+			if (r.bottom >= bandTop && r.top <= bandBottom) {
+				seen.add(pageNum);
+				hits.push({ page: pageNum, top: r.top });
+			}
+		}
+
+		hits.sort((a, b) => a.top - b.top || a.page - b.page);
+		return hits.map((h) => h.page);
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * Build generation order: currently visible (or near-visible) sidebar pages
+ * first (top → bottom), then the rest of pageOrder document order.
+ * Falls back to current page ±2 when the sidebar has not laid out yet.
+ */
+function buildThumbnailGenerationOrder(order: number[]): number[] {
+	const validOrder = order.filter((p) => p >= 1);
+	if (validOrder.length === 0) return [];
+
+	const orderSet = new Set(validOrder);
+	let visible = collectVisibleSidebarPages().filter((p) => orderSet.has(p));
+
+	// Sidebar may not be laid out on the first tick after open
+	if (visible.length === 0) {
+		const current = activeDoc.currentPage || 1;
+		const currentIdx = Math.max(0, validOrder.indexOf(current));
+		const fallback: number[] = [];
+		for (
+			let i = Math.max(0, currentIdx - 2);
+			i <= Math.min(validOrder.length - 1, currentIdx + 2);
+			i++
+		) {
+			fallback.push(validOrder[i]);
+		}
+		visible = fallback;
+	}
+
+	const prioritySet = new Set(visible);
+	const rest = validOrder.filter((p) => !prioritySet.has(p));
+	// Preserve visual order for visible; document order for the remainder
+	return [...visible, ...rest];
+}
 
 function workspaceKey(): string {
 	return (
@@ -147,6 +271,7 @@ export async function generatePageThumbnailDataUrl(
 			let page: any = null;
 			try {
 				page = await pdfDocument.getPage(pageNum);
+				// Offscreen canvas is discarded after toDataURL; free bitmap in finally.
 				const plan = thumbnailScalePlanForBytes(liveBytes.byteLength);
 				const sessionRot = activeDoc.rotations[pageNum] ?? 0;
 				const currentRotation = (page.rotate + sessionRot) % 360;
@@ -194,7 +319,18 @@ export async function generatePageThumbnailDataUrl(
 					throw err;
 				}
 
-				return canvas.toDataURL("image/jpeg", THUMBNAIL_JPEG_QUALITY);
+				const dataUrl = canvas.toDataURL(
+					"image/jpeg",
+					THUMBNAIL_JPEG_QUALITY,
+				);
+				// Free GPU/bitmap backing store; only the JPEG string is retained.
+				try {
+					canvas.width = 0;
+					canvas.height = 0;
+				} catch {
+					/* ignore */
+				}
+				return dataUrl;
 			} finally {
 				cleanupPdfPage(page);
 			}
@@ -313,27 +449,126 @@ export async function ensurePageThumbnail(
 	await job;
 }
 
+/** True when the active doc can still receive page thumbnails. */
+function canGenerateThumbsForActiveDoc(): boolean {
+	const ft = activeDoc.fileType;
+	if (ft === "pdf") return !!activeDoc.rawBytes;
+	if (ft === "tiff") return true;
+	return false;
+}
+
 /**
- * Ensure every page in the current pageOrder has a cached JPEG (idempotent).
- * Thumbs wait for main view; generation is low-priority in the paint queue.
+ * Cancel any in-flight background fill (document close / tab switch).
+ * In-progress ensurePageThumbnail for a single page still finishes, but the
+ * loop will not start the next page.
+ * try/catch: circular import during module init (pdfStore ↔ thumbnailCache).
+ */
+export function stopBackgroundThumbnailGeneration(): void {
+	try {
+		thumbState.bgGeneration += 1;
+		thumbState.bgRunning = false;
+		thumbState.bgWorkspaceId = null;
+	} catch {
+		/* module may still be initialising under circular import */
+	}
+}
+
+/**
+ * After main page paint: low-priority sequential job that generates a JPEG for
+ * every page missing from `pageThumbnailOverrides` / IDB hydrate.
+ *
+ * - One page at a time (low-priority render slot) — no main-thread floods
+ * - Stores each result immediately via setPageThumbnailOverride + IDB
+ * - Stops when generation token changes (close / switch) or bytes go away
+ * - Safe to call repeatedly; same-workspace re-entry is a no-op while running
+ */
+export function startBackgroundThumbnailGeneration(): void {
+	try {
+		if (typeof window === "undefined") return;
+		if (!canGenerateThumbsForActiveDoc()) return;
+
+		const wsId = workspaceKey();
+		// Already filling this workspace — leave the existing loop alone
+		if (thumbState.bgRunning && thumbState.bgWorkspaceId === wsId) {
+			return;
+		}
+
+		// New run (or different workspace): cancel any prior loop first
+		const gen = ++thumbState.bgGeneration;
+		thumbState.bgRunning = true;
+		thumbState.bgWorkspaceId = wsId;
+
+		void (async () => {
+			try {
+				await waitMainViewReady();
+				if (gen !== thumbState.bgGeneration) return;
+				if (workspaceKey() !== wsId) return;
+				if (!canGenerateThumbsForActiveDoc()) return;
+
+				// Wait for PageSidebar cards to mount/layout so visibility is real
+				await waitTwoFrames();
+				await yieldToMain();
+				if (gen !== thumbState.bgGeneration) return;
+				if (workspaceKey() !== wsId) return;
+
+				const order = activeDoc.pageOrder || [];
+				if (order.length === 0) return;
+
+				// 1) Currently visible / near-visible sidebar pages (top → bottom)
+				// 2) Remainder of the document in pageOrder
+				const pages = buildThumbnailGenerationOrder(order);
+				const visibleFirst = collectVisibleSidebarPages();
+
+				let filled = 0;
+				let skipped = 0;
+				for (const pageNum of pages) {
+					if (gen !== thumbState.bgGeneration) return;
+					if (workspaceKey() !== wsId) return;
+					if (!canGenerateThumbsForActiveDoc()) return;
+
+					const overrides = activeDoc.pageThumbnailOverrides || {};
+					if (overrides[pageNum - 1]) {
+						skipped += 1;
+						continue;
+					}
+
+					// Sequential ensure — low-priority slot + shared PDF only.
+					// skipMainWait: we already awaited main readiness once.
+					await ensurePageThumbnail(pageNum, { skipMainWait: true });
+					filled += 1;
+
+					// Yield so scroll/zoom paints and idle cleanup can interleave.
+					// Do not mark pdf activity (would delay idle cleanup forever).
+					await yieldToMain();
+				}
+
+				if (gen === thumbState.bgGeneration) {
+					console.log(
+						`⚡ Background thumbnails: filled ${filled}, already cached ${skipped}, visible-first=${visibleFirst.length} (ws=${wsId})`,
+					);
+				}
+			} catch (err) {
+				if (gen === thumbState.bgGeneration) {
+					console.warn("Background thumbnail generation stopped:", err);
+				}
+			} finally {
+				if (gen === thumbState.bgGeneration) {
+					thumbState.bgRunning = false;
+					// Keep bgWorkspaceId until next start/stop for diagnostics
+				}
+			}
+		})();
+	} catch {
+		/* module may still be initialising under circular import */
+	}
+}
+
+/**
+ * Kick the sequential full-document background fill (after main is ready).
+ * Visible placeholders may still call ensurePageThumbnail via IntersectionObserver.
  */
 export function ensureAllPageThumbnails(): void {
-	if (activeDoc.fileType === "image") return;
-	if (!activeDoc.rawBytes && activeDoc.fileType !== "tiff") return;
-	const order = activeDoc.pageOrder || [];
-	const overrides = activeDoc.pageThumbnailOverrides || {};
-	// Prefer current page first so the sidebar highlight fills early after main paint
-	const current = activeDoc.currentPage || 1;
-	const ordered = [
-		current,
-		...order.filter((p) => p !== current),
-	];
-	for (const pageNum of ordered) {
-		if (pageNum < 1) continue;
-		if (!overrides[pageNum - 1]) {
-			void ensurePageThumbnail(pageNum);
-		}
-	}
+	startBackgroundThumbnailGeneration();
 }
 
 /** Drop cached JPEG for a page and regenerate once (also refreshes IDB). */
@@ -345,9 +580,10 @@ export function invalidatePageThumbnail(pageNum: number): void {
 	void ensurePageThumbnail(pageNum, { force: true, skipMainWait: true });
 }
 
-/** Clear in-flight map for tests / document teardown. */
+/** Clear in-flight map for tests / document teardown. Cancels background fill. */
 export function clearThumbnailInflight(): void {
 	try {
+		stopBackgroundThumbnailGeneration();
 		thumbState.inflight.clear();
 		thumbState.activeContentKey = null;
 	} catch {

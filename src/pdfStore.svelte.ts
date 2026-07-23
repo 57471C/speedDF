@@ -11,8 +11,27 @@ import {
 	sanitizeCommentText,
 	setCommentAuthorProfile,
 } from "./lib/comments/comments";
-import type { FormFieldDef, FormFieldValue } from "./lib/forms/formFields";
-import type { HyperlinkDef } from "./lib/links/hyperlinks";
+import {
+	extractFormFields,
+	type FormFieldDef,
+	type FormFieldValue,
+} from "./lib/forms/formFields";
+import {
+	extractHyperlinks,
+	type HyperlinkDef,
+} from "./lib/links/hyperlinks";
+import { resetMainViewReady } from "./lib/render/mainViewGate";
+import { setLowPriorityAllowed } from "./lib/render/pdfRenderQueue";
+import { destroySharedWorkspacePdf } from "./lib/render/sharedPdfDocument";
+import {
+	clearThumbnailInflight,
+	invalidatePageThumbnail,
+	setThumbnailContentKeyFromBytes,
+} from "./lib/render/thumbnailCache";
+import {
+	contentKeyForBytes,
+	persistThumbnailPage,
+} from "./lib/render/thumbnailPersist";
 import {
 	bindHistoryDocument,
 	executeRedoAction,
@@ -511,15 +530,10 @@ export function setPageThumbnailOverride(
 
 	// Persist to IndexedDB when we have a path (re-open = instant thumbs)
 	if (target.filePath && target.rawBytes) {
-		void import("./lib/render/thumbnailPersist").then(async (persist) => {
-			const key = persist.contentKeyForBytes(target.rawBytes!);
-			await persist.persistThumbnailPage(
-				target.filePath,
-				key,
-				pageIndex,
-				thumbnailDataUrl,
-			);
-		});
+		const path = target.filePath;
+		const bytes = target.rawBytes;
+		const key = contentKeyForBytes(bytes);
+		void persistThumbnailPage(path, key, pageIndex, thumbnailDataUrl);
 	}
 }
 
@@ -567,14 +581,10 @@ export function switchActiveDocument(id: string) {
 	resetSessionUiForDocumentSwitch();
 	// Drop the previous tab's shared pdf.js document so memory does not stack.
 	// Keep the global worker alive (other tabs may still be open).
-	void import("./lib/render/sharedPdfDocument").then((m) =>
-		m.destroySharedWorkspacePdf({ destroyWorker: false }),
-	);
+	void destroySharedWorkspacePdf({ destroyWorker: false });
 	// New tab must re-claim main paint priority before thumbs run
-	void import("./lib/render/mainViewGate").then((m) => m.resetMainViewReady());
-	void import("./lib/render/pdfRenderQueue").then((m) =>
-		m.setLowPriorityAllowed(false),
-	);
+	resetMainViewReady();
+	setLowPriorityAllowed(false);
 }
 
 /**
@@ -622,9 +632,7 @@ export async function commitActiveDocumentAfterSave(opts: {
 	doc.rawBytes = new Uint8Array(opts.compiledBytes);
 	doc.isDirty = false;
 	// Refresh thumbnail content key so IDB entries match the new bytes
-	void import("./lib/render/thumbnailCache").then((m) =>
-		m.setThumbnailContentKeyFromBytes(doc.rawBytes),
-	);
+	setThumbnailContentKeyFromBytes(doc.rawBytes);
 
 	// Flatten bakes annotations into the written bytes. Drop the live overlay so
 	// the canvas does not show duplicate ink (burned-in + editable shapes).
@@ -699,7 +707,6 @@ export async function commitActiveDocumentAfterSave(opts: {
 	// Rebuild form overlay from the bytes we actually wrote (flattened → no widgets)
 	if (doc.fileType === "pdf") {
 		try {
-			const { extractFormFields } = await import("./lib/forms/formFields");
 			const extracted = await extractFormFields(doc.rawBytes);
 			doc.formFields = extracted.fields;
 			doc.formValues = extracted.values;
@@ -710,7 +717,6 @@ export async function commitActiveDocumentAfterSave(opts: {
 			doc.formValues = {};
 		}
 		try {
-			const { extractHyperlinks } = await import("./lib/links/hyperlinks");
 			doc.hyperlinks = await extractHyperlinks(doc.rawBytes);
 			openDocuments = [...openDocuments];
 		} catch (err) {
@@ -836,17 +842,9 @@ export async function cleanupWorkspace(id: string): Promise<void> {
 	// 3. Tear down pdf.js shared document. Kill the worker only when the last
 	//    tab closes so open/close cycles do not stack Wasm heaps.
 	if (wasActive || noDocsLeft) {
-		const { destroySharedWorkspacePdf } = await import(
-			"./lib/render/sharedPdfDocument"
-		);
 		await destroySharedWorkspacePdf({ destroyWorker: noDocsLeft });
-		const { resetMainViewReady } = await import("./lib/render/mainViewGate");
 		resetMainViewReady();
-		const { setLowPriorityAllowed } = await import("./lib/render/pdfRenderQueue");
 		setLowPriorityAllowed(false);
-		const { clearThumbnailInflight } = await import(
-			"./lib/render/thumbnailCache"
-		);
 		clearThumbnailInflight();
 	}
 }
@@ -1495,9 +1493,7 @@ export const activeDoc: SharedDocumentState = {
 			openDocuments = [];
 			activeDocumentId = null;
 			resetSessionUiForDocumentSwitch();
-			void import("./lib/render/sharedPdfDocument").then((m) =>
-				m.destroySharedWorkspacePdf({ destroyWorker: true }),
-			);
+			void destroySharedWorkspacePdf({ destroyWorker: true });
 			return;
 		}
 		void cleanupWorkspace(id);
@@ -1567,9 +1563,7 @@ export function rotatePageAction(
 		[pageNumber]: targetDegree,
 	};
 	// Session rotation is baked into static thumbs — regenerate this page only.
-	void import("./lib/render/thumbnailCache").then((m) =>
-		m.invalidatePageThumbnail(pageNumber),
-	);
+	invalidatePageThumbnail(pageNumber);
 }
 
 export function addOrToggleBookmarkAction(pageNum: number) {

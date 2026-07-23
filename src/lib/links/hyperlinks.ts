@@ -2,9 +2,11 @@
  * PDF hyperlink (URI Link annotation) extraction and safe-URL helpers.
  * v1: external http(s)/mailto only — no javascript:, file:, data:, or internal dests.
  *
- * PDF.js is loaded only inside {@link extractHyperlinks} so pure helpers stay
- * testable in Node without the browser canvas stack.
+ * Pure URL helpers (`isSafeHyperlinkUrl`, etc.) do not touch pdf.js. Extraction
+ * uses a static pdf.js import (same as the rest of the app bundle).
  */
+
+import * as pdfjsLib from "pdfjs-dist";
 
 /** Clickable link region in page-relative CSS % (top-left origin). */
 export interface HyperlinkDef {
@@ -75,6 +77,7 @@ type PdfJsPageProxy = {
 		convertToViewportPoint: (x: number, y: number) => number[];
 	};
 	getAnnotations: (params?: { intent?: string }) => Promise<PdfJsAnnotation[]>;
+	cleanup?: (resetStats?: boolean) => boolean | void;
 	rotate?: number;
 };
 
@@ -104,64 +107,74 @@ export async function extractHyperlinksFromDocument(
 	const pageCount = pdf.numPages || 0;
 
 	for (let pageNum = 1; pageNum <= pageCount; pageNum++) {
-		let page: PdfJsPageProxy;
+		let page: PdfJsPageProxy | null = null;
 		try {
 			page = await pdf.getPage(pageNum);
 		} catch {
 			continue;
 		}
 
-		const rotation = typeof page.rotate === "number" ? page.rotate : 0;
-		const viewport = page.getViewport({ scale: 1, rotation: rotation });
-		const pageW = viewport.width || 1;
-		const pageH = viewport.height || 1;
-
-		let annotations: PdfJsAnnotation[] = [];
 		try {
-			annotations = await page.getAnnotations({ intent: "display" });
-		} catch {
-			continue;
-		}
+			const rotation = typeof page.rotate === "number" ? page.rotate : 0;
+			const viewport = page.getViewport({ scale: 1, rotation: rotation });
+			const pageW = viewport.width || 1;
+			const pageH = viewport.height || 1;
 
-		let linkIndex = 0;
-		for (const ann of annotations || []) {
-			if (ann?.subtype !== "Link") continue;
+			let annotations: PdfJsAnnotation[] = [];
+			try {
+				annotations = await page.getAnnotations({ intent: "display" });
+			} catch {
+				continue;
+			}
 
-			// pdf.js sets `url` for safe-ish URIs; `unsafeUrl` is the raw string
-			const candidate =
-				(typeof ann.url === "string" && ann.url) ||
-				(typeof ann.unsafeUrl === "string" && ann.unsafeUrl) ||
-				null;
-			const url = normalizeHyperlinkUrl(candidate);
-			if (!url) continue;
+			let linkIndex = 0;
+			for (const ann of annotations || []) {
+				if (ann?.subtype !== "Link") continue;
 
-			const rect = ann.rect as number[] | undefined;
-			if (!rect || rect.length < 4) continue;
+				// pdf.js sets `url` for safe-ish URIs; `unsafeUrl` is the raw string
+				const candidate =
+					(typeof ann.url === "string" && ann.url) ||
+					(typeof ann.unsafeUrl === "string" && ann.unsafeUrl) ||
+					null;
+				const url = normalizeHyperlinkUrl(candidate);
+				if (!url) continue;
 
-			const [x1, y1, x2, y2] = rect;
-			const [vx1, vy1] = viewport.convertToViewportPoint(x1, y1);
-			const [vx2, vy2] = viewport.convertToViewportPoint(x2, y2);
+				const rect = ann.rect as number[] | undefined;
+				if (!rect || rect.length < 4) continue;
 
-			const left = Math.min(vx1, vx2);
-			const top = Math.min(vy1, vy2);
-			const width = Math.abs(vx2 - vx1);
-			const height = Math.abs(vy2 - vy1);
-			if (width < 0.5 && height < 0.5) continue;
+				const [x1, y1, x2, y2] = rect;
+				const [vx1, vy1] = viewport.convertToViewportPoint(x1, y1);
+				const [vx2, vy2] = viewport.convertToViewportPoint(x2, y2);
 
-			const xPct = (left / pageW) * 100;
-			const yPct = (top / pageH) * 100;
-			const wPct = (width / pageW) * 100;
-			const hPct = (height / pageH) * 100;
+				const left = Math.min(vx1, vx2);
+				const top = Math.min(vy1, vy2);
+				const width = Math.abs(vx2 - vx1);
+				const height = Math.abs(vy2 - vy1);
+				if (width < 0.5 && height < 0.5) continue;
 
-			links.push({
-				id: `p${pageNum}-l${linkIndex++}`,
-				pageNum,
-				x: clampPct(xPct),
-				y: clampPct(yPct),
-				width: Math.max(0.15, clampPct(wPct)),
-				height: Math.max(0.15, clampPct(hPct)),
-				url,
-			});
+				const xPct = (left / pageW) * 100;
+				const yPct = (top / pageH) * 100;
+				const wPct = (width / pageW) * 100;
+				const hPct = (height / pageH) * 100;
+
+				links.push({
+					id: `p${pageNum}-l${linkIndex++}`,
+					pageNum,
+					x: clampPct(xPct),
+					y: clampPct(yPct),
+					width: Math.max(0.15, clampPct(wPct)),
+					height: Math.max(0.15, clampPct(hPct)),
+					url,
+				});
+			}
+		} finally {
+			// Drop page operator lists / annotation caches — do not retain
+			// every page of a large PDF after a one-shot extract.
+			try {
+				page?.cleanup?.();
+			} catch {
+				/* ignore */
+			}
 		}
 	}
 
@@ -171,13 +184,11 @@ export async function extractHyperlinksFromDocument(
 /**
  * Load PDF bytes with PDF.js and extract hyperlinks.
  * Caller must ensure GlobalWorkerOptions.workerSrc is set (app bootstrap).
- * Dynamic import keeps pure URL helpers free of the PDF.js Node/canvas stack.
  */
 export async function extractHyperlinks(
 	pdfBytes: Uint8Array,
 ): Promise<HyperlinkDef[]> {
 	try {
-		const pdfjsLib = await import("pdfjs-dist");
 		const loadingTask = pdfjsLib.getDocument({
 			data: pdfBytes.slice(0),
 			// Match other call sites; workers/fonts already configured app-wide
