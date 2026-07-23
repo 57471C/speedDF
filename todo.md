@@ -3,8 +3,7 @@
 ## Features to add ##
 3. Obeject alignment
 4. R/click tab - "Open in new window" 
-4. Forms creation (NOT XFA Forms!) + huperlinks
-5. comments should have XY co-ords. not stuck at the top of the page.
+4. Forms creation (NOT XFA Forms!) + hyperlinks
 
 ## long term goals (may never do)
 1. lopdf + docx-rs export to Word, lopdf + rust_xlsxwriter for Excel
@@ -20,12 +19,12 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 4. Switch to Bun - could be a big win for speed and bundle size.
 
 ## Fixes
-- [ ] aFter dropping a text annotation. if you select another tool (other than select tool or colour modifier) it should unselect the text that was dropped.
-- [ ] If you change the fontsize of a text annotation it should resize the teatarea's bounding box size to
-- [ ] hover over comment icon the the top right wrokspace comments icon correctly pops out the form for easy adding a comment. But there is "alt text" that pops over the input (clash). Bookmarks icon should popout in the same way and also have the altext removed. 
-- [ ] when Ctrl+scrolling to zoom, it should zoom to the pointer/co-ords
-- [ ] 2 click shape. when adding a shap 1 x click drops a shape with a size based on document zoom. change this to 1 c click ancors the top left corner (rubberbands). 2nd click finalises the size of the shape. BUT STILL ALLOW CLICK DRAG as the primary way to draw shapes.
-- [ ] smoother zoom resizing - is it possible?
+- [x] aFter dropping a text annotation. if you select another tool (other than select tool or colour modifier) it should unselect the text that was dropped.
+- [x] If you change the fontsize of a text annotation it should resize the teatarea's bounding box size to
+- [x] hover over comment icon the the top right wrokspace comments icon correctly pops out the form for easy adding a comment. But there is "alt text" that pops over the input (clash). Bookmarks icon should popout in the same way and also have the altext removed. 
+- [x] when Ctrl+scrolling to zoom, it should zoom to the pointer/co-ords
+- [x] 2 click shape. when adding a shap 1 x click drops a shape with a size based on document zoom. change this to 1 c click ancors the top left corner (rubberbands). 2nd click finalises the size of the shape. BUT STILL ALLOW CLICK DRAG as the primary way to draw shapes.
+- [x] smoother zoom resizing - is it possible?
 - [x] dropping a text annotation is lower than it should be. it seems like the top/r of the text input drops at the center of the cursour. It should be the top.
 - [x] Disable F5 refresh!
 - [x] remove "Shift" key for grouping
@@ -119,7 +118,8 @@ git push -u origin feat/common-widgets
 - Close the branch via PR
 ```bash
 git add -A
-git commit -m "fix: save duplication, text drop, F5, and grouping"
+git commit -m "fix: always-on-top tools widgets and polish, then fixed text/shape/zoom, value-memory popover tracking, bookmark/comment
+chrome, Ctrl+zoom-only multipage scroll, and moved the load-time badge under the pages"
 git push
 ```
 - New tag

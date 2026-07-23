@@ -1187,6 +1187,17 @@ export const activeDoc: SharedDocumentState = {
 	},
 	set activeTool(val) {
 		setActiveTool(val);
+		// After dropping/editing text: switching to any tool other than Select/Text
+		// clears text selection (colour changes do not go through this setter).
+		if (val === "select" || val === "text") return;
+		const isTextSel = (s: { pageNumber: number; index: number } | null) => {
+			if (!s) return false;
+			return activeDoc.shapes[s.pageNumber]?.[s.index]?.type === "text";
+		};
+		if (isTextSel(selectedShape) || selectedShapes.some(isTextSel)) {
+			selectedShape = null;
+			selectedShapes = [];
+		}
 	},
 	get selectedShape() {
 		return selectedShape;

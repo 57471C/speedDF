@@ -225,12 +225,22 @@
     }
   }
 
+  /** Scale text box height with font size so the textarea bounds stay tight. */
+  function applyFontSizeToTextShape(shape: { size?: number; height?: number }, nextSize: number) {
+    const oldSize = Math.max(1, shape.size || 12);
+    const ratio = nextSize / oldSize;
+    shape.size = nextSize;
+    if (shape.height != null && shape.height > 0) {
+      shape.height = Math.max(0.4, shape.height * ratio);
+    }
+  }
+
   function handleSizeChange(e: Event) {
     const val = parseInt((e.target as HTMLInputElement).value) || 12;
     selectedSize = val;
     if (activeTextShape) {
       pushHistorySnapshot();
-      activeTextShape.size = val;
+      applyFontSizeToTextShape(activeTextShape, val);
       activeDoc.shapes = { ...activeDoc.shapes };
     } else {
       activeDoc.defaultSize = val;
@@ -269,7 +279,7 @@
     selectedSize = sz;
     if (activeTextShape) {
       pushHistorySnapshot();
-      activeTextShape.size = sz;
+      applyFontSizeToTextShape(activeTextShape, sz);
       activeDoc.shapes = { ...activeDoc.shapes };
     } else {
       activeDoc.defaultSize = sz;
@@ -287,22 +297,84 @@
 
 
   function setupWheelZoom(node: HTMLElement) {
+    let zoomRaf: number | null = null;
+    let pendingZoom: number | null = null;
+    /** Cursor position in viewport coords of the scroller (for post-layout re-anchor). */
+    let pendingCursor: { x: number; y: number; contentX: number; contentY: number; oldW: number; oldH: number } | null =
+      null;
+
+    const applyPendingZoom = () => {
+      zoomRaf = null;
+      if (pendingZoom == null) return;
+      const next = pendingZoom;
+      const cursor = pendingCursor;
+      pendingZoom = null;
+      pendingCursor = null;
+
+      // Disable smooth scrolling so zoom re-anchor never animates as a pan
+      const prevBehavior = node.style.scrollBehavior;
+      node.style.scrollBehavior = "auto";
+      node.classList.add("workspace-zooming");
+
+      activeDoc.zoomScale = next;
+      zoomScale = next;
+
+      // After page shells reflow, keep the content under the cursor stable
+      // (uses measured scroll size — safer than zoom ratio with mx-auto + multipage).
+      requestAnimationFrame(() => {
+        if (cursor && cursor.oldW > 0 && cursor.oldH > 0) {
+          const scaleX = node.scrollWidth / cursor.oldW;
+          const scaleY = node.scrollHeight / cursor.oldH;
+          node.scrollLeft = Math.max(0, cursor.contentX * scaleX - cursor.x);
+          node.scrollTop = Math.max(0, cursor.contentY * scaleY - cursor.y);
+        }
+        node.style.scrollBehavior = prevBehavior;
+        node.classList.remove("workspace-zooming");
+      });
+    };
+
     const handleWheel = (e: WheelEvent) => {
-      if (e.ctrlKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        const delta = e.deltaY < 0 ? 10 : -10;
-        const nextZoom = activeDoc.zoomScale + delta;
-        activeDoc.zoomScale = Math.max(10, Math.min(500, Math.abs(nextZoom)));
-        zoomScale = activeDoc.zoomScale;
+      // Ctrl/Cmd+wheel = zoom only. Always kill native scroll/pinch pan.
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // Also stop other listeners on the same path (settleLoadBurnIn, etc.)
+      e.stopImmediatePropagation?.();
+
+      const oldZoom = Math.max(10, Math.abs(zoomScale || activeDoc.zoomScale || 100));
+      // Continuous, delta-sensitive zoom (smoother than fixed ±10 steps)
+      const intensity = Math.min(48, Math.abs(e.deltaY));
+      const step = Math.max(1.5, intensity * 0.35);
+      const direction = e.deltaY < 0 ? 1 : -1;
+      const nextZoom = Math.max(10, Math.min(500, Math.round(oldZoom + direction * step)));
+      if (nextZoom === oldZoom) return;
+
+      const rect = node.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      pendingZoom = nextZoom;
+      pendingCursor = {
+        x,
+        y,
+        contentX: node.scrollLeft + x,
+        contentY: node.scrollTop + y,
+        oldW: node.scrollWidth,
+        oldH: node.scrollHeight,
+      };
+
+      if (zoomRaf == null) {
+        zoomRaf = requestAnimationFrame(applyPendingZoom);
       }
     };
 
-    node.addEventListener("wheel", handleWheel, { passive: false });
+    // Capture phase so we beat bubbling scroll handlers and can always preventDefault
+    node.addEventListener("wheel", handleWheel, { passive: false, capture: true });
 
     return {
       destroy() {
-        node.removeEventListener("wheel", handleWheel);
+        node.removeEventListener("wheel", handleWheel, { capture: true } as EventListenerOptions);
+        if (zoomRaf != null) cancelAnimationFrame(zoomRaf);
       }
     };
   }
@@ -516,27 +588,24 @@
   style={(isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : '') + ' touch-action: pan-x pan-y;'}
 >
   {#if showLoadBurnIn && openDurationMs != null}
-    <!-- Tight under tab bar (minimal top pad); top-right, clear of scrollbar -->
+    <!-- Viewport-fixed background layer: stays under document pages (z-0 vs pages z-10) -->
     <div
-      class="load-burn-in sticky top-0 z-20 w-full h-0 overflow-visible pointer-events-none select-none
+      class="load-burn-in absolute top-2 right-3 z-0 pointer-events-none select-none
         {loadBurnInSettled ? 'load-burn-in--settled' : 'load-burn-in--bright'}"
       aria-live="polite"
     >
-      <!-- Sit further right of page chrome (bookmarks stick out at page right edge) -->
-      <div class="flex justify-end pr-1 pt-1 pl-8">
+      <span
+        class="inline-block font-mono text-[10px] font-semibold tracking-wider uppercase text-right
+          drop-shadow-[0_1px_2px_rgba(0,0,0,0.75)]
+          {loadBurnInSettled ? 'text-slate-400/80' : 'text-slate-200'}"
+      >
+        Document loaded in
         <span
-          class="inline-block font-mono text-[10px] font-semibold tracking-wider uppercase text-right ml-4
-            drop-shadow-[0_1px_2px_rgba(0,0,0,0.75)]
-            {loadBurnInSettled ? 'text-slate-400/80' : 'text-slate-200'}"
+          class="font-bold tabular-nums
+            {loadBurnInSettled ? 'text-cyan-400/70' : 'text-cyan-300'}"
+          >{openDurationMs}ms</span
         >
-          Document loaded in
-          <span
-            class="font-bold tabular-nums
-              {loadBurnInSettled ? 'text-cyan-400/70' : 'text-cyan-300'}"
-            >{openDurationMs}ms</span
-          >
-        </span>
-      </div>
+      </span>
     </div>
   {/if}
   {#if activeDoc.activeTool === 'snapshot'}
@@ -678,7 +747,7 @@
       edges remain pan-able.
     -->
     <div
-      class="w-max max-w-none mx-auto flex flex-col items-center gap-6 pb-24 origin-top transition-transform duration-150"
+      class="relative z-10 w-max max-w-none mx-auto flex flex-col items-center gap-6 pb-24 origin-top"
     >
       {#each activeDoc.pageOrder || [] as pageNumber (pageNumber)}
         <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} {isSystemPrinting} {scrollObserver} />
@@ -725,6 +794,10 @@
   /* After ~3s / interaction: slight transparency only (still readable, not gone) */
   .load-burn-in--settled {
     opacity: 0.72;
+  }
+  /* While Ctrl-zooming: no CSS smooth-scroll so re-anchor never pans visibly */
+  :global(.workspace-scroll-container.workspace-zooming) {
+    scroll-behavior: auto !important;
   }
 
   /* Dark Cyber Scrollbar Custom Webkit Injectors */
