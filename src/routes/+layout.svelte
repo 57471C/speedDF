@@ -9,9 +9,13 @@ import "../global.css";
 let { children } = $props();
 
 onMount(() => {
+  // Main window starts `visible: false` in tauri.conf — reveal once UI is ready.
+  // Tools widgets create themselves hidden and reveal from `/tools` after paint.
   setTimeout(async () => {
     try {
-      await getCurrentWindow().show();
+      const win = getCurrentWindow();
+      if (win.label.startsWith("tools-")) return;
+      await win.show();
     } catch (e) {
       console.warn("Failed to reveal window:", e);
     }

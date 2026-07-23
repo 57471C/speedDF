@@ -43,6 +43,7 @@
     setThumbnailContentKeyFromBytes,
   } from "../lib/render/thumbnailCache";
   import DocumentTabs from "../components/DocumentTabs.svelte";
+  import { openToolsWindow } from "../lib/tools/openToolsWindow";
 
   const activeDoc = activeDocStore as any;
 
@@ -2029,6 +2030,9 @@
   onSave={() => titleBarRef?.triggerSave?.()}
   onSaveAs={() => titleBarRef?.triggerSaveAs?.()}
   onAddComment={handleAddCommentHere}
+  onOpenCalculator={() => void openToolsWindow("calculator")}
+  onOpenTimer={() => void openToolsWindow("timer")}
+  onOpenStopwatch={() => void openToolsWindow("stopwatch")}
 />
 
 {#if showToast}

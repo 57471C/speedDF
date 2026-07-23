@@ -1,0 +1,22 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "tools",
+	"description": "Capability for frameless always-on-top tool widgets (no window-state restore)",
+	"windows": [
+		"tools-calculator",
+		"tools-timer",
+		"tools-stopwatch"
+	],
+	"permissions": [
+		"core:default",
+		"core:window:allow-start-dragging",
+		"core:window:allow-close",
+		"core:window:allow-destroy",
+		"core:window:allow-show",
+		"core:window:allow-set-focus",
+		"core:window:allow-set-always-on-top",
+		"core:window:allow-set-decorations",
+		"core:window:allow-unminimize",
+		"core:window:allow-minimize"
+	]
+}

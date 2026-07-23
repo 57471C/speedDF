@@ -8,6 +8,9 @@
     onSave,
     onSaveAs,
     onAddComment,
+    onOpenCalculator,
+    onOpenTimer,
+    onOpenStopwatch,
   }: {
     x?: number;
     y?: number;
@@ -18,7 +21,19 @@
     onSave: () => void;
     onSaveAs: () => void;
     onAddComment?: () => void;
+    onOpenCalculator?: () => void;
+    onOpenTimer?: () => void;
+    onOpenStopwatch?: () => void;
   } = $props();
+
+  function openTool(fn?: () => void) {
+    show = false;
+    fn?.();
+  }
+
+  /** Match ToolSidebar idle/hover chrome for icon buttons. */
+  const iconBtn =
+    "w-8 h-8 flex items-center justify-center rounded transition-all text-slate-400 hover:bg-slate-800/50 hover:text-white bg-transparent border-0 cursor-pointer";
 </script>
 
 {#if show}
@@ -61,12 +76,106 @@
     <button
       type="button"
       onclick={onSaveAs}
-      class="w-full text-left px-4 py-2 hover:bg-zinc-800 transition flex justify-between items-center bg-transparent border-0 cursor-pointer text-inherit border-b border-zinc-800 pb-2 mb-1"
+      class="w-full text-left px-4 py-2 hover:bg-zinc-800 transition flex justify-between items-center bg-transparent border-0 cursor-pointer text-inherit"
       role="menuitem"
     >
       <span>Save As...</span>
       <span class="text-xs text-zinc-500 font-mono">Ctrl+Shift+S</span>
     </button>
-    <div class="px-4 py-1.5 text-xs text-zinc-500 italic">speedDF v1.0.7</div>
+
+    <!-- Quick tools: lucide-style icons (replaces version footer) -->
+    <div
+      class="flex items-center justify-center gap-1.5 px-3 pt-2 pb-1 mt-1 border-t border-zinc-800"
+      role="group"
+      aria-label="Quick tools"
+    >
+      <button
+        type="button"
+        class={iconBtn}
+        title="Calculator"
+        aria-label="Calculator"
+        onclick={() => openTool(onOpenCalculator)}
+      >
+        <!-- lucide: calculator -->
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <rect width="16" height="20" x="4" y="2" rx="2" />
+          <line x1="8" x2="16" y1="6" y2="6" />
+          <line x1="16" x2="16" y1="14" y2="18" />
+          <path d="M16 10h.01" />
+          <path d="M12 10h.01" />
+          <path d="M8 10h.01" />
+          <path d="M12 14h.01" />
+          <path d="M8 14h.01" />
+          <path d="M12 18h.01" />
+          <path d="M8 18h.01" />
+        </svg>
+      </button>
+
+      <button
+        type="button"
+        class={iconBtn}
+        title="Timer"
+        aria-label="Timer"
+        onclick={() => openTool(onOpenTimer)}
+      >
+        <!-- lucide: timer -->
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <line x1="10" x2="14" y1="2" y2="2" />
+          <line x1="12" x2="15" y1="14" y2="11" />
+          <circle cx="12" cy="14" r="8" />
+        </svg>
+      </button>
+
+      <button
+        type="button"
+        class={iconBtn}
+        title="Stopwatch"
+        aria-label="Stopwatch"
+        onclick={() => openTool(onOpenStopwatch)}
+      >
+        <!-- lucide-style stopwatch (timer + crown) -->
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="13" r="8" />
+          <path d="M12 9v4l2 2" />
+          <path d="M5 4 7.5 6.5" />
+          <path d="M19 4 16.5 6.5" />
+          <path d="M12 5V3" />
+          <path d="M10 3h4" />
+        </svg>
+      </button>
+    </div>
   </div>
 {/if}

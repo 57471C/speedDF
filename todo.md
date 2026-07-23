@@ -7,6 +7,7 @@
 5. comments should have XY co-ords. not stuck at the top of the page.
 
 ## long term goals (may never do)
+1. lopdf + docx-rs export to Word, lopdf + rust_xlsxwriter for Excel
 2. tauri-plugin-tts for Text to Speach
 3. True Structural Text Reflow:
 Instead of writing a full structural reflow engine, intermediate tools use a visual masking mask shortcut:
@@ -19,6 +20,12 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 4. Switch to Bun - could be a big win for speed and bundle size.
 
 ## Fixes
+- [ ] aFter dropping a text annotation. if you select another tool (other than select tool or colour modifier) it should unselect the text that was dropped.
+- [ ] If you change the fontsize of a text annotation it should resize the teatarea's bounding box size to
+- [ ] hover over comment icon the the top right wrokspace comments icon correctly pops out the form for easy adding a comment. But there is "alt text" that pops over the input (clash). Bookmarks icon should popout in the same way and also have the altext removed. 
+- [ ] when Ctrl+scrolling to zoom, it should zoom to the pointer/co-ords
+- [ ] 2 click shape. when adding a shap 1 x click drops a shape with a size based on document zoom. change this to 1 c click ancors the top left corner (rubberbands). 2nd click finalises the size of the shape. BUT STILL ALLOW CLICK DRAG as the primary way to draw shapes.
+- [ ] smoother zoom resizing - is it possible?
 - [x] dropping a text annotation is lower than it should be. it seems like the top/r of the text input drops at the center of the cursour. It should be the top.
 - [x] Disable F5 refresh!
 - [x] remove "Shift" key for grouping
@@ -105,8 +112,8 @@ DEBUG CROP: Box target [2] -> x: 959, y: 86, w: 24, h: 19
 git checkout main
 git pull origin main
 
-git checkout -b fix/save-text-refresh-grouping
-git push -u origin fix/save-text-refresh-grouping
+git checkout -b feat/common-widgets
+git push -u origin feat/common-widgets
 ```
 
 - Close the branch via PR
