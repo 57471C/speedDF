@@ -5,6 +5,7 @@
   import WorkspacePage from "./WorkspacePage.svelte";
   import { activeDoc, FONT_MAP, pushHistorySnapshot } from "../pdfStore.svelte";
   import { debounceLeadingLatest } from "../lib/render/pdfRenderQueue";
+  import { notePdfActivity } from "../lib/render/sharedPdfDocument";
 
   // Debounced auto-fit handler to prevent layout thrashing.
   // It guarantees the layout is updated at most once per timeframe.
@@ -129,6 +130,7 @@
 
     const handleViewportScroll = () => {
       if (!scrollContainer) return;
+      notePdfActivity("scroll");
       (activeDoc as any).scrollTop = scrollContainer.scrollTop;
       (activeDoc as any).scrollHeight = scrollContainer.scrollHeight;
       (activeDoc as any).clientHeight = scrollContainer.clientHeight;

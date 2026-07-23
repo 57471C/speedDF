@@ -15,19 +15,24 @@ On large PDFs (~25MB+), memory climbed continuously with **no user interaction**
 - **`src/lib/render/sharedPdfDocument.ts`**: one shared document per `rawBytes` identity for the active workspace.
 - Main paints (`pageRenderer`), page dimension preload (`WorkspacePage`), and thumbnails (`PageSidebar` / `ThumbnailCanvas`) all use `getSharedWorkspacePdf`.
 - After each page paint: `page.cleanup()`; off-screen pages zero canvas bitmaps via `releaseWhenUnrendered`.
-- Idle: every 30s call `doc.cleanup(true)` only when the render queue is idle (`isPdfRenderBusy()`).
+- **Serialised open:** all `getSharedWorkspacePdf` / `destroySharedWorkspacePdf` ops run on one `opChain`. Concurrent cold-open callers (loadDocument + registerRecentFile effect + first paint) **join** the same in-flight `loadingTask` instead of aborting it (`Loading aborted`).
+- **Never destroy while same-bytes load is in flight** — only replace when `rawBytes` identity changes (save/new file) or on explicit close/tab switch.
+- Idle: armed only via `enableSharedPdfIdleCleanup()` from `markMainViewReady` (first main paint or 2.5s fallback) — **not** on `getDocument` resolve. Every 30s call `doc.cleanup(false)` when the render queue is idle **and** there has been no scroll/paint activity for ~15s. Temporary `[idle-mem]` console logs report heap before/after.
+- Bulk metadata (layout dims, hyperlinks) must `page.cleanup()` after each `getPage` and finish with `runIdleCleanup()` only after main view ready — never leave every page proxy warm.
+- Recent-file snapshot uses `getSharedWorkspacePdf` (never a second `getDocument`).
 - On tab switch / close of active doc: `destroySharedWorkspacePdf()` (loadingTask.destroy + cleanup).
 - On **last tab close** (`cleanupWorkspace`): also `PDFWorker.destroy()` so Wasm heaps do not stack across open/close cycles; next open creates a fresh worker.
 - `purgeDocumentResources(doc)` nulls `rawBytes`, shapes, thumbnail overrides, TIFF pages, forms, etc. **before** dropping the tab so GC can reclaim.
 
-**Do not** reintroduce per-paint `getDocument` on workspace bytes.
+**Do not** reintroduce per-paint `getDocument` on workspace bytes. **Do not** eagerly generate every sidebar thumbnail on open. **Do not** call `loadingTask.destroy()` from idle cleanup.
 
 ### Static sidebar thumbnails
 
 - Generate each page thumb **once** via `ensurePageThumbnail` → JPEG in `pageThumbnailOverrides[pageIndex]`.
 - Sidebar/grid render `<img src={override}>` — no canvas/pdf.js on zoom, scroll, tab focus, or grid toggle.
 - Re-generate only on **page rotate** (`invalidatePageThumbnail`) or **save** (`applyLiveThumbnail` / `syncLiveThumbnail` for annotated page 0).
-- Lazy: placeholder mounts `requestStaticThumb` only while cache miss.
+- Lazy priority: placeholder mounts `requestStaticThumb` with **IntersectionObserver** so visible cards jump the queue.
+- **Background fill:** after `markMainViewReady`, `startBackgroundThumbnailGeneration()` walks every uncached page **one at a time** on the low-priority render slot (shared PDF only), stores each JPEG in `pageThumbnailOverrides` + IndexedDB immediately, and yields between pages. **Order:** currently visible / near-visible PageSidebar cards first (`[data-sidebar-page]` + scroll root `[data-sidebar-thumb-scroll]`, ~240px margin), then the rest of `pageOrder`. Cancelled on tab switch / close via `stopBackgroundThumbnailGeneration` / `clearThumbnailInflight` (generation token).
 - **Main-first open:** low-priority paints blocked until `markMainViewReady()` (first main canvas paint) or 2.5s fallback (`mainViewGate.ts` + `setLowPriorityAllowed`).
 - **Persistent cache:** IndexedDB `speeddf_page_thumbs_v1` keyed by path + content fingerprint (`thumbnailPersist.ts`). Hydrated on open before `pageOrder` mounts.
 

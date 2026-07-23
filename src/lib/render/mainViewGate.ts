@@ -3,6 +3,13 @@
  * Speeds open of large PDFs by keeping the render queue free for page 1.
  */
 
+import { setLowPriorityAllowed } from "./pdfRenderQueue";
+import { enableSharedPdfIdleCleanup } from "./sharedPdfDocument";
+import {
+	startBackgroundThumbnailGeneration,
+	stopBackgroundThumbnailGeneration,
+} from "./thumbnailCache";
+
 let mainReady = false;
 let readyWaiters: Array<() => void> = [];
 /** Fallback so thumbs still start if paint is slow/failed. */
@@ -19,6 +26,8 @@ export function resetMainViewReady(): void {
 		clearTimeout(fallbackTimer);
 		fallbackTimer = null;
 	}
+	// Stop any previous document's background thumbnail fill immediately
+	stopBackgroundThumbnailGeneration();
 	// Always unlock eventually so sidebar is never stuck empty
 	fallbackTimer = setTimeout(() => {
 		fallbackTimer = null;
@@ -47,9 +56,12 @@ export function markMainViewReady(): void {
 		}
 	}
 	// Notify render queue that low-priority work may proceed
-	void import("./pdfRenderQueue").then((m) => {
-		m.setLowPriorityAllowed(true);
-	});
+	setLowPriorityAllowed(true);
+	// Arm shared-doc idle cleanup only after first main paint (or fallback).
+	// Starting the timer on getDocument resolve aborted large cold opens.
+	enableSharedPdfIdleCleanup();
+	// Low-priority sequential fill for every uncached sidebar thumbnail.
+	startBackgroundThumbnailGeneration();
 }
 
 export function isMainViewReady(): boolean {

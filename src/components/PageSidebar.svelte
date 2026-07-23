@@ -21,10 +21,7 @@
     formatCommentTime,
   } from "../lib/comments/comments";
   import { autoGrowTextarea } from "../lib/interaction/autoGrowTextarea";
-  import {
-    ensureAllPageThumbnails,
-    ensurePageThumbnail,
-  } from "../lib/render/thumbnailCache";
+  import { ensurePageThumbnail } from "../lib/render/thumbnailCache";
 
   let sidebarContainer = $state<HTMLDivElement | null>(null);
   let thumbnailElements = $state<Record<number, HTMLDivElement>>({});
@@ -203,36 +200,64 @@
   });
 
   /**
-   * Svelte action: request a one-time static JPEG for this page.
-   * Once `pageThumbnailOverrides[pageNum-1]` exists, the template swaps to `<img>`
-   * and this action is destroyed — no re-render on zoom/scroll/tab focus.
+   * Svelte action: prioritise a static JPEG when the placeholder is near the
+   * sidebar viewport. A separate low-priority background job (started after
+   * main paint) fills the rest of the document over time without scrolling.
+   * Once `pageThumbnailOverrides[pageNum-1]` exists, the template swaps to
+   * `<img>` and this action is destroyed — no re-render on zoom/scroll.
    */
-  function requestStaticThumb(_node: HTMLElement, pageNum: number) {
-    void ensurePageThumbnail(pageNum);
+  function requestStaticThumb(node: HTMLElement, pageNum: number) {
+    let currentPage = pageNum;
+    let cancelled = false;
+
+    const run = () => {
+      if (cancelled) return;
+      void ensurePageThumbnail(currentPage);
+    };
+
+    // Visible cards jump the queue ahead of the background fill.
+    let observer: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== "undefined") {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (cancelled) return;
+          const hit = entries.some((e) => e.isIntersecting);
+          if (hit) {
+            run();
+            // One-shot: after request, stop observing (img swap unmounts us)
+            observer?.disconnect();
+            observer = null;
+          }
+        },
+        {
+          // Viewport root works for both the side list and the grid overlay
+          // (grid is not under sidebarContainer). Overflow clipping still
+          // hides off-screen list cards from intersection.
+          root: null,
+          // Warm a few cards above/below the visible strip
+          rootMargin: "240px 0px 240px 0px",
+          threshold: 0.01,
+        },
+      );
+      observer.observe(node);
+    } else {
+      // No IO support: fall back to immediate generate for this card only
+      run();
+    }
+
     return {
       update(nextPage: number) {
-        void ensurePageThumbnail(nextPage);
+        currentPage = nextPage;
+        // Only regenerate if still mounted as placeholder (cache miss)
+        if (!observer) run();
+      },
+      destroy() {
+        cancelled = true;
+        observer?.disconnect();
+        observer = null;
       },
     };
   }
-
-  /**
-   * Fill missing static JPEGs after main page is prioritised.
-   * Do NOT depend on pageThumbnailOverrides — that re-fires on every thumb
-   * trickle and was part of the main-page flash loop.
-   */
-  $effect(() => {
-    void activeDoc.pageOrder;
-    void activeDoc.rawBytes;
-    void activeDoc.fileType;
-    void activeDoc.activeDocumentId;
-    void activeDoc.tiffPages?.length;
-    if (activeDoc.fileType === "image") return;
-    if (!activeDoc.rawBytes && activeDoc.fileType !== "tiff") return;
-    // Defer a tick so main high-priority paints queue first
-    const t = setTimeout(() => ensureAllPageThumbnails(), 0);
-    return () => clearTimeout(t);
-  });
 
   $effect(() => {
     const activePage = activeDoc.currentPage;
@@ -321,6 +346,8 @@
 
       const newRawBytes = await mergedDoc.save();
 
+      // Count pages via temporary load, then destroy — shared workspace doc
+      // is recreated from the new rawBytes on next paint (identity change).
       const loadingTask = pdfjsLib.getDocument({
         data: new Uint8Array(newRawBytes),
         cMapUrl: window.location.origin + "/cmaps/",
@@ -328,14 +355,21 @@
         standardFontDataUrl: window.location.origin + "/standard_fonts/",
         wasmUrl: window.location.origin + "/"
       });
-      const pdfDocument = await loadingTask.promise;
-
-      activeDoc.rawBytes = newRawBytes;
-      activeDoc.pageCount = pdfDocument.numPages;
-      activeDoc.pageOrder = Array.from(
-        { length: pdfDocument.numPages },
-        (_, idx) => idx + 1,
-      );
+      try {
+        const pdfDocument = await loadingTask.promise;
+        activeDoc.rawBytes = newRawBytes;
+        activeDoc.pageCount = pdfDocument.numPages;
+        activeDoc.pageOrder = Array.from(
+          { length: pdfDocument.numPages },
+          (_, idx) => idx + 1,
+        );
+      } finally {
+        try {
+          await loadingTask.destroy();
+        } catch {
+          /* ignore */
+        }
+      }
 
       input.value = "";
       insertAfterPageNum = null;
@@ -451,14 +485,21 @@
         standardFontDataUrl: window.location.origin + "/standard_fonts/",
         wasmUrl: window.location.origin + "/"
       });
-      const pdfDocument = await loadingTask.promise;
-
-      activeDoc.rawBytes = newRawBytes;
-      activeDoc.pageCount = pdfDocument.numPages;
-      activeDoc.pageOrder = Array.from(
-        { length: pdfDocument.numPages },
-        (_, idx) => idx + 1,
-      );
+      try {
+        const pdfDocument = await loadingTask.promise;
+        activeDoc.rawBytes = newRawBytes;
+        activeDoc.pageCount = pdfDocument.numPages;
+        activeDoc.pageOrder = Array.from(
+          { length: pdfDocument.numPages },
+          (_, idx) => idx + 1,
+        );
+      } finally {
+        try {
+          await loadingTask.destroy();
+        } catch {
+          /* ignore */
+        }
+      }
     } catch (err) {
       console.error("Blank page insertion failure:", err);
       alert("Failed to insert blank page.");
@@ -601,6 +642,7 @@
 {#if activeSidebarTab === 'thumbnails'}
   <div
     bind:this={sidebarContainer}
+    data-sidebar-thumb-scroll
     class="flex-1 overflow-y-auto overflow-x-hidden p-3 relative"
     style="color-scheme: dark;"
   >
@@ -617,6 +659,7 @@
       {#each activeDoc.pageOrder || [] as pageNum, index (pageNum)}
         <div
           bind:this={thumbnailElements[pageNum]}
+          data-sidebar-page={pageNum}
           onclick={() => jumpToTargetPage(pageNum)}
           class="group flex flex-col items-center bg-[#111827]/40 border rounded-lg p-2 transition-all cursor-pointer select-none {isPageMenuOpen && insertAfterPageNum === pageNum ? 'relative z-[60] isolate' : 'relative z-10'}
           {activeDoc.currentPage === pageNum
@@ -1109,13 +1152,14 @@
       </div>
     </div>
     
-    <div class="flex-1 overflow-y-auto p-8 bg-[#070a12]">
+    <div class="flex-1 overflow-y-auto p-8 bg-[#070a12]" data-sidebar-thumb-scroll>
     <div 
       use:setupSortableGrid
       class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-6"
     >
       {#each activeDoc.pageOrder || [] as pageNum, index (pageNum)}
         <div 
+          data-sidebar-page={pageNum}
           onclick={(e) => handleGridSelect(e, pageNum)}
           class="group relative flex flex-col items-center border rounded-xl p-4 transition-all cursor-grab active:cursor-grabbing select-none bg-[#0e131f]
           {selectedPages.includes(pageNum) ? 'border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.1)] bg-[#1a160f]' : 'border-slate-800 hover:border-slate-700'}"

@@ -33,9 +33,16 @@
   import { decodeCommentsFromKeywords } from "../lib/comments/comments";
   import { extractFormFields } from "../lib/forms/formFields";
   import { extractHyperlinksFromDocument } from "../lib/links/hyperlinks";
-  import { resetMainViewReady } from "../lib/render/mainViewGate";
+  import {
+    isMainViewReady,
+    resetMainViewReady,
+    waitMainViewReady,
+  } from "../lib/render/mainViewGate";
   import { setLowPriorityAllowed } from "../lib/render/pdfRenderQueue";
-  import { getSharedWorkspacePdf } from "../lib/render/sharedPdfDocument";
+  import {
+    getSharedWorkspacePdf,
+    runIdleCleanup,
+  } from "../lib/render/sharedPdfDocument";
   import {
     hydrateThumbnailsFromDisk,
     removeDocumentThumbnailCaches,
@@ -538,49 +545,59 @@
         return;
       }
       const bytes = bytesOrThumbnail as Uint8Array;
-      const loadingTask = pdfjsLib.getDocument({
-        data: bytes.slice(0),
-        cMapUrl: window.location.origin + "/cmaps/",
-        cMapPacked: true,
-        standardFontDataUrl: window.location.origin + "/standard_fonts/",
-        wasmUrl: window.location.origin + "/",
-      });
-      const pdfDocument = await loadingTask.promise;
-      const page = await pdfDocument.getPage(1);
+      // Prefer the shared workspace document — never open a second full parse
+      // just for the Recent Documents card (that was a large-PDF leak).
+      const pdfDocument = await getSharedWorkspacePdf(bytes);
+      if (!pdfDocument) return;
 
-      // Render a small scaled offscreen canvas to extract clean base64 data
-      const viewport = page.getViewport({ scale: 0.3 });
-      const canvas = document.createElement("canvas");
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      const ctx = canvas.getContext("2d");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let page: any = null;
+      try {
+        page = await pdfDocument.getPage(1);
 
-      if (ctx) {
-        await page.render({ canvasContext: ctx, viewport } as any).promise;
-        const dataUrl = canvas.toDataURL("image/png");
+        // Render a small scaled offscreen canvas to extract clean base64 data
+        const viewport = page.getViewport({ scale: 0.3 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext("2d");
 
-        let currentList: RecentFile[] = [];
-        const stored = localStorage.getItem("speeddf_recents");
-        if (stored) currentList = JSON.parse(stored);
+        if (ctx) {
+          await page.render({ canvasContext: ctx, viewport } as any).promise;
+          const dataUrl = canvas.toDataURL("image/png");
+          // Drop canvas bitmap immediately — only the data URL is retained.
+          canvas.width = 0;
+          canvas.height = 0;
 
-        // Remove duplicate path strings if they already exist
-        currentList = currentList.filter((f) => f.path !== path);
+          let currentList: RecentFile[] = [];
+          const stored = localStorage.getItem("speeddf_recents");
+          if (stored) currentList = JSON.parse(stored);
 
-        const isLandscape = viewport.width > viewport.height;
-        // Prepend the new document item to the front of the tracking queue
-        currentList.unshift({
-          name,
-          path,
-          timestamp: Date.now(),
-          thumbnail: dataUrl,
-          orientation: isLandscape ? "landscape" : "portrait",
-        });
+          // Remove duplicate path strings if they already exist
+          currentList = currentList.filter((f) => f.path !== path);
 
-        // Cap array length at 10 items total
-        if (currentList.length > 10) currentList = currentList.slice(0, 10);
+          const isLandscape = viewport.width > viewport.height;
+          // Prepend the new document item to the front of the tracking queue
+          currentList.unshift({
+            name,
+            path,
+            timestamp: Date.now(),
+            thumbnail: dataUrl,
+            orientation: isLandscape ? "landscape" : "portrait",
+          });
 
-        localStorage.setItem("speeddf_recents", JSON.stringify(currentList));
-        activeDoc.recents = currentList;
+          // Cap array length at 10 items total
+          if (currentList.length > 10) currentList = currentList.slice(0, 10);
+
+          localStorage.setItem("speeddf_recents", JSON.stringify(currentList));
+          activeDoc.recents = currentList;
+        }
+      } finally {
+        try {
+          page?.cleanup?.();
+        } catch {
+          /* ignore */
+        }
       }
     } catch (err) {
       console.error(
@@ -947,17 +964,26 @@
             /* ignore */
           }
 
-          // Refresh full layout cache in the background (warms next open)
+          // Refresh full layout cache in the background (warms next open).
+          // Sequential getPage + page.cleanup so we do not retain operator
+          // lists for every page of a large PDF after measuring.
           try {
-            const dimPromises = Array.from(
-              { length: pdfDocument.numPages },
-              (_, i) =>
-                pdfDocument.getPage(i + 1).then((p: any) => {
-                  const vp = p.getViewport({ scale: 1 });
-                  return { width: vp.width, height: vp.height };
-                }),
-            );
-            const pageDims = await Promise.all(dimPromises);
+            const pageDims: { width: number; height: number }[] = [];
+            for (let i = 1; i <= pdfDocument.numPages; i++) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              let p: any = null;
+              try {
+                p = await pdfDocument.getPage(i);
+                const vp = p.getViewport({ scale: 1 });
+                pageDims.push({ width: vp.width, height: vp.height });
+              } finally {
+                try {
+                  p?.cleanup?.();
+                } catch {
+                  /* ignore */
+                }
+              }
+            }
             cacheDocumentLayoutMetadata(
               filePath,
               pdfDocument.numPages,
@@ -967,6 +993,14 @@
               (d: any) => d.workspaceId === activeDoc.activeDocumentId,
             );
             if (doc) doc.cachedDimensions = pageDims;
+            // Soft reclaim only after main view is ready (idle timer also armed then).
+            // Never destroy/replace the shared doc from this background walk.
+            try {
+              if (!isMainViewReady()) await waitMainViewReady();
+              await runIdleCleanup();
+            } catch {
+              /* ignore idle reclaim failures */
+            }
           } catch (cacheErr) {
             console.warn("Layout cache extraction failed:", cacheErr);
           }
@@ -1221,7 +1255,9 @@
     showUnsavedModal = true;
   }
 
-  // Auto-track files when they are loaded into activeDoc
+  // Auto-track files when they are loaded into activeDoc.
+  // Defer until the shared PDF is ready so we do not race cold-open getDocument
+  // (registerRecentFile joins the same loadingTask via getSharedWorkspacePdf).
   $effect(() => {
     if (activeDoc.rawBytes && activeDoc.fileName && activeDoc.filePath) {
       // Images/TIFF register their own thumbnails (data URL) in the load path —
@@ -1238,13 +1274,21 @@
       }
       const alreadyFirst =
         currentList[0] && currentList[0].path === activeDoc.filePath;
-      if (!alreadyFirst) {
-        registerRecentFile(
-          activeDoc.fileName,
-          activeDoc.filePath,
-          activeDoc.rawBytes,
-        );
-      }
+      if (alreadyFirst) return;
+
+      const name = activeDoc.fileName;
+      const path = activeDoc.filePath;
+      const bytes = activeDoc.rawBytes;
+      let cancelled = false;
+      // Wait a tick so loadDocument's getSharedWorkspacePdf is first in opChain.
+      const t = setTimeout(() => {
+        if (cancelled) return;
+        void registerRecentFile(name, path, bytes);
+      }, 0);
+      return () => {
+        cancelled = true;
+        clearTimeout(t);
+      };
     }
   });
 

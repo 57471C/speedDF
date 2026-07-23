@@ -14,6 +14,7 @@ import { markMainViewReady } from "./mainViewGate";
 import {
 	cleanupPdfPage,
 	getSharedWorkspacePdf,
+	notePdfActivity,
 	type SharedPdfPage,
 } from "./sharedPdfDocument";
 
@@ -337,6 +338,7 @@ export function createPageRenderer(deps: PageRendererDeps) {
 					const pdfDocument = await getSharedWorkspacePdf(pdfBytes);
 					if (!pdfDocument || generation !== paintGeneration) return;
 
+					notePdfActivity("main-paint");
 					// PDFPageProxy — typed loosely so we don't couple to pdf.js internals.
 					// eslint-disable-next-line @typescript-eslint/no-explicit-any
 					const nextPage: any = await pdfDocument.getPage(pageNum);
