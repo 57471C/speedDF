@@ -256,6 +256,14 @@
     };
   });
 
+  // Leaving Select/Text tools ends in-page text edit sessions (selection is cleared in the store)
+  $effect(() => {
+    const tool = activeDoc.activeTool;
+    if (tool !== "select" && tool !== "text" && ix.activelyEditingIndex !== null) {
+      ix.activelyEditingIndex = null;
+    }
+  });
+
   $effect(() => {
     const degrees = activeDoc.fileType === "image"
       ? (activeDoc.imageRotation ?? 0)
@@ -432,7 +440,7 @@
   onpointercancel={handlePointerUp}
   onpointerenter={handlePointerEnter}
   onpointerleave={handlePointerLeave}
-  class="bg-white relative rounded-sm mb-12 select-none {isInkTool ? 'touch-none' : ''}"
+  class="bg-white relative rounded-sm mb-12 select-none page-shell {isInkTool ? 'touch-none' : ''}"
   style="box-shadow: 0 30px 60px -15px rgba(0, 0, 0, 0.65);
          {activeDoc.fileType === 'image'
            ? `width: ${currentWidth * scaleFactor}px; height: ${currentHeight * scaleFactor}px;`
@@ -483,12 +491,13 @@
     ></div>
   {/if}
 
-  <!-- Page chrome: bookmarks (top), then comments — always visible; grey outline when empty -->
+  <!-- Page chrome: bookmarks (top), then comments.
+       Fixed icon rail + absolute popouts so hover never shifts the stack. -->
   <div class="absolute top-2 left-[calc(100%+8px)] z-30 flex flex-col items-start gap-1.5">
     {#if activeDoc.fileType === 'image'}
       <!-- Bookmarks / comments are not available for image documents -->
     {:else}
-      <!-- 1. Bookmark (top) -->
+      <!-- 1. Bookmark (top) — hover popout only; no native title/tooltip clash -->
       {#if activeDoc.bookmarks.some(b => b.pageNum === pageNumber)}
         {@const match = activeDoc.bookmarks.find(b => b.pageNum === pageNumber)!}
         {@const s = (() => {
@@ -508,18 +517,21 @@
         <div
           onmouseenter={() => s.isHovered = true}
           onmouseleave={() => s.isHovered = false}
-          class="flex items-start bg-transparent select-none">
+          class="relative w-5 h-[26px] bg-transparent select-none"
+        >
           <button
+            type="button"
             onclick={() => activeDoc.currentPage = pageNumber}
-            class="text-cyan-400 hover:text-cyan-300 drop-shadow-lg transition-transform active:scale-95 shrink-0 block"
-            title="Bookmark">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="26" viewBox="0 0 24 24" fill="currentColor">
+            class="absolute inset-0 flex items-start justify-start text-cyan-400 hover:text-cyan-300 drop-shadow-lg transition-transform active:scale-95"
+            aria-label="Bookmark"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="26" viewBox="0 0 24 24" fill="currentColor" class="block">
               <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
             </svg>
           </button>
 
           {#if s.isHovered || s.isEditing}
-            <div class="flex items-center gap-2 bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1 shadow-2xl ml-1.5 backdrop-blur-sm z-50 whitespace-nowrap">
+            <div class="absolute left-full top-0 ml-1.5 flex items-center gap-2 bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1 shadow-2xl backdrop-blur-sm z-50 whitespace-nowrap pointer-events-auto">
               {#if s.isEditing}
                 <input
                   type="text"
@@ -537,12 +549,14 @@
                   autofocus
                 />
                 <button
+                  type="button"
                   onclick={() => {
                     updateBookmarkNameAction(pageNumber, s.tempName);
                     s.isEditing = false;
                   }}
                   class="p-0.5 rounded text-emerald-400 hover:bg-slate-800"
-                  title="Save Changes">
+                  aria-label="Save bookmark name"
+                >
                   <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </button>
               {:else}
@@ -550,51 +564,89 @@
                   {match.name || 'Untitled reference'}
                 </span>
                 <button
+                  type="button"
                   onclick={() => s.isEditing = true}
                   class="p-0.5 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"
-                  title="Rename Note">
+                  aria-label="Rename bookmark"
+                >
                   <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                 </button>
               {/if}
 
               <button
+                type="button"
                 onclick={() => deleteBookmarkAction(pageNumber)}
-                class="p-0.5 rounded text-slate-500 hover:text-red-400 hover:bg-slate-800">
+                class="p-0.5 rounded text-slate-500 hover:text-red-400 hover:bg-slate-800"
+                aria-label="Remove bookmark"
+              >
                 <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               </button>
             </div>
           {/if}
         </div>
       {:else}
-        <button
-          onclick={() => addOrToggleBookmarkAction(pageNumber)}
-          class="text-slate-500 hover:text-slate-300 drop-shadow-md transition-colors active:scale-95"
-          title="Add Bookmark">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-          </svg>
-        </button>
+        <!-- Empty bookmark: hover popout (mirrors comments), no title tooltip -->
+        {@const emptyBm = (() => {
+          let isHovered = $state(false);
+          return {
+            get isHovered() { return isHovered },
+            set isHovered(v) { isHovered = v },
+          };
+        })()}
+        <div
+          onmouseenter={() => (emptyBm.isHovered = true)}
+          onmouseleave={() => (emptyBm.isHovered = false)}
+          class="relative w-5 h-[26px] bg-transparent select-none"
+        >
+          <button
+            type="button"
+            onclick={() => addOrToggleBookmarkAction(pageNumber)}
+            class="absolute inset-0 flex items-start justify-start text-slate-500 hover:text-slate-300 drop-shadow-md transition-colors active:scale-95"
+            aria-label="Add bookmark"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="block">
+              <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+            </svg>
+          </button>
+          {#if emptyBm.isHovered}
+            <div
+              class="absolute left-full top-0 ml-1.5 flex items-center gap-2 bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1 shadow-2xl backdrop-blur-sm z-50 whitespace-nowrap pointer-events-auto"
+              onmousedown={(e) => e.stopPropagation()}
+            >
+              <span class="text-[10px] font-medium text-slate-300 font-sans">Add page bookmark</span>
+              <button
+                type="button"
+                onclick={() => addOrToggleBookmarkAction(pageNumber)}
+                class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600/30 border border-cyan-500/30"
+              >
+                Add
+              </button>
+            </div>
+          {/if}
+        </div>
       {/if}
 
-      <!-- 2. Comments (below bookmark) — popout matches bookmark chrome -->
+      <!-- 2. Comments — same 20px rail as bookmark; +1px nudge for stroke-edge alignment -->
       <div
         onmouseenter={() => (commentHovered = true)}
         onmouseleave={() => {
           if (!commentComposing) commentHovered = false;
         }}
-        class="flex items-start bg-transparent select-none"
+        class="relative w-5 min-h-[18px] bg-transparent select-none"
       >
         <button
+          type="button"
           onclick={(e) => {
             e.stopPropagation();
             commentComposing = true;
             commentHovered = true;
           }}
-          class="flex items-center gap-0.5 drop-shadow-md transition-colors active:scale-95 shrink-0
+          class="flex items-center gap-0.5 drop-shadow-md transition-colors active:scale-95
+            ml-px
             {pageHasCommentThreads
               ? 'text-amber-400 hover:text-amber-300'
               : 'text-slate-500 hover:text-slate-300'}"
-          title={pageHasCommentThreads
+          aria-label={pageHasCommentThreads
             ? `Comments (${pageCommentCount})`
             : "Add comment on this page"}
         >
@@ -608,6 +660,7 @@
             stroke-width="2"
             stroke-linecap="round"
             stroke-linejoin="round"
+            class="block shrink-0"
           >
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
@@ -618,7 +671,7 @@
 
         {#if commentHovered || commentComposing}
           <div
-            class="flex flex-col gap-1.5 bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1.5 shadow-2xl ml-1.5 backdrop-blur-sm z-50 min-w-[180px] max-w-[240px]"
+            class="absolute left-full top-0 ml-1.5 flex flex-col gap-1.5 bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1.5 shadow-2xl backdrop-blur-sm z-50 min-w-[180px] max-w-[240px] pointer-events-auto"
             onmousedown={(e) => e.stopPropagation()}
           >
             {#if pageHasCommentThreads}
@@ -635,7 +688,7 @@
                     commentHovered = false;
                   }}
                   class="p-0.5 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800 shrink-0"
-                  title="Open comments panel"
+                  aria-label="Open comments panel"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 </button>
@@ -707,7 +760,7 @@
                   {commentDraft.trim()
                     ? 'text-emerald-400 hover:bg-slate-800'
                     : 'text-slate-600 cursor-not-allowed'}"
-                title="Post comment (Ctrl+Enter)"
+                aria-label="Post comment (Ctrl+Enter)"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
               </button>
@@ -720,7 +773,12 @@
 </div>
 
 <style>
-  /* Minimal PDF.js text layer styles Ã¢â‚¬â€ characters are invisible but selectable.
+  /* Smooth CSS box resize while zooming (canvas repaints on their own cadence) */
+  .page-shell {
+    transition: width 0.12s ease-out, min-height 0.12s ease-out, height 0.12s ease-out;
+  }
+
+  /* Minimal PDF.js text layer styles — characters are invisible but selectable.
      :global() is required because TextLayer injects spans at runtime. */
   .textLayer {
     pointer-events: none;

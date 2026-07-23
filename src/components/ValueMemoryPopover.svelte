@@ -76,29 +76,50 @@
     if (left + width > window.innerWidth - 8) {
       left = Math.max(8, window.innerWidth - width - 8);
     }
+    // Prefer below the field; flip above only if it would clip the viewport
+    if (panelEl) {
+      const h = panelEl.getBoundingClientRect().height;
+      if (top + h > window.innerHeight - 8 && r.top - h - 4 > 8) {
+        top = r.top - h - 4;
+      }
+    }
     pos = { top, left, width };
   }
 
+  /**
+   * Keep the panel glued to the anchor bottom while it grows (newlines /
+   * auto-expand) or the page scrolls/zooms. Re-run when value changes so
+   * layout that hasn't hit ResizeObserver yet still updates after Enter.
+   */
   $effect(() => {
     if (!showPanel || !anchorEl) return;
+    // Track typed content so Enter/newlines re-place even mid-layout
+    void currentValue;
+
     place();
     const onScroll = () => place();
     const onResize = () => place();
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onResize);
-    requestAnimationFrame(() => {
-      if (!panelEl || !anchorEl) return;
-      const r = anchorEl.getBoundingClientRect();
-      const h = panelEl.getBoundingClientRect().height;
-      let top = r.bottom + 4;
-      if (top + h > window.innerHeight - 8 && r.top - h - 4 > 8) {
-        top = r.top - h - 4;
-      }
-      pos = { ...pos, top };
-    });
+
+    // Anchor size changes (textarea auto-grow / annotation box height %)
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => place());
+      ro.observe(anchorEl);
+      // Parent host often owns the % height; observe it too when present
+      const host = anchorEl.parentElement;
+      if (host) ro.observe(host);
+    }
+
+    // After panel paints, re-measure (height flip above/below)
+    const raf = requestAnimationFrame(() => place());
+
     return () => {
+      cancelAnimationFrame(raf);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onResize);
+      ro?.disconnect();
     };
   });
 

@@ -69,6 +69,13 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 	let lineStartPct = $state<PointPct | null>(null);
 	let linePreviewPct = $state<PointPct | null>(null);
 
+	/**
+	 * Box shape tools: click (no drag) anchors top-left and rubber-bands until
+	 * a second click. Click-drag remains the primary path (finalize on pointerup).
+	 */
+	let boxAwaitingEnd = $state(false);
+	let boxDidDrag = false;
+
 	let activelyEditingIndex = $state<number | null>(null);
 	/** Snapshot of text when edit began — guards against accidental empty-delete on blur. */
 	let textEditBaseline = "";
@@ -109,6 +116,39 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		lineAwaitingEnd = false;
 		lineStartPct = null;
 		linePreviewPct = null;
+	}
+
+	function clearBoxRubberbandState() {
+		boxAwaitingEnd = false;
+		boxDidDrag = false;
+	}
+
+	function commitBoxShapeFromPixels(
+		pageNumber: number,
+		sx: number,
+		sy: number,
+		ex: number,
+		ey: number,
+	) {
+		const toolType = activeDoc.activeTool as AnnotationShape["type"];
+		if (!isBoxShapeTool(toolType)) return;
+		const boxOpts = {
+			color: activeDoc.activeColor,
+			thickness: activeDoc.activeThickness,
+			lineStyle: activeDoc.activeLineStyle,
+		};
+		// Top-left anchor = first point; second point is opposite corner
+		const startNorm = normalizeCoordinates(sx, sy);
+		const endNorm = normalizeCoordinates(ex, ey);
+		const newShape = createBoxShape(toolType, startNorm, endNorm, boxOpts);
+		const existing = activeDoc.shapes[pageNumber] || [];
+		activeDoc.shapes = {
+			...activeDoc.shapes,
+			[pageNumber]: [...existing, newShape],
+		};
+		clearBoxRubberbandState();
+		isDrawing = false;
+		dragActive = false;
 	}
 
 	function commitLineShape(start: PointPct, end: PointPct) {
@@ -351,14 +391,22 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			return;
 		}
 
-		// Switching away mid-line cancels an unfinished rubber-band
+		// Switching away mid-line / mid-box cancels an unfinished rubber-band
 		if (activeDoc.activeTool !== "line" && lineAwaitingEnd) {
 			clearLineDrawingState();
 		}
+		if (!isBoxShapeTool(activeDoc.activeTool) && boxAwaitingEnd) {
+			clearBoxRubberbandState();
+			isDrawing = false;
+			dragActive = false;
+		}
 
 		if (activeDoc.activeTool !== "text") {
-			// Second line click finalizes; history already pushed on first click
-			if (!(activeDoc.activeTool === "line" && lineAwaitingEnd)) {
+			// Second line/box click finalizes; history already pushed on first click
+			const secondClick =
+				(activeDoc.activeTool === "line" && lineAwaitingEnd) ||
+				(isBoxShapeTool(activeDoc.activeTool) && boxAwaitingEnd);
+			if (!secondClick) {
 				pushHistorySnapshot();
 			}
 		}
@@ -446,7 +494,29 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 
 		if (isBoxShapeTool(activeDoc.activeTool)) {
 			e.preventDefault();
+
+			// Second click: finalize rubber-band from first anchor to this point
+			if (boxAwaitingEnd) {
+				const endX = e.clientX - rect.left;
+				const endY = e.clientY - rect.top;
+				const w = Math.abs(endX - startX);
+				const h = Math.abs(endY - startY);
+				if (w > 2 && h > 2) {
+					commitBoxShapeFromPixels(_pageNumber, startX, startY, endX, endY);
+				} else {
+					// Degenerate second click — cancel rubber-band
+					clearBoxRubberbandState();
+					isDrawing = false;
+					dragActive = false;
+				}
+				dragPageRect = null;
+				return;
+			}
+
+			// First click / drag start: anchor top-left
 			isDrawing = true;
+			boxAwaitingEnd = false;
+			boxDidDrag = false;
 			startX = e.clientX - rect.left;
 			startY = e.clientY - rect.top;
 			currentX = startX;
@@ -769,11 +839,19 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			}
 		}
 
-		// Case 4: Shape drawing
-		else if (isDrawing && isBoxShapeTool(activeDoc.activeTool)) {
+		// Case 4: Shape drawing (drag path or click-click rubber-band)
+		else if (
+			isDrawing &&
+			isBoxShapeTool(activeDoc.activeTool) &&
+			(dragActive || boxAwaitingEnd)
+		) {
 			const rect = dragPageRect || pageContainer.getBoundingClientRect();
 			currentX = rawCurrentX - rect.left;
 			currentY = rawCurrentY - rect.top;
+			if (dragActive && !boxAwaitingEnd) {
+				const moved = Math.hypot(currentX - startX, currentY - startY);
+				if (moved > 3) boxDidDrag = true;
+			}
 		}
 	}
 
@@ -797,6 +875,12 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			dragActive = false;
 			releasePagePointer(e);
 		}
+		if (boxAwaitingEnd && !isBoxShapeTool(activeDoc.activeTool)) {
+			clearBoxRubberbandState();
+			isDrawing = false;
+			dragActive = false;
+			releasePagePointer(e);
+		}
 
 		const rect = dragPageRect || pageContainer.getBoundingClientRect();
 		const rawX = e.clientX - rect.left;
@@ -805,7 +889,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		hoverPctX = mousePctX;
 		hoverPctY = mousePctY;
 
-		if (dragActive || lineAwaitingEnd) {
+		if (dragActive || lineAwaitingEnd || boxAwaitingEnd) {
 			e.preventDefault();
 			rawCurrentX = e.clientX;
 			rawCurrentY = e.clientY;
@@ -823,6 +907,12 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			// Keep line rubber-band tracking even when dragActive was cleared on leave/re-enter
 			if (lineAwaitingEnd && activeDoc.activeTool === "line") {
 				linePreviewPct = { x: mousePctX, y: mousePctY };
+			}
+
+			// Click-click box rubber-band: track opposite corner under cursor
+			if (boxAwaitingEnd && isBoxShapeTool(activeDoc.activeTool)) {
+				currentX = rawX;
+				currentY = rawY;
 			}
 
 			if (!animationFrameId) {
@@ -1066,7 +1156,13 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			return;
 		}
 
-		isDrawing = false;
+		// Click-click rubber-band mode: pointerup after first anchor does not commit
+		if (boxAwaitingEnd) {
+			dragActive = false;
+			releasePagePointer(e);
+			return;
+		}
+
 		dragActive = false;
 		dragPageRect = null;
 		releasePagePointer(e);
@@ -1077,34 +1173,27 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		const widthPixels = Math.abs(finalCurrentX - startX);
 		const heightPixels = Math.abs(finalCurrentY - startY);
 
-		const boxOpts = {
-			color: activeDoc.activeColor,
-			thickness: activeDoc.activeThickness,
-			lineStyle: activeDoc.activeLineStyle,
-		};
-		const toolType = activeDoc.activeTool as AnnotationShape["type"];
-
-		let newShape: AnnotationShape;
-		if (widthPixels > 2 && heightPixels > 2) {
-			// Drag-to-size
-			const startNorm = normalizeCoordinates(startX, startY);
-			const endNorm = normalizeCoordinates(finalCurrentX, finalCurrentY);
-			newShape = createBoxShape(toolType, startNorm, endNorm, boxOpts);
-		} else {
-			// Click-to-drop: default size = 1.5× zoom level (100% → 150×150px).
-			// Pointer is the top-right corner; shape extends left and down.
-			const zoom = Math.max(5, Math.abs(getZoomScale()));
-			const defaultSizePx = zoom * 1.5;
-			const startNorm = normalizeCoordinates(startX - defaultSizePx, startY);
-			const endNorm = normalizeCoordinates(startX, startY + defaultSizePx);
-			newShape = createBoxShape(toolType, startNorm, endNorm, boxOpts);
+		// Primary path: click-drag to size
+		if (boxDidDrag && widthPixels > 2 && heightPixels > 2) {
+			commitBoxShapeFromPixels(
+				pageNumber,
+				startX,
+				startY,
+				finalCurrentX,
+				finalCurrentY,
+			);
+			return;
 		}
 
-		const existing = activeDoc.shapes[pageNumber] || [];
-		activeDoc.shapes = {
-			...activeDoc.shapes,
-			[pageNumber]: [...existing, newShape],
-		};
+		// Click without drag: anchor top-left and rubber-band until second click
+		boxAwaitingEnd = true;
+		boxDidDrag = false;
+		isDrawing = true;
+		currentX = startX;
+		currentY = startY;
+		// Retain page rect so rubber-band pointermove stays accurate
+		dragPageRect = pageContainer.getBoundingClientRect();
+		// Keep startX/startY as the top-left anchor; preview tracks pointermove
 	}
 
 	function initHandleDrag(e: MouseEvent, index: number, handleType: string) {
