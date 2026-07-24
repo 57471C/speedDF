@@ -5,7 +5,8 @@
 	"windows": [
 		"tools-calculator",
 		"tools-timer",
-		"tools-stopwatch"
+		"tools-stopwatch",
+		"tools-magic8ball"
 	],
 	"permissions": [
 		"core:default",

@@ -19,6 +19,9 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 4. Switch to Bun - could be a big win for speed and bundle size.
 
 ## Fixes
+- [ ] adding bookmarks from the workspace icon. The whole behaviour is wrong. Clicking the icon shouldn't submit "Untitled bookmark". It should open the edit view of the popout, focus the cursor on the text input so the user can add their own title.
+The hover popout disapares as the user tries to "catch" the "add" button. this state of the popout is unnessicary. Hover is only needed when there's an active bookmark
+
 - [x] aFter dropping a text annotation. if you select another tool (other than select tool or colour modifier) it should unselect the text that was dropped.
 - [x] If you change the fontsize of a text annotation it should resize the teatarea's bounding box size to
 - [x] hover over comment icon the the top right wrokspace comments icon correctly pops out the form for easy adding a comment. But there is "alt text" that pops over the input (clash). Bookmarks icon should popout in the same way and also have the altext removed. 
