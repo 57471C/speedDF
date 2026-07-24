@@ -11,6 +11,7 @@
     onOpenCalculator,
     onOpenTimer,
     onOpenStopwatch,
+    onOpenMagic8Ball,
   }: {
     x?: number;
     y?: number;
@@ -24,6 +25,7 @@
     onOpenCalculator?: () => void;
     onOpenTimer?: () => void;
     onOpenStopwatch?: () => void;
+    onOpenMagic8Ball?: () => void;
   } = $props();
 
   function openTool(fn?: () => void) {
@@ -174,6 +176,35 @@
           <path d="M19 4 16.5 6.5" />
           <path d="M12 5V3" />
           <path d="M10 3h4" />
+        </svg>
+      </button>
+
+      <button
+        type="button"
+        class={iconBtn}
+        title="Magic 8 Ball"
+        aria-label="Magic 8 Ball"
+        onclick={() => openTool(onOpenMagic8Ball)}
+      >
+        <!-- Mini 8-ball icon -->
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.9" />
+          <circle cx="12" cy="12" r="4.2" fill="#0ea5e9" />
+          <text
+            x="12"
+            y="13.5"
+            text-anchor="middle"
+            font-size="6"
+            font-weight="700"
+            font-family="system-ui, sans-serif"
+            fill="white"
+          >8</text>
         </svg>
       </button>
     </div>

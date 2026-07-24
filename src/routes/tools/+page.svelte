@@ -16,8 +16,12 @@
     type CalculatorState,
   } from "../../lib/tools/calculator";
   import { formatCountdown, formatStopwatch } from "../../lib/tools/formatTime";
+  import {
+    MAGIC_8_BALL_SHAKE_MS,
+    pickMagic8BallAnswer,
+  } from "../../lib/tools/magic8Ball";
 
-  type ToolsMode = "calculator" | "timer" | "stopwatch";
+  type ToolsMode = "calculator" | "timer" | "stopwatch" | "magic8ball";
 
   let mode = $state<ToolsMode>("calculator");
 
@@ -274,6 +278,43 @@
     swLaps = [swElapsedMs, ...swLaps].slice(0, 50);
   }
 
+  // ── Magic 8 Ball ────────────────────────────────────────
+  let eightAnswer = $state<string | null>(null);
+  let eightShaking = $state(false);
+  let eightReveal = $state(false);
+  let eightShakeTimer: ReturnType<typeof setTimeout> | null = null;
+  let eightRevealTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearEightTimers() {
+    if (eightShakeTimer != null) {
+      clearTimeout(eightShakeTimer);
+      eightShakeTimer = null;
+    }
+    if (eightRevealTimer != null) {
+      clearTimeout(eightRevealTimer);
+      eightRevealTimer = null;
+    }
+  }
+
+  function askMagic8Ball() {
+    if (eightShaking) return;
+    clearEightTimers();
+    eightReveal = false;
+    eightAnswer = null;
+    eightShaking = true;
+
+    eightShakeTimer = setTimeout(() => {
+      eightShaking = false;
+      eightAnswer = pickMagic8BallAnswer();
+      // Next frame so the wipe transition runs from hidden → shown
+      eightRevealTimer = setTimeout(() => {
+        eightReveal = true;
+        eightRevealTimer = null;
+      }, 16);
+      eightShakeTimer = null;
+    }, MAGIC_8_BALL_SHAKE_MS);
+  }
+
   // ── Window chrome ───────────────────────────────────────
   async function closeWindow() {
     try {
@@ -309,6 +350,12 @@
     if (e.key === "Escape") {
       e.preventDefault();
       closeWindow();
+      return;
+    }
+
+    if (mode === "magic8ball" && (e.key === " " || e.key === "Enter")) {
+      e.preventDefault();
+      askMagic8Ball();
       return;
     }
 
@@ -355,24 +402,38 @@
     }
   }
 
+  function modeTitle(m: ToolsMode): string {
+    switch (m) {
+      case "calculator":
+        return "Calculator";
+      case "timer":
+        return "Timer";
+      case "stopwatch":
+        return "Stopwatch";
+      case "magic8ball":
+        return "Magic 8 Ball";
+    }
+  }
+
   onMount(() => {
     const params = new URLSearchParams(window.location.search);
     const m = params.get("mode");
-    if (m === "timer" || m === "stopwatch" || m === "calculator") {
+    if (
+      m === "timer" ||
+      m === "stopwatch" ||
+      m === "calculator" ||
+      m === "magic8ball"
+    ) {
       mode = m;
     }
-    document.title =
-      mode === "calculator"
-        ? "Calculator"
-        : mode === "timer"
-          ? "Timer"
-          : "Stopwatch";
+    document.title = modeTitle(mode);
     void revealToolsWindow();
   });
 
   onDestroy(() => {
     stopTimerLoop();
     stopSwLoop();
+    clearEightTimers();
   });
 </script>
 
@@ -390,11 +451,7 @@
       class="text-xs font-semibold tracking-wide text-zinc-300 uppercase pointer-events-none"
       data-tauri-drag-region
     >
-      {mode === "calculator"
-        ? "Calculator"
-        : mode === "timer"
-          ? "Timer"
-          : "Stopwatch"}
+      {modeTitle(mode)}
     </span>
     <button
       type="button"
@@ -408,7 +465,7 @@
   </header>
 
   <main
-    class="flex-1 min-h-0 flex flex-col {mode === 'timer'
+    class="flex-1 min-h-0 flex flex-col {mode === 'timer' || mode === 'magic8ball'
       ? 'px-3 pt-2 pb-2'
       : 'p-3'}"
   >
@@ -560,7 +617,7 @@
           </button>
         </div>
       </div>
-    {:else}
+    {:else if mode === "stopwatch"}
       <!-- Stopwatch -->
       <div class="flex-1 flex flex-col min-h-0">
         <div class="flex flex-col items-center justify-center gap-3 py-3 shrink-0">
@@ -617,6 +674,148 @@
             </ul>
           {/if}
         </div>
+      </div>
+    {:else if mode === "magic8ball"}
+      <!-- Magic 8 Ball -->
+      <div class="flex-1 flex flex-col items-center justify-center gap-3 min-h-0">
+        <p class="text-[11px] text-zinc-500 uppercase tracking-widest font-semibold">
+          Ask a yes / no question
+        </p>
+
+        <button
+          type="button"
+          class="eight-ball-hit no-drag border-0 bg-transparent p-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70 rounded-full
+            {eightShaking ? 'eight-ball-shaking' : ''}"
+          onclick={askMagic8Ball}
+          disabled={eightShaking}
+          aria-label={eightShaking ? "Shaking…" : "Ask the Magic 8 Ball"}
+          title={eightShaking ? "Shaking…" : "Click to ask"}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 200 200"
+            width="200"
+            height="200"
+            class="drop-shadow-[0_12px_28px_rgba(0,0,0,0.55)]"
+            aria-hidden="true"
+          >
+            <defs>
+              <radialGradient id="ballBody" cx="35%" cy="30%" r="70%">
+                <stop offset="0%" stop-color="#3f3f46" />
+                <stop offset="45%" stop-color="#18181b" />
+                <stop offset="100%" stop-color="#09090b" />
+              </radialGradient>
+              <radialGradient id="ballWindow" cx="40%" cy="35%" r="65%">
+                <stop offset="0%" stop-color="#38bdf8" />
+                <stop offset="55%" stop-color="#0369a1" />
+                <stop offset="100%" stop-color="#0c4a6e" />
+              </radialGradient>
+              <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="2.5" result="b" />
+                <feMerge>
+                  <feMergeNode in="b" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </defs>
+
+            <!-- Outer ball -->
+            <circle cx="100" cy="100" r="92" fill="url(#ballBody)" />
+            <circle
+              cx="100"
+              cy="100"
+              r="92"
+              fill="none"
+              stroke="#52525b"
+              stroke-width="1.5"
+              opacity="0.5"
+            />
+            <!-- Specular highlight -->
+            <ellipse
+              cx="72"
+              cy="62"
+              rx="28"
+              ry="16"
+              fill="white"
+              opacity="0.12"
+            />
+
+            <!-- Blue answer window -->
+            <circle cx="100" cy="100" r="42" fill="url(#ballWindow)" filter="url(#softGlow)" />
+            <circle
+              cx="100"
+              cy="100"
+              r="42"
+              fill="none"
+              stroke="#7dd3fc"
+              stroke-width="1.25"
+              opacity="0.35"
+            />
+
+            <!-- White triangle (answer face) -->
+            <polygon
+              points="100,68 132,128 68,128"
+              fill="#f8fafc"
+              opacity="0.95"
+            />
+
+            {#if eightAnswer && eightReveal}
+              <foreignObject x="72" y="88" width="56" height="40">
+                <div
+                  xmlns="http://www.w3.org/1999/xhtml"
+                  class="eight-answer-text eight-answer-show"
+                >
+                  {eightAnswer}
+                </div>
+              </foreignObject>
+            {:else if eightAnswer && !eightReveal}
+              <foreignObject x="72" y="88" width="56" height="40">
+                <div
+                  xmlns="http://www.w3.org/1999/xhtml"
+                  class="eight-answer-text"
+                >
+                  {eightAnswer}
+                </div>
+              </foreignObject>
+            {:else if !eightShaking}
+              <!-- Idle: big 8 -->
+              <text
+                x="100"
+                y="112"
+                text-anchor="middle"
+                font-family="system-ui, Segoe UI, sans-serif"
+                font-size="36"
+                font-weight="800"
+                fill="#0f172a"
+              >8</text>
+            {/if}
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          onclick={askMagic8Ball}
+          disabled={eightShaking}
+          class="px-6 py-2 rounded-lg text-sm font-bold text-white transition-colors min-w-[7rem]
+            disabled:opacity-50 disabled:cursor-not-allowed
+            bg-indigo-600 hover:bg-indigo-500"
+        >
+          {eightShaking ? "Shaking…" : eightAnswer ? "Ask again" : "Ask"}
+        </button>
+
+        <p
+          class="text-center text-sm min-h-[2.5rem] px-3 leading-snug
+            {eightReveal ? 'eight-caption-show text-cyan-200' : 'text-zinc-500'}"
+          aria-live="polite"
+        >
+          {#if eightShaking}
+            Consulting the spirits…
+          {:else if eightAnswer && eightReveal}
+            {eightAnswer}
+          {:else}
+            Click the ball or Ask
+          {/if}
+        </p>
       </div>
     {/if}
   </main>
@@ -681,5 +880,86 @@
   /* Keep close / controls clickable over drag region (WebView2) */
   .no-drag {
     -webkit-app-region: no-drag;
+  }
+
+  /* ── Magic 8 Ball ─────────────────────────────────────── */
+  .eight-ball-shaking {
+    animation: eight-shake 0.9s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  }
+
+  @keyframes eight-shake {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) rotate(0deg);
+    }
+    10% {
+      transform: translate3d(-7px, 2px, 0) rotate(-6deg);
+    }
+    20% {
+      transform: translate3d(8px, -3px, 0) rotate(5deg);
+    }
+    30% {
+      transform: translate3d(-9px, 1px, 0) rotate(-7deg);
+    }
+    40% {
+      transform: translate3d(7px, 3px, 0) rotate(6deg);
+    }
+    50% {
+      transform: translate3d(-6px, -2px, 0) rotate(-4deg);
+    }
+    60% {
+      transform: translate3d(8px, 2px, 0) rotate(5deg);
+    }
+    70% {
+      transform: translate3d(-5px, -1px, 0) rotate(-3deg);
+    }
+    80% {
+      transform: translate3d(4px, 1px, 0) rotate(2deg);
+    }
+    90% {
+      transform: translate3d(-2px, 0, 0) rotate(-1deg);
+    }
+  }
+
+  /* Answer text inside the triangle (foreignObject HTML) */
+  .eight-answer-text {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 2px 3px;
+    text-align: center;
+    font-family: system-ui, Segoe UI, sans-serif;
+    font-size: 7.5px;
+    font-weight: 700;
+    line-height: 1.15;
+    color: #0c4a6e;
+    opacity: 0;
+    clip-path: inset(0 0 100% 0);
+    transition:
+      opacity 0.45s ease,
+      clip-path 0.45s ease;
+  }
+
+  .eight-answer-show {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+
+  .eight-caption-show {
+    animation: eight-caption-in 0.45s ease both;
+  }
+
+  @keyframes eight-caption-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 </style>

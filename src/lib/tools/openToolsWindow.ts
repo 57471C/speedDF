@@ -1,6 +1,6 @@
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
-export type ToolsMode = "calculator" | "timer" | "stopwatch";
+export type ToolsMode = "calculator" | "timer" | "stopwatch" | "magic8ball";
 
 const WINDOW_CONFIG: Record<
 	ToolsMode,
@@ -23,6 +23,12 @@ const WINDOW_CONFIG: Record<
 		title: "Stopwatch",
 		width: 300,
 		height: 400,
+	},
+	magic8ball: {
+		label: "tools-magic8ball",
+		title: "Magic 8 Ball",
+		width: 300,
+		height: 380,
 	},
 };
 

@@ -2077,6 +2077,7 @@
   onOpenCalculator={() => void openToolsWindow("calculator")}
   onOpenTimer={() => void openToolsWindow("timer")}
   onOpenStopwatch={() => void openToolsWindow("stopwatch")}
+  onOpenMagic8Ball={() => void openToolsWindow("magic8ball")}
 />
 
 {#if showToast}
