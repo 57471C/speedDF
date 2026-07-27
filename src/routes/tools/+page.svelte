@@ -470,12 +470,22 @@
       : 'p-3'}"
   >
     {#if mode === "calculator"}
-      <!-- Windows-style calculator -->
+      <!-- Windows-style calculator (dim expression memory above the main line) -->
       <div
-        class="mb-3 px-3 py-3 bg-[#1a1a1a] border border-zinc-700 rounded text-right font-mono text-3xl tracking-tight tabular-nums min-h-[3.25rem] flex items-end justify-end overflow-hidden"
+        class="mb-3 px-3 py-2.5 bg-[#1a1a1a] border border-zinc-700 rounded text-right font-mono tracking-tight tabular-nums min-h-[3.75rem] flex flex-col items-end justify-end overflow-hidden gap-0.5"
         aria-live="polite"
       >
-        <span class="truncate w-full {calc.error ? 'text-red-400' : 'text-white'}">
+        <span
+          class="w-full truncate text-xs leading-tight min-h-[1rem]
+            {calc.expression ? 'text-zinc-500' : 'text-transparent'}"
+          aria-hidden={!calc.expression}
+        >
+          {calc.expression || "\u00a0"}
+        </span>
+        <span
+          class="truncate w-full text-3xl leading-none
+            {calc.error ? 'text-red-400' : 'text-white'}"
+        >
           {calc.display}
         </span>
       </div>

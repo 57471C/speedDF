@@ -44,6 +44,11 @@
     runIdleCleanup,
   } from "../lib/render/sharedPdfDocument";
   import {
+    collectMatchesFromPageItems,
+    paintSearchHighlightsOnRoot,
+    type TextSearchMatch,
+  } from "../lib/interaction/textSearch";
+  import {
     hydrateThumbnailsFromDisk,
     removeDocumentThumbnailCaches,
     scheduleOrphanThumbnailCleanup,
@@ -97,13 +102,11 @@
   let currentMatchIndex = $state(-1);
   let totalMatches = $state(0);
   /** Full-document matches (not limited to currently painted text layers). */
-  let matchesList = $state<
-    { pageNumber: number; occurrenceOnPage: number; element?: HTMLElement | null }[]
-  >([]);
+  let matchesList = $state<TextSearchMatch[]>([]);
   let isSearchRunning = $state(false);
   let searchGeneration = 0;
 
-  // Maps to store original HTML of spans to restore them before new search highlights
+  // Maps to store original textContent of spans so highlights can be restored cleanly
   const originalSpansMap = new Map<HTMLElement, string>();
 
   function clearHighlights() {
@@ -126,15 +129,10 @@
     clearHighlights();
   }
 
-  function buildSearchRegex(query: string): RegExp {
-    const regexFlags = caseSensitive ? "g" : "gi";
-    const escapedQuery = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
-    return new RegExp(`(${escapedQuery})`, regexFlags);
-  }
-
   /**
-   * Scan every page in the document via pdf.js text content (not only visible
-   * text-layer DOM nodes). Images have no text layer — returns empty.
+   * Scan every page via shared pdf.js document text items (not only visible
+   * text-layer DOM nodes). Matches are counted per text item so they map to
+   * painted spans. Images/TIFF have no text layer — returns empty.
    */
   async function performTextSearch() {
     clearHighlights();
@@ -157,22 +155,12 @@
 
     isSearchRunning = true;
     const query = searchQuery;
-    const tempMatches: {
-      pageNumber: number;
-      occurrenceOnPage: number;
-      element?: HTMLElement | null;
-    }[] = [];
+    const tempMatches: TextSearchMatch[] = [];
 
     try {
-      const loadingTask = pdfjsLib.getDocument({
-        data: activeDoc.rawBytes.slice(0),
-        cMapUrl: window.location.origin + "/cmaps/",
-        cMapPacked: true,
-        standardFontDataUrl: window.location.origin + "/standard_fonts/",
-        wasmUrl: window.location.origin + "/",
-      });
-      const pdfDocument = await loadingTask.promise;
-      if (gen !== searchGeneration) return;
+      // Reuse the workspace PDF — do not open a second getDocument per keystroke
+      const pdfDocument = await getSharedWorkspacePdf(activeDoc.rawBytes);
+      if (!pdfDocument || gen !== searchGeneration) return;
 
       const pageOrder: number[] =
         (activeDoc.pageOrder?.length ?? 0) > 0
@@ -184,34 +172,26 @@
         if (pageNumber < 1 || pageNumber > pdfDocument.numPages) continue;
 
         const page = await pdfDocument.getPage(pageNumber);
-        const textContent = await page.getTextContent();
-        // Join items with spaces so multi-span words still match reasonably.
-        // Guard items: some PDFs/engines yield undefined items (JSC throws on bare map/for-of).
-        const pageText = (textContent.items || [])
-          .map((item: any) => (item && typeof item.str === "string" ? item.str : ""))
-          .join(" ");
-
-        const regex = buildSearchRegex(query);
-        let occurrenceOnPage = 0;
-        let m: RegExpExecArray | null;
-        while ((m = regex.exec(pageText)) !== null) {
-          tempMatches.push({
+        try {
+          const textContent = await page.getTextContent();
+          // Guard items: some PDFs/engines yield undefined items (JSC throws on bare map/for-of).
+          const items = (textContent.items || []) as Array<{ str?: string } | null | undefined>;
+          const pageMatches = collectMatchesFromPageItems(
             pageNumber,
-            occurrenceOnPage,
-            element: null,
-          });
-          occurrenceOnPage += 1;
-          // Guard against zero-length matches advancing forever
-          if (m[0].length === 0) {
-            regex.lastIndex += 1;
+            items,
+            query,
+            caseSensitive,
+          );
+          for (const m of pageMatches) {
+            tempMatches.push(m);
+          }
+        } finally {
+          try {
+            page.cleanup?.();
+          } catch {
+            /* ignore */
           }
         }
-      }
-
-      try {
-        await loadingTask.destroy();
-      } catch {
-        /* ignore */
       }
     } catch (err) {
       console.error("Full-document text search failed:", err);
@@ -231,87 +211,29 @@
     }
   }
 
-  function escapeHtml(str: string): string {
-    return str.replace(/[&<>"']/g, (match) => {
-      const escapeMap: Record<string, string> = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;'
-      };
-      return escapeMap[match] || match;
-    });
-  }
-
   /**
    * Highlight query hits inside a page's painted text layer (DOM).
    * Full-document index is source of truth; this only paints the active page.
+   * Returns the <mark> for the current occurrence when found.
    */
-  function highlightMatchesOnPage(pageNumber: number) {
-    if (!searchQuery) return;
+  function highlightMatchesOnPage(
+    pageNumber: number,
+    targetOccurrence: number | null,
+  ): HTMLElement | null {
+    if (!searchQuery) return null;
     const pageRoot = document.querySelector(
       `[data-page-number="${pageNumber}"]`,
     ) as HTMLElement | null;
-    if (!pageRoot) return;
+    if (!pageRoot) return null;
 
-    const regex = buildSearchRegex(searchQuery);
-    const spans = pageRoot.querySelectorAll(".textLayer span");
-    const pageMatchIndices = matchesList
-      .map((m, i) => (m.pageNumber === pageNumber ? i : -1))
-      .filter((i) => i >= 0);
-
-    // Mark every span that contains the query; mark current match distinctly
-    let spanHitOrder = 0;
-    spans.forEach((span) => {
-      const el = span as HTMLElement;
-      const text = el.textContent || "";
-      // Fresh regex without /g for test to avoid lastIndex side-effects
-      const testRe = new RegExp(
-        searchQuery.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&"),
-        caseSensitive ? "" : "i",
-      );
-      if (!testRe.test(text)) return;
-
-      if (!originalSpansMap.has(el)) {
-        originalSpansMap.set(el, el.textContent || "");
-      }
-
-      // Determine if this span is the "current" global match for this page
-      // by order of hit spans on the page vs occurrenceOnPage of currentMatchIndex
-      const isCurrent =
-        currentMatchIndex >= 0 &&
-        matchesList[currentMatchIndex]?.pageNumber === pageNumber &&
-        matchesList[currentMatchIndex]?.occurrenceOnPage === spanHitOrder;
-
-      const highlightClass = isCurrent
-        ? "bg-amber-400 text-slate-950 font-bold ring-2 ring-cyan-500 rounded-sm px-0.5 z-50 relative"
-        : "bg-yellow-400 text-slate-950 rounded-sm px-0.5";
-
-      const paintRe = buildSearchRegex(searchQuery);
-      const originalText = originalSpansMap.get(el)!;
-      const parts = originalText.split(paintRe);
-      let newHTML = "";
-      for (let i = 0; i < parts.length; i++) {
-        if (i % 2 === 0) {
-          newHTML += escapeHtml(parts[i]);
-        } else {
-          newHTML += `<mark class="${highlightClass}">${escapeHtml(parts[i])}</mark>`;
-        }
-      }
-      el.innerHTML = newHTML;
-
-      // Bind first matching span element for scroll centering
-      if (pageMatchIndices.length > 0) {
-        const globalIdx = pageMatchIndices[Math.min(spanHitOrder, pageMatchIndices.length - 1)];
-        if (globalIdx != null && matchesList[globalIdx] && !matchesList[globalIdx].element) {
-          matchesList[globalIdx] = { ...matchesList[globalIdx], element: el };
-        }
-      }
-      spanHitOrder += 1;
-    });
-
-    void regex;
+    const { currentMark } = paintSearchHighlightsOnRoot(
+      pageRoot,
+      searchQuery,
+      caseSensitive,
+      targetOccurrence,
+      originalSpansMap,
+    );
+    return currentMark;
   }
 
   function goToNextMatch() {
@@ -334,6 +256,7 @@
   async function scrollToMatch(index: number) {
     if (index < 0 || index >= matchesList.length) return;
     const match = matchesList[index];
+    const gen = searchGeneration;
 
     // Navigate store + force page paint via scroll
     (activeDoc as any).isClickScrolling = true;
@@ -341,12 +264,13 @@
 
     // Wait for page container (and ideally text layer) to exist
     let pageEl: HTMLElement | null = null;
-    for (let attempt = 0; attempt < 40; attempt++) {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if (gen !== searchGeneration) return;
       pageEl = document.querySelector(
         `[data-page-number="${match.pageNumber}"]`,
       ) as HTMLElement | null;
       if (pageEl?.querySelector(".textLayer span")) break;
-      if (pageEl && attempt > 8) break; // page shell exists; text may still be painting
+      if (pageEl && attempt > 12) break; // page shell exists; text may still be painting
       await new Promise((r) => setTimeout(r, 50));
     }
 
@@ -354,18 +278,45 @@
       pageEl.scrollIntoView({ behavior: "smooth", block: "center" });
     }
 
-    // Give text layer a moment to finish painting, then highlight
-    await new Promise((r) => setTimeout(r, 120));
-    clearHighlights();
-    highlightMatchesOnPage(match.pageNumber);
+    // Retry highlight until the text layer has the current mark, or give up.
+    // Off-screen pages need extra time for pdf.js TextLayer to finish.
+    let currentMark: HTMLElement | null = null;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if (gen !== searchGeneration) return;
+      await new Promise((r) => setTimeout(r, attempt === 0 ? 80 : 60));
+      clearHighlights();
+      currentMark = highlightMatchesOnPage(
+        match.pageNumber,
+        match.occurrenceOnPage,
+      );
+      if (currentMark?.isConnected) break;
+      // No mark yet — keep waiting if text layer is still empty / incomplete
+      const hasSpans = !!document
+        .querySelector(`[data-page-number="${match.pageNumber}"]`)
+        ?.querySelector(".textLayer span");
+      if (hasSpans && attempt > 4 && !currentMark) {
+        // Spans exist but this occurrence isn't in the DOM (split-item edge case).
+        // Still paint all yellow hits we can; scroll the first hit or the page.
+        break;
+      }
+    }
 
-    const bound = matchesList[index]?.element;
-    if (bound?.isConnected) {
-      bound.scrollIntoView({
+    if (gen !== searchGeneration) return;
+
+    // Bind for callers / counter UI
+    if (currentMark?.isConnected) {
+      matchesList[index] = { ...matchesList[index], element: currentMark };
+      currentMark.scrollIntoView({
         behavior: "smooth",
         block: "center",
         inline: "nearest",
       });
+    } else {
+      // Fallback: at least keep the page centered so the user is near the hit
+      const fallbackPage = document.querySelector(
+        `[data-page-number="${match.pageNumber}"]`,
+      ) as HTMLElement | null;
+      fallbackPage?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
 
     setTimeout(() => {

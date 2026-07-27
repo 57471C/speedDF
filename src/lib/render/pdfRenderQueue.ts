@@ -159,6 +159,14 @@ export const THUMBNAIL_RETRY_MAX_EDGE_PX = 48;
 export const THUMBNAIL_JPEG_QUALITY = 0.4;
 export const THUMBNAIL_DEBOUNCE_MS = 150;
 
+/**
+ * Higher-quality page-1 render for Recent Documents cards (after the full
+ * low-res background fill completes). Larger edge / scale / JPEG quality.
+ */
+export const RECENT_THUMB_MAX_EDGE_PX = 280;
+export const RECENT_THUMB_MAX_SCALE = 0.55;
+export const RECENT_THUMB_JPEG_QUALITY = 0.82;
+
 export type ThumbnailScalePlan = {
 	maxEdgePx: number;
 	maxScale: number;

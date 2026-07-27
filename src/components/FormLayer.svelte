@@ -26,6 +26,15 @@
   let pageFields = $derived(fieldsForPage(activeDoc.formFields, pageNumber));
 
   /**
+   * Scale form chrome with workspace zoom so fixed-px borders/fonts don't
+   * drift relative to the percentage-positioned field rects.
+   */
+  let zoomFactor = $derived(
+    Math.max(0.25, Math.min(4, (activeDoc.zoomScale || 100) / 100)),
+  );
+  let fieldFontPx = $derived(Math.max(7, Math.round(11 * zoomFactor * 10) / 10));
+
+  /**
    * Form fill when the select tool is active so drawing tools are not stolen.
    * Text tool also allows focus into fields for quick typing.
    */
@@ -203,7 +212,10 @@
         class="absolute form-field-chrome
           {interactive ? 'pointer-events-auto' : 'pointer-events-none'}
           {field.readOnly ? 'opacity-80' : ''}"
-        style="left: {field.x}%; top: {field.y}%; width: {field.width}%; height: {field.height}%;"
+        style="left: {field.x}%; top: {field.y}%; width: {field.width}%; height: {field.height}%;
+          --form-font-size: {fieldFontPx}px;
+          --form-pad-y: {Math.max(0.5, 1 * zoomFactor)}px;
+          --form-pad-x: {Math.max(1, 3 * zoomFactor)}px;"
         onmousedown={stopBubble}
         onpointerdown={stopBubble}
       >
@@ -409,42 +421,49 @@
 
 <style>
   .form-field-chrome {
+    /* Percentage box must match PDF widget rect exactly — no border inset. */
     box-sizing: border-box;
+    /* Subpixel snap: keeps edges aligned with canvas glyphs under zoom. */
+    transform: translateZ(0);
   }
 
   .form-field-input {
     box-sizing: border-box;
     margin: 0;
-    padding: 1px 3px;
-    border: 1px solid rgba(14, 165, 233, 0.45);
+    /* Padding scales with zoom; border is drawn as outline so it never
+       shrinks the hit box relative to the PDF field appearance. */
+    padding: var(--form-pad-y, 1px) var(--form-pad-x, 3px);
+    border: none;
     border-radius: 2px;
+    outline: 1px solid rgba(14, 165, 233, 0.45);
+    outline-offset: -1px;
     background: rgba(255, 255, 255, 0.72);
     color: #0f172a;
-    font-size: 11px;
+    font-size: var(--form-font-size, 11px);
     font-family: Helvetica, Arial, sans-serif;
-    line-height: 1.2;
-    outline: none;
+    line-height: 1.15;
     transition:
-      border-color 0.12s ease,
+      outline-color 0.12s ease,
       box-shadow 0.12s ease,
       background 0.12s ease;
   }
 
   .form-field-input:hover:not(:disabled):not(:read-only) {
-    border-color: rgba(14, 165, 233, 0.85);
+    outline-color: rgba(14, 165, 233, 0.85);
     background: rgba(255, 255, 255, 0.92);
     box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.2);
   }
 
   .form-field-input:focus {
-    border-color: #06b6d4;
+    outline-color: #06b6d4;
+    outline-width: 2px;
     background: #fff;
     box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.35);
   }
 
   .form-field-readonly {
     background: rgba(241, 245, 249, 0.7);
-    border-color: rgba(148, 163, 184, 0.5);
+    outline-color: rgba(148, 163, 184, 0.5);
     color: #475569;
   }
 
@@ -455,31 +474,34 @@
   }
 
   .form-field-checkbox-wrap {
-    border: 1px solid rgba(14, 165, 233, 0.4);
+    border: none;
     border-radius: 2px;
+    outline: 1px solid rgba(14, 165, 233, 0.4);
+    outline-offset: -1px;
     background: rgba(255, 255, 255, 0.55);
     transition:
-      border-color 0.12s ease,
+      outline-color 0.12s ease,
       box-shadow 0.12s ease,
       background 0.12s ease;
   }
 
   .form-field-checkbox-wrap:hover {
-    border-color: rgba(14, 165, 233, 0.85);
+    outline-color: rgba(14, 165, 233, 0.85);
     background: rgba(255, 255, 255, 0.9);
     box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.2);
   }
 
   .form-field-checkbox-wrap:focus-within {
-    border-color: #06b6d4;
+    outline-color: #06b6d4;
+    outline-width: 2px;
     box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.35);
   }
 
   .form-field-checkbox {
     width: 70%;
     height: 70%;
-    max-width: 18px;
-    max-height: 18px;
+    max-width: min(18px, 100%);
+    max-height: min(18px, 100%);
     margin: 0;
     cursor: pointer;
     accent-color: #0891b2;
@@ -493,8 +515,10 @@
     box-sizing: border-box;
     margin: 0;
     padding: 2px;
-    border: 1px solid rgba(14, 165, 233, 0.45);
+    border: none;
     border-radius: 2px;
+    outline: 1px solid rgba(14, 165, 233, 0.45);
+    outline-offset: -1px;
     background: rgba(255, 255, 255, 0.72);
     cursor: pointer;
     display: flex;
@@ -502,13 +526,13 @@
     justify-content: center;
     overflow: hidden;
     transition:
-      border-color 0.12s ease,
+      outline-color 0.12s ease,
       box-shadow 0.12s ease,
       background 0.12s ease;
   }
 
   .form-field-signature:hover:not(:disabled) {
-    border-color: rgba(14, 165, 233, 0.85);
+    outline-color: rgba(14, 165, 233, 0.85);
     background: rgba(255, 255, 255, 0.92);
     box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.2);
   }
@@ -518,11 +542,11 @@
   }
 
   .form-field-signature-empty {
-    border-style: dashed;
+    outline-style: dashed;
   }
 
   .form-field-signature-hint {
-    font-size: 10px;
+    font-size: max(8px, calc(var(--form-font-size, 11px) * 0.9));
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;

@@ -81,10 +81,12 @@ Page restructuring utilises strict immutable list reconciliation tracking loops 
 * **Draggable Window Header:** Sleek custom border frame layout allowing smooth app window movements across the OS environment.
 * **Centered Filename Tracking:** Passes packed payload structures across the asynchronous Tauri bridge on file loads to display your true physical filename string centered in the titlebar.
 * **Unified Scroll Bar Aesthetics:** Standard browser scroll bars are globally overridden with a dark slate matching color path to match the high-contrast editor interface style.
-* **Zoom HUD Controls:** Smooth viewport canvas adjustments ranging from 50% to 200% alongside target-view focus snapping.
+* **Zoom HUD Controls:** Viewport zoom from ~10%–500% with a bottom HUD. **Ctrl/Cmd+scroll** zooms toward the pointer (content under the cursor stays put — including when centered pages expand past the viewport).
 
 ### 8. Dynamic Document Outlines & Bookmark Navigation
-* **Zero-Gap Gutter Ribbons:** Flags are pinned out in the right-hand gutter space via precise `left-[calc(100%+8px)]` bounds to eliminate white sheet bleeding. Features a continuous flex-hitbox context hover menu for seamless inline renaming (saved on explicit checkmark tick or `Enter`) and instant deletions.
+* **Zero-Gap Gutter Ribbons:** Flags are pinned out in the right-hand gutter space via precise `left-[calc(100%+8px)]` bounds to eliminate white sheet bleeding.
+* **Click-to-name (empty pages):** Click the outline bookmark icon to open a compose popout with the title field focused — nothing is saved until you press **Add** / **Enter**. Escape cancels. There is no hover “Add” trap on empty pages.
+* **Hover when bookmarked:** Existing flags show title + rename + delete on hover (rename reuses the focused input flow).
 * **Adaptive Sidebar Geometry:** Toggling the text-heavy Bookmarks tab triggers a smooth width transition resizing the sidebar container from `w-36` to `w-56`, preventing layout truncation while preserving vertical grid space for traditional thumbnail cards.
 * **Low-Level Catalog Serialization:** High-fidelity persistence layer that reads native outline chains on ingestion and programmatically maps new instances straight into the document's binary `/Outlines` directory structure, rendering your custom bookmarks cross-compatible with external engines like Adobe Acrobat.
 
@@ -118,6 +120,23 @@ Page restructuring utilises strict immutable list reconciliation tracking loops 
 * **Underline & hover:** Links render with a subtle underline and highlight on hover when the Select tool is active.
 * **Safe open:** Click shows a confirmation dialog, then opens only **http**, **https**, or **mailto** URLs in the system browser. Dangerous schemes (`javascript:`, `data:`, `file:`, etc.) are blocked. Internal page destinations are not activated in v1.
 
+### 15. AcroForm fill (non-XFA) ###
+* **Detect & overlay:** Text, checkbox, dropdown, and signature stamp fields are detected on open and drawn in page-relative coordinates that stay aligned through zoom (CropBox + page rotation aware).
+* **Signature fields:** Click a Sig widget → pick a saved signature/initials stamp set (no extra drawing required). Values bake into the PDF on Save.
+
+### 16. Find in document (Ctrl+F) ###
+* **Full-document search** across all pages (not only the visible text layer). Match counter + previous/next (Enter / Shift+Enter).
+* **Soft highlights:** Matches use a translucent yellow wash (~20% opacity); the focused match is stronger (~50%) with a thin outline so keywords stay legible. The active mark is scrolled into view when cycling.
+
+### 17. Tools window ###
+* Separate always-on-top widget: **Calculator**, **Timer**, **Stopwatch**, and **Magic 8 Ball**.
+* **Calculator expression memory:** Dim secondary line shows the pending operation or last equation (Windows 11 style), e.g. `12 +` then `12 + 3 =`.
+
+### 18. Recent Documents thumbnails ###
+* Sidebar pages use static JPEG thumbs generated in the background after open.
+* After the fill finishes, **page 1 is re-rendered at higher resolution** so the Recent Documents card stays sharp (not the tiny sidebar scale).
+* **Merge / insert pages** remaps surviving thumbs and generates new ones for inserted pages automatically.
+
 ---
 
 ## Core Capabilities & Advanced Engineering Architecture
@@ -127,7 +146,7 @@ Page restructuring utilises strict immutable list reconciliation tracking loops 
 The following 13 systems were shipped during the v1.0.0 stabilization sprint passes, representing the full production-ready feature matrix:
 
 ### 1. Recent Documents Performance Dashboard
-High-contrast layout matrices featuring custom alpha-opacity channel parameters and native document action docking layouts. Structural layout metadata is cached to localStorage on successful renders, enabling instant skeleton hydration of page containers in <5ms on subsequent opens — before IPC bytes even arrive from the Rust backend.
+High-contrast layout matrices featuring custom alpha-opacity channel parameters and native document action docking layouts. Structural layout metadata is cached to localStorage on successful renders, enabling instant skeleton hydration of page containers in <5ms on subsequent opens — before IPC bytes even arrive from the Rust backend. Page-1 thumbs are upgraded to a higher-resolution JPEG after the background thumbnail pass so dashboard cards stay crisp.
 
 ### 2. Selectable Canvas Vector Layers
 Advanced implementation of native `pdf.js` text layout overlay frames rendering selectable text blocks over canvas contexts. The `TextLayer` API is mapped directly onto absolute-positioned overlay `div` elements, enabling native browser text selection and copy operations over rendered PDF canvases.
@@ -220,6 +239,8 @@ npx tauri build --debug
 ## Keyboard Shortcut Matrix
 
 * **? / F1** : Toggles the operational system help control panel and licensing modal layout
+* **Ctrl+F** / **Cmd+F** : Find in document (cycle matches with Enter / Shift+Enter)
+* **Ctrl+Scroll** / **Cmd+Scroll** : Zoom toward the pointer
 * **Delete / Backspace** : Drops selected items (Select Mode only — ignored while typing in a text box or form field)
 * **Ctrl+Click** / **Cmd+Click** : Toggle multi-select on shapes and text annotations
 * **↓ / ↑** then **Enter** : Navigate and apply a remembered value in the text/form autocomplete popdown

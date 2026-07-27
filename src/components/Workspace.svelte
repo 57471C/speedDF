@@ -1,11 +1,15 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import * as pdfjsLib from "pdfjs-dist";
   import WorkspacePage from "./WorkspacePage.svelte";
   import { activeDoc, FONT_MAP, pushHistorySnapshot } from "../pdfStore.svelte";
   import { debounceLeadingLatest } from "../lib/render/pdfRenderQueue";
   import { notePdfActivity } from "../lib/render/sharedPdfDocument";
+  import {
+    scrollAfterZoomToPointer,
+    type ZoomPointerCapture,
+  } from "../lib/interaction/zoomToPointer";
 
   // Debounced auto-fit handler to prevent layout thrashing.
   // It guarantees the layout is updated at most once per timeframe.
@@ -301,17 +305,24 @@
   function setupWheelZoom(node: HTMLElement) {
     let zoomRaf: number | null = null;
     let pendingZoom: number | null = null;
-    /** Cursor position in viewport coords of the scroller (for post-layout re-anchor). */
-    let pendingCursor: { x: number; y: number; contentX: number; contentY: number; oldW: number; oldH: number } | null =
-      null;
+    /**
+     * Pointer capture against the page stack (not full scrollWidth).
+     * scrollWidth scaling drifts when mx-auto margins collapse on zoom-in.
+     */
+    let pendingCapture: ZoomPointerCapture | null = null;
+    let applyToken = 0;
+
+    const contentEl = (): HTMLElement | null =>
+      node.querySelector("[data-workspace-pages]") as HTMLElement | null;
 
     const applyPendingZoom = () => {
       zoomRaf = null;
       if (pendingZoom == null) return;
       const next = pendingZoom;
-      const cursor = pendingCursor;
+      const capture = pendingCapture;
       pendingZoom = null;
-      pendingCursor = null;
+      pendingCapture = null;
+      const token = ++applyToken;
 
       // Disable smooth scrolling so zoom re-anchor never animates as a pan
       const prevBehavior = node.style.scrollBehavior;
@@ -321,18 +332,37 @@
       activeDoc.zoomScale = next;
       zoomScale = next;
 
-      // After page shells reflow, keep the content under the cursor stable
-      // (uses measured scroll size — safer than zoom ratio with mx-auto + multipage).
-      requestAnimationFrame(() => {
-        if (cursor && cursor.oldW > 0 && cursor.oldH > 0) {
-          const scaleX = node.scrollWidth / cursor.oldW;
-          const scaleY = node.scrollHeight / cursor.oldH;
-          node.scrollLeft = Math.max(0, cursor.contentX * scaleX - cursor.x);
-          node.scrollTop = Math.max(0, cursor.contentY * scaleY - cursor.y);
+      // Wait for Svelte page-shell reflow, then a layout frame, then re-anchor.
+      void (async () => {
+        try {
+          await tick();
+          await new Promise<void>((r) => requestAnimationFrame(() => r()));
+          if (token !== applyToken) return;
+
+          const pages = contentEl();
+          if (capture && pages && capture.oldContentW > 0 && capture.oldContentH > 0) {
+            const nr = node.getBoundingClientRect();
+            const cr = pages.getBoundingClientRect();
+            const { scrollLeft, scrollTop } = scrollAfterZoomToPointer(capture, {
+              contentLeftInView: cr.left - nr.left,
+              contentTopInView: cr.top - nr.top,
+              newContentW: pages.offsetWidth || cr.width,
+              newContentH: pages.offsetHeight || cr.height,
+              scrollLeft: node.scrollLeft,
+              scrollTop: node.scrollTop,
+              maxScrollLeft: node.scrollWidth - node.clientWidth,
+              maxScrollTop: node.scrollHeight - node.clientHeight,
+            });
+            node.scrollLeft = scrollLeft;
+            node.scrollTop = scrollTop;
+          }
+        } finally {
+          if (token === applyToken) {
+            node.style.scrollBehavior = prevBehavior;
+            node.classList.remove("workspace-zooming");
+          }
         }
-        node.style.scrollBehavior = prevBehavior;
-        node.classList.remove("workspace-zooming");
-      });
+      })();
     };
 
     const handleWheel = (e: WheelEvent) => {
@@ -344,26 +374,53 @@
       e.stopImmediatePropagation?.();
 
       const oldZoom = Math.max(10, Math.abs(zoomScale || activeDoc.zoomScale || 100));
-      // Continuous, delta-sensitive zoom (smoother than fixed ±10 steps)
+      // Continuous, delta-sensitive zoom (smoother than fixed ±10 steps).
+      // Stack notches against pendingZoom so rapid wheels aren't lost before rAF.
       const intensity = Math.min(48, Math.abs(e.deltaY));
       const step = Math.max(1.5, intensity * 0.35);
       const direction = e.deltaY < 0 ? 1 : -1;
-      const nextZoom = Math.max(10, Math.min(500, Math.round(oldZoom + direction * step)));
-      if (nextZoom === oldZoom) return;
+      const baseZoom = pendingZoom ?? oldZoom;
+      const nextZoom = Math.max(10, Math.min(500, Math.round(baseZoom + direction * step)));
+      if (nextZoom === (pendingZoom ?? oldZoom)) return;
 
       const rect = node.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const viewX = e.clientX - rect.left;
+      const viewY = e.clientY - rect.top;
+
+      // Prefer content-local coords so mx-auto gutter is not treated as “content”
+      const pages = contentEl();
+      let localX = viewX;
+      let localY = viewY;
+      let oldContentW = node.scrollWidth;
+      let oldContentH = node.scrollHeight;
+      if (pages) {
+        const cr = pages.getBoundingClientRect();
+        localX = e.clientX - cr.left;
+        localY = e.clientY - cr.top;
+        oldContentW = pages.offsetWidth || cr.width;
+        oldContentH = pages.offsetHeight || cr.height;
+      }
 
       pendingZoom = nextZoom;
-      pendingCursor = {
-        x,
-        y,
-        contentX: node.scrollLeft + x,
-        contentY: node.scrollTop + y,
-        oldW: node.scrollWidth,
-        oldH: node.scrollHeight,
-      };
+      // Keep the first capture in a coalesced frame so multi-notch wheels
+      // still re-anchor to the original pointer, not intermediate states.
+      if (!pendingCapture) {
+        pendingCapture = {
+          viewX,
+          viewY,
+          localX,
+          localY,
+          oldContentW,
+          oldContentH,
+        };
+      } else {
+        // Update view position if the cursor moved mid-gesture; keep local/content baseline
+        pendingCapture = {
+          ...pendingCapture,
+          viewX,
+          viewY,
+        };
+      }
 
       if (zoomRaf == null) {
         zoomRaf = requestAnimationFrame(applyPendingZoom);
@@ -377,6 +434,7 @@
       destroy() {
         node.removeEventListener("wheel", handleWheel, { capture: true } as EventListenerOptions);
         if (zoomRaf != null) cancelAnimationFrame(zoomRaf);
+        applyToken += 1;
       }
     };
   }
@@ -749,6 +807,7 @@
       edges remain pan-able.
     -->
     <div
+      data-workspace-pages
       class="relative z-10 w-max max-w-none mx-auto flex flex-col items-center gap-6 pb-24 origin-top"
     >
       {#each activeDoc.pageOrder || [] as pageNumber (pageNumber)}

@@ -141,22 +141,38 @@ export async function extractFormFields(
 					if (!page) return;
 					const pageNum = pages.indexOf(page) + 1;
 					if (pageNum < 1) return;
-					const { width: pageW, height: pageH } = page.getSize();
-					if (pageW <= 0 || pageH <= 0) return;
 
-					const x = (rect.x / pageW) * 100;
-					const y = ((pageH - rect.y - rect.height) / pageH) * 100;
-					const width = (rect.width / pageW) * 100;
-					const height = (rect.height / pageH) * 100;
+					// Prefer CropBox (matches pdf.js viewBox) over MediaBox so
+					// overlays align with the painted page at every zoom.
+					const crop = page.getCropBox();
+					const viewW = crop.width;
+					const viewH = crop.height;
+					if (viewW <= 0 || viewH <= 0) return;
+
+					let rotationAngle = 0;
+					try {
+						rotationAngle = page.getRotation()?.angle ?? 0;
+					} catch {
+						rotationAngle = 0;
+					}
+
+					const display = pdfRectToDisplayPercent(
+						rect,
+						crop.x,
+						crop.y,
+						viewW,
+						viewH,
+						rotationAngle,
+					);
 
 					fields.push({
 						name,
 						type: fieldType,
 						pageNum,
-						x: clampPct(x),
-						y: clampPct(y),
-						width: Math.max(0.5, clampPct(width)),
-						height: Math.max(0.5, clampPct(height)),
+						x: clampPct(display.x),
+						y: clampPct(display.y),
+						width: Math.max(0.5, clampPct(display.width)),
+						height: Math.max(0.5, clampPct(display.height)),
 						options,
 						readOnly,
 						maxLength,
@@ -379,6 +395,153 @@ async function drawSignatureStampOnField(
 function clampPct(n: number): number {
 	if (!Number.isFinite(n)) return 0;
 	return Math.min(100, Math.max(0, n));
+}
+
+/**
+ * Map a PDF user-space widget rect to CSS % on the *displayed* page
+ * (top-left origin), matching pdf.js PageViewport at scale 1.
+ *
+ * Uses the same rotation matrix as pdf.js so AcroForm overlays stay glued
+ * to the painted canvas across zoom levels and page /Rotate values.
+ *
+ * @param rect Widget rectangle in PDF user space (bottom-left origin)
+ * @param viewX Crop/Media box origin X
+ * @param viewY Crop/Media box origin Y
+ * @param viewW Crop/Media box width
+ * @param viewH Crop/Media box height
+ * @param rotationDeg Page /Rotate in degrees (0/90/180/270)
+ */
+export function pdfRectToDisplayPercent(
+	rect: { x: number; y: number; width: number; height: number },
+	viewX: number,
+	viewY: number,
+	viewW: number,
+	viewH: number,
+	rotationDeg: number,
+): { x: number; y: number; width: number; height: number } {
+	if (viewW <= 0 || viewH <= 0) {
+		return { x: 0, y: 0, width: 0, height: 0 };
+	}
+
+	const viewBox: [number, number, number, number] = [
+		viewX,
+		viewY,
+		viewX + viewW,
+		viewY + viewH,
+	];
+	const { transform, width: displayW, height: displayH } =
+		buildPageViewportTransform(viewBox, 1, rotationDeg);
+
+	const corners: [number, number][] = [
+		[rect.x, rect.y],
+		[rect.x + rect.width, rect.y],
+		[rect.x, rect.y + rect.height],
+		[rect.x + rect.width, rect.y + rect.height],
+	];
+
+	let minX = Number.POSITIVE_INFINITY;
+	let minY = Number.POSITIVE_INFINITY;
+	let maxX = Number.NEGATIVE_INFINITY;
+	let maxY = Number.NEGATIVE_INFINITY;
+	for (const [px, py] of corners) {
+		const [vx, vy] = applyTransform(px, py, transform);
+		if (vx < minX) minX = vx;
+		if (vy < minY) minY = vy;
+		if (vx > maxX) maxX = vx;
+		if (vy > maxY) maxY = vy;
+	}
+
+	const w = Math.max(0, maxX - minX);
+	const h = Math.max(0, maxY - minY);
+	return {
+		x: (minX / displayW) * 100,
+		y: (minY / displayH) * 100,
+		width: (w / displayW) * 100,
+		height: (h / displayH) * 100,
+	};
+}
+
+/** 6-number affine matrix [a,b,c,d,e,f] as used by pdf.js Util.applyTransform. */
+type Affine6 = [number, number, number, number, number, number];
+
+/**
+ * Build a pdf.js-compatible PageViewport transform for the given viewBox.
+ * Scale is CSS pixels per PDF unit (1 = 72dpi screen space).
+ */
+function buildPageViewportTransform(
+	viewBox: [number, number, number, number],
+	scale: number,
+	rotationDeg: number,
+): { transform: Affine6; width: number; height: number } {
+	const centerX = (viewBox[2] + viewBox[0]) / 2;
+	const centerY = (viewBox[3] + viewBox[1]) / 2;
+
+	let rotation = rotationDeg % 360;
+	if (rotation < 0) rotation += 360;
+
+	let rotateA: number;
+	let rotateB: number;
+	let rotateC: number;
+	let rotateD: number;
+	switch (rotation) {
+		case 180:
+			rotateA = -1;
+			rotateB = 0;
+			rotateC = 0;
+			rotateD = 1;
+			break;
+		case 90:
+			rotateA = 0;
+			rotateB = 1;
+			rotateC = 1;
+			rotateD = 0;
+			break;
+		case 270:
+			rotateA = 0;
+			rotateB = -1;
+			rotateC = -1;
+			rotateD = 0;
+			break;
+		default:
+			// 0° — flip Y so PDF bottom-left becomes CSS top-left
+			rotateA = 1;
+			rotateB = 0;
+			rotateC = 0;
+			rotateD = -1;
+			break;
+	}
+
+	let offsetCanvasX: number;
+	let offsetCanvasY: number;
+	let width: number;
+	let height: number;
+	if (rotateA === 0) {
+		// 90 / 270 — display size swaps axes
+		offsetCanvasX = Math.abs(centerY - viewBox[1]) * scale;
+		offsetCanvasY = Math.abs(centerX - viewBox[0]) * scale;
+		width = (viewBox[3] - viewBox[1]) * scale;
+		height = (viewBox[2] - viewBox[0]) * scale;
+	} else {
+		offsetCanvasX = Math.abs(centerX - viewBox[0]) * scale;
+		offsetCanvasY = Math.abs(centerY - viewBox[1]) * scale;
+		width = (viewBox[2] - viewBox[0]) * scale;
+		height = (viewBox[3] - viewBox[1]) * scale;
+	}
+
+	const transform: Affine6 = [
+		rotateA * scale,
+		rotateB * scale,
+		rotateC * scale,
+		rotateD * scale,
+		offsetCanvasX - rotateA * scale * centerX - rotateC * scale * centerY,
+		offsetCanvasY - rotateB * scale * centerX - rotateD * scale * centerY,
+	];
+	return { transform, width, height };
+}
+
+function applyTransform(x: number, y: number, m: Affine6): [number, number] {
+	// [a b c d e f] · (x, y, 1)  →  (a*x + c*y + e, b*x + d*y + f)
+	return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
 }
 
 function resolveWidgetPage(

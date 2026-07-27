@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type AnnotationShape,
 	activeDoc,
+	addBookmarkAction,
 	addOrToggleBookmarkAction,
 	cleanupWorkspace,
 	deleteBookmarkAction,
@@ -438,6 +439,32 @@ describe("addOrToggleBookmarkAction", () => {
 		];
 		addOrToggleBookmarkAction(1);
 		expect(activeDoc.bookmarks).toEqual([{ pageNum: 2, name: "Test 2" }]);
+	});
+});
+
+describe("addBookmarkAction", () => {
+	beforeEach(() => {
+		openTestDocument();
+	});
+
+	it("adds a named bookmark without toggling off", () => {
+		addBookmarkAction(1, "Intro");
+		expect(activeDoc.bookmarks).toEqual([{ pageNum: 1, name: "Intro" }]);
+		// Second call updates name, does not remove
+		addBookmarkAction(1, "Introduction");
+		expect(activeDoc.bookmarks).toEqual([
+			{ pageNum: 1, name: "Introduction" },
+		]);
+	});
+
+	it("allows an empty title (user can fill later)", () => {
+		addBookmarkAction(2, "");
+		expect(activeDoc.bookmarks).toEqual([{ pageNum: 2, name: "" }]);
+	});
+
+	it("ignores invalid page numbers", () => {
+		addBookmarkAction(0, "Nope");
+		expect(activeDoc.bookmarks).toEqual([]);
 	});
 });
 
