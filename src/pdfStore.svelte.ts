@@ -1577,6 +1577,26 @@ export function addOrToggleBookmarkAction(pageNum: number) {
 	}
 }
 
+/**
+ * Add a bookmark for a page if missing (does not toggle/remove).
+ * Used by the workspace icon compose flow so users type a title before commit.
+ */
+export function addBookmarkAction(pageNum: number, name = "") {
+	if (pageNum < 1) return;
+	const existing = activeDoc.bookmarks.findIndex((b) => b.pageNum === pageNum);
+	if (existing !== -1) {
+		const trimmed = name;
+		activeDoc.bookmarks = activeDoc.bookmarks.map((b) =>
+			b.pageNum === pageNum ? { ...b, name: trimmed } : b,
+		);
+		return;
+	}
+	activeDoc.bookmarks = [
+		...activeDoc.bookmarks,
+		{ pageNum, name: name ?? "" },
+	];
+}
+
 export function deleteBookmarkAction(pageNum: number) {
 	activeDoc.bookmarks = activeDoc.bookmarks.filter(
 		(b) => b.pageNum !== pageNum,

@@ -12,6 +12,7 @@
 import * as pdfjsLib from "pdfjs-dist";
 import {
 	activeDoc,
+	applyLiveThumbnail,
 	clearSessionPageThumbs,
 	documentKey,
 	setPageThumbnailOverride,
@@ -19,7 +20,12 @@ import {
 import { waitMainViewReady } from "./mainViewGate";
 import {
 	computeThumbnailScale,
+	type PdfRenderPriority,
+	RECENT_THUMB_JPEG_QUALITY,
+	RECENT_THUMB_MAX_EDGE_PX,
+	RECENT_THUMB_MAX_SCALE,
 	runWithPdfRenderSlot,
+	setLowPriorityAllowed,
 	thumbnailScalePlanForBytes,
 	THUMBNAIL_JPEG_QUALITY,
 } from "./pdfRenderQueue";
@@ -227,12 +233,23 @@ export async function hydrateThumbnailsFromDisk(
 	return true;
 }
 
+/** Optional overrides for one-off higher-quality renders (e.g. Recent p1). */
+export type ThumbnailRenderQuality = {
+	maxEdgePx?: number;
+	maxScale?: number;
+	jpegQuality?: number;
+};
+
 /**
  * Render one PDF page to a small JPEG data URL (offscreen canvas).
- * Uses the shared workspace PDFDocumentProxy + low-priority paint slot.
+ * Uses the shared workspace PDFDocumentProxy + a render-queue slot.
+ * Prefer priority "high" after merge so thumbs are not stuck behind a
+ * low-priority gate that destroySharedWorkspacePdf may have closed.
  */
 export async function generatePageThumbnailDataUrl(
 	pageNum: number,
+	quality?: ThumbnailRenderQuality,
+	priority: PdfRenderPriority = "low",
 ): Promise<string | null> {
 	if (activeDoc.fileType === "image") return null;
 
@@ -240,13 +257,13 @@ export async function generatePageThumbnailDataUrl(
 	if (activeDoc.fileType === "tiff") {
 		const pageData = activeDoc.tiffPages[pageNum - 1];
 		if (!pageData) return null;
-		const result = await runWithPdfRenderSlot("low", async () => {
+		const result = await runWithPdfRenderSlot(priority, async () => {
 			const blob = new Blob([pageData as BlobPart], { type: "image/png" });
 			const url = URL.createObjectURL(blob);
 			try {
 				const img = await loadImage(url);
 				const rotation = activeDoc.rotations[pageNum] ?? 0;
-				return paintImageToJpeg(img, rotation);
+				return paintImageToJpeg(img, rotation, quality);
 			} finally {
 				URL.revokeObjectURL(url);
 			}
@@ -258,7 +275,7 @@ export async function generatePageThumbnailDataUrl(
 	if (!bytes || activeDoc.fileType !== "pdf") return null;
 
 	const result = await runWithPdfRenderSlot(
-		"low",
+		priority,
 		async () => {
 			// Re-read bytes after waiting for a slot (doc may have closed).
 			const liveBytes = activeDoc.rawBytes;
@@ -273,6 +290,9 @@ export async function generatePageThumbnailDataUrl(
 				page = await pdfDocument.getPage(pageNum);
 				// Offscreen canvas is discarded after toDataURL; free bitmap in finally.
 				const plan = thumbnailScalePlanForBytes(liveBytes.byteLength);
+				const maxEdge = quality?.maxEdgePx ?? plan.maxEdgePx;
+				const maxScale = quality?.maxScale ?? plan.maxScale;
+				const jpegQ = quality?.jpegQuality ?? THUMBNAIL_JPEG_QUALITY;
 				const sessionRot = activeDoc.rotations[pageNum] ?? 0;
 				const currentRotation = (page.rotate + sessionRot) % 360;
 				const unrotated = page.getViewport({ scale: 1 });
@@ -282,8 +302,8 @@ export async function generatePageThumbnailDataUrl(
 					: unrotated.height;
 				const scale = computeThumbnailScale(
 					renderWidth,
-					plan.maxEdgePx,
-					plan.maxScale,
+					maxEdge,
+					maxScale,
 				);
 				const viewport = page.getViewport({
 					scale,
@@ -319,10 +339,7 @@ export async function generatePageThumbnailDataUrl(
 					throw err;
 				}
 
-				const dataUrl = canvas.toDataURL(
-					"image/jpeg",
-					THUMBNAIL_JPEG_QUALITY,
-				);
+				const dataUrl = canvas.toDataURL("image/jpeg", jpegQ);
 				// Free GPU/bitmap backing store; only the JPEG string is retained.
 				try {
 					canvas.width = 0;
@@ -353,6 +370,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 function paintImageToJpeg(
 	img: HTMLImageElement,
 	rotation: number,
+	quality?: ThumbnailRenderQuality,
 ): string | null {
 	const is90 = rotation === 90 || rotation === 270;
 	const srcW = img.naturalWidth || img.width;
@@ -360,7 +378,8 @@ function paintImageToJpeg(
 	const plan = thumbnailScalePlanForBytes(
 		activeDoc.rawBytes?.byteLength ?? srcW * srcH,
 	);
-	const edge = plan.maxEdgePx;
+	const edge = quality?.maxEdgePx ?? plan.maxEdgePx;
+	const jpegQ = quality?.jpegQuality ?? THUMBNAIL_JPEG_QUALITY;
 	const scale = Math.min(edge / Math.max(1, srcW), edge / Math.max(1, srcH), 1);
 	const drawW = Math.max(1, Math.round(srcW * scale));
 	const drawH = Math.max(1, Math.round(srcH * scale));
@@ -380,7 +399,7 @@ function paintImageToJpeg(
 	ctx.translate(canvas.width / 2, canvas.height / 2);
 	ctx.rotate((rotation * Math.PI) / 180);
 	ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
-	return canvas.toDataURL("image/jpeg", THUMBNAIL_JPEG_QUALITY);
+	return canvas.toDataURL("image/jpeg", jpegQ);
 }
 
 /**
@@ -389,7 +408,12 @@ function paintImageToJpeg(
  */
 export async function ensurePageThumbnail(
 	pageNum: number,
-	opts?: { force?: boolean; skipMainWait?: boolean },
+	opts?: {
+		force?: boolean;
+		skipMainWait?: boolean;
+		/** Render-queue priority (use "high" after merge). Default "low". */
+		priority?: PdfRenderPriority;
+	},
 ): Promise<void> {
 	if (pageNum < 1) return;
 	if (activeDoc.fileType === "image") return;
@@ -414,12 +438,21 @@ export async function ensurePageThumbnail(
 	const existing = thumbState.inflight.get(key);
 	if (existing) {
 		await existing;
-		if ((activeDoc.pageThumbnailOverrides || {})[idx]) return;
+		// Non-force: skip if the other job filled the slot
+		if (!opts?.force && (activeDoc.pageThumbnailOverrides || {})[idx]) {
+			return;
+		}
+		// Force: always fall through and re-paint after the other job finishes
 	}
 
+	const priority = opts?.priority ?? "low";
 	const job = (async () => {
 		try {
-			const dataUrl = await generatePageThumbnailDataUrl(pageNum);
+			const dataUrl = await generatePageThumbnailDataUrl(
+				pageNum,
+				undefined,
+				priority,
+			);
 			if (!dataUrl) return;
 			if (
 				activeDoc.fileType !== "pdf" &&
@@ -488,7 +521,9 @@ export function startBackgroundThumbnailGeneration(): void {
 		if (!canGenerateThumbsForActiveDoc()) return;
 
 		const wsId = workspaceKey();
-		// Already filling this workspace — leave the existing loop alone
+		// Already filling this workspace — leave the existing loop alone.
+		// Callers that *must* re-walk after a structural rewrite should use
+		// forceRestartBackgroundThumbnailGeneration() instead.
 		if (thumbState.bgRunning && thumbState.bgWorkspaceId === wsId) {
 			return;
 		}
@@ -546,6 +581,8 @@ export function startBackgroundThumbnailGeneration(): void {
 					console.log(
 						`⚡ Background thumbnails: filled ${filled}, already cached ${skipped}, visible-first=${visibleFirst.length} (ws=${wsId})`,
 					);
+					// After the low-res fill, upgrade page 1 for Recent Documents cards
+					await upgradePage1RecentThumbnail(gen, wsId);
 				}
 			} catch (err) {
 				if (gen === thumbState.bgGeneration) {
@@ -564,6 +601,52 @@ export function startBackgroundThumbnailGeneration(): void {
 }
 
 /**
+ * Re-render page 1 at higher resolution once the background fill finishes.
+ * Updates sidebar override + Recent Documents card (when a path is known).
+ */
+async function upgradePage1RecentThumbnail(
+	gen: number,
+	wsId: string,
+): Promise<void> {
+	try {
+		if (gen !== thumbState.bgGeneration) return;
+		if (workspaceKey() !== wsId) return;
+		if (!canGenerateThumbsForActiveDoc()) return;
+
+		// Only PDF/TIFF have multi-page thumbs; images already use full-res previews
+		if (activeDoc.fileType !== "pdf" && activeDoc.fileType !== "tiff") {
+			return;
+		}
+
+		await yieldToMain();
+		if (gen !== thumbState.bgGeneration) return;
+		if (workspaceKey() !== wsId) return;
+
+		const dataUrl = await generatePageThumbnailDataUrl(1, {
+			maxEdgePx: RECENT_THUMB_MAX_EDGE_PX,
+			maxScale: RECENT_THUMB_MAX_SCALE,
+			jpegQuality: RECENT_THUMB_JPEG_QUALITY,
+		});
+		if (!dataUrl) return;
+		if (gen !== thumbState.bgGeneration) return;
+		if (workspaceKey() !== wsId) return;
+		if (!canGenerateThumbsForActiveDoc()) return;
+
+		const path = activeDoc.filePath || null;
+		if (path) {
+			// Broadcast to recents + page-0 override + thumbnailVersion
+			applyLiveThumbnail(dataUrl, path, 0);
+		} else {
+			// Unsaved tab: still upgrade the in-memory sidebar p1 thumb
+			setPageThumbnailOverride(0, dataUrl);
+		}
+		console.log("⚡ Page 1 recent-thumbnail upgraded to higher resolution");
+	} catch (err) {
+		console.warn("Page 1 recent-thumbnail upgrade skipped:", err);
+	}
+}
+
+/**
  * Kick the sequential full-document background fill (after main is ready).
  * Visible placeholders may still call ensurePageThumbnail via IntersectionObserver.
  */
@@ -578,6 +661,187 @@ export function invalidatePageThumbnail(pageNum: number): void {
 	delete overrides[pageNum - 1];
 	activeDoc.pageThumbnailOverrides = overrides;
 	void ensurePageThumbnail(pageNum, { force: true, skipMainWait: true });
+}
+
+/**
+ * Pure remap of 0-based thumbnail slots after a page insert/merge rewrite.
+ * Pre and post slices keep their old JPEGs; inserted slots stay empty.
+ */
+export function remapThumbnailOverridesAfterInsert(
+	oldOverrides: Record<number, string> | null | undefined,
+	prePagesOrder: number[],
+	extraPageCount: number,
+	postPagesOrder: number[],
+): Record<number, string> {
+	const old = oldOverrides || {};
+	const next: Record<number, string> = {};
+	let idx = 0;
+	for (const oldPage of prePagesOrder || []) {
+		const thumb = old[oldPage - 1];
+		if (thumb) next[idx] = thumb;
+		idx += 1;
+	}
+	// Newly inserted pages: leave empty slots for background generation
+	idx += Math.max(0, extraPageCount | 0);
+	for (const oldPage of postPagesOrder || []) {
+		const thumb = old[oldPage - 1];
+		if (thumb) next[idx] = thumb;
+		idx += 1;
+	}
+	return next;
+}
+
+/**
+ * Force-generate thumbnails for specific 1-based page numbers immediately.
+ * Does not wait for IntersectionObserver / scroll. Uses high-priority render
+ * slots so work is not blocked by `lowPriorityAllowed === false` after a
+ * shared-PDF destroy (merge path).
+ */
+export async function generateThumbnailsForPages(
+	pageNums: number[],
+	reason = "merge",
+): Promise<void> {
+	const pages = [
+		...new Set(
+			(pageNums || []).filter((p) => Number.isFinite(p) && p >= 1),
+		),
+	].sort((a, b) => a - b);
+
+	if (pages.length === 0) {
+		console.log(`${reason}: no pages need thumbnail generation`);
+		return;
+	}
+
+	console.log(
+		`${reason}: generating thumbnails for pages ${pages.join(", ")}`,
+	);
+
+	// destroySharedWorkspacePdf → clearPdfRenderQueue sets lowPriorityAllowed=false.
+	// Re-open the gate before any low work; also use high priority for these jobs.
+	setLowPriorityAllowed(true);
+
+	// Warm the shared PDF for the *new* bytes before per-page paints
+	const bytes = activeDoc.rawBytes;
+	if (activeDoc.fileType === "pdf" && bytes) {
+		try {
+			const doc = await getSharedWorkspacePdf(bytes);
+			if (!doc) {
+				console.warn(
+					`${reason}: shared PDF not available — thumbnail generation skipped`,
+				);
+				return;
+			}
+		} catch (err) {
+			console.warn(`${reason}: failed to open shared PDF for thumbs:`, err);
+			return;
+		}
+	}
+
+	let ok = 0;
+	let fail = 0;
+	for (const pageNum of pages) {
+		if (!canGenerateThumbsForActiveDoc()) break;
+		try {
+			await ensurePageThumbnail(pageNum, {
+				force: true,
+				skipMainWait: true,
+				priority: "high",
+			});
+			const has = !!(activeDoc.pageThumbnailOverrides || {})[pageNum - 1];
+			if (has) ok += 1;
+			else fail += 1;
+		} catch (err) {
+			fail += 1;
+			console.warn(
+				`${reason}: thumbnail failed for page ${pageNum}:`,
+				err,
+			);
+		}
+		await yieldToMain();
+	}
+
+	console.log(
+		`${reason}: thumbnail generation done — ok=${ok}, missing=${fail}, pages=[${pages.join(", ")}]`,
+	);
+}
+
+/**
+ * After merge / blank-page insert the PDF is rewritten as pages 1..N.
+ * Keep thumbs for pages whose *content* survived (pre + post slices), leave
+ * holes for newly inserted pages, then **await** force-generate for every
+ * newly added page so the sidebar/grid update without scroll.
+ *
+ * @param prePagesOrder Old 1-based page numbers kept before the insert
+ * @param extraPageCount Number of newly inserted pages (no thumbs yet)
+ * @param postPagesOrder Old 1-based page numbers kept after the insert
+ * @param newBytes Fresh document bytes (for content-key / IDB)
+ */
+export async function refreshThumbnailsAfterPageInsert(
+	prePagesOrder: number[],
+	extraPageCount: number,
+	postPagesOrder: number[],
+	newBytes: Uint8Array,
+): Promise<void> {
+	const next = remapThumbnailOverridesAfterInsert(
+		activeDoc.pageThumbnailOverrides,
+		prePagesOrder,
+		extraPageCount,
+		postPagesOrder,
+	);
+
+	setThumbnailContentKeyFromBytes(newBytes);
+	activeDoc.pageThumbnailOverrides = next;
+	// Layout dims are per-index and no longer match the rewritten PDF
+	const doc = activeDoc.current;
+	if (doc) {
+		doc.cachedDimensions = undefined;
+	}
+
+	// 1-based page numbers of the newly inserted block (primary) + any other miss
+	const newPageNums: number[] = [];
+	const preLen = (prePagesOrder || []).length;
+	const extra = Math.max(0, extraPageCount | 0);
+	for (let i = 0; i < extra; i++) {
+		newPageNums.push(preLen + i + 1);
+	}
+	const order = activeDoc.pageOrder || [];
+	for (const p of order) {
+		if (p >= 1 && !next[p - 1] && !newPageNums.includes(p)) {
+			newPageNums.push(p);
+		}
+	}
+
+	// Cancel any in-flight fill that was walking the old page set
+	stopBackgroundThumbnailGeneration();
+	thumbState.inflight.clear();
+
+	// Critical: re-enable low-priority paints (destroy cleared the gate)
+	setLowPriorityAllowed(true);
+
+	// Force-generate every new page NOW (high priority, no IO dependency)
+	await generateThumbnailsForPages(newPageNums, "Merge");
+
+	// Then walk the rest of the document in the background for any other holes
+	forceRestartBackgroundThumbnailGeneration();
+}
+
+/**
+ * Always cancel the current fill loop and start a fresh one for this workspace.
+ * Unlike {@link startBackgroundThumbnailGeneration}, never no-ops when a loop
+ * is already marked running (needed after merge when we must re-walk pages).
+ */
+export function forceRestartBackgroundThumbnailGeneration(): void {
+	try {
+		if (typeof window === "undefined") return;
+		// Bump generation so any in-flight loop exits its for-loop
+		stopBackgroundThumbnailGeneration();
+		// Clear bgRunning so start() does not early-return
+		thumbState.bgRunning = false;
+		thumbState.bgWorkspaceId = null;
+		startBackgroundThumbnailGeneration();
+	} catch {
+		/* circular import / SSR */
+	}
 }
 
 /** Clear in-flight map for tests / document teardown. Cancels background fill. */

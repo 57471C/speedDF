@@ -1,7 +1,6 @@
 <script lang="ts">
   import { flip } from "svelte/animate";
   import { fade } from "svelte/transition";
-  import * as pdfjsLib from "pdfjs-dist";
   import { PDFDocument } from "pdf-lib";
   import { invoke } from "@tauri-apps/api/core";
   import Sortable from "sortablejs";
@@ -21,7 +20,11 @@
     formatCommentTime,
   } from "../lib/comments/comments";
   import { autoGrowTextarea } from "../lib/interaction/autoGrowTextarea";
-  import { ensurePageThumbnail } from "../lib/render/thumbnailCache";
+  import {
+    ensurePageThumbnail,
+    refreshThumbnailsAfterPageInsert,
+  } from "../lib/render/thumbnailCache";
+  import { destroySharedWorkspacePdf } from "../lib/render/sharedPdfDocument";
 
   let sidebarContainer = $state<HTMLDivElement | null>(null);
   let thumbnailElements = $state<Record<number, HTMLDivElement>>({});
@@ -345,31 +348,29 @@
       for (const p of postPages || []) mergedDoc.addPage(p);
 
       const newRawBytes = await mergedDoc.save();
+      // Use pdf-lib page count — do NOT open a temporary pdf.js getDocument here.
+      // Destroying that temp task races the global worker and aborts the shared
+      // document that sidebar thumbs need for generatePageThumbnailDataUrl.
+      const numPages = mergedDoc.getPageCount();
 
-      // Count pages via temporary load, then destroy — shared workspace doc
-      // is recreated from the new rawBytes on next paint (identity change).
-      const loadingTask = pdfjsLib.getDocument({
-        data: new Uint8Array(newRawBytes),
-        cMapUrl: window.location.origin + "/cmaps/",
-        cMapPacked: true,
-        standardFontDataUrl: window.location.origin + "/standard_fonts/",
-        wasmUrl: window.location.origin + "/"
-      });
-      try {
-        const pdfDocument = await loadingTask.promise;
-        activeDoc.rawBytes = newRawBytes;
-        activeDoc.pageCount = pdfDocument.numPages;
-        activeDoc.pageOrder = Array.from(
-          { length: pdfDocument.numPages },
-          (_, idx) => idx + 1,
-        );
-      } finally {
-        try {
-          await loadingTask.destroy();
-        } catch {
-          /* ignore */
-        }
-      }
+      // Drop the old shared PDF before rebinding bytes so paints use the merge.
+      // NOTE: destroy → clearPdfRenderQueue sets lowPriorityAllowed=false;
+      // refreshThumbnailsAfterPageInsert re-enables it and force-paints new pages.
+      await destroySharedWorkspacePdf({ destroyWorker: false });
+      activeDoc.rawBytes = newRawBytes;
+      activeDoc.pageCount = numPages;
+      activeDoc.pageOrder = Array.from(
+        { length: numPages },
+        (_, idx) => idx + 1,
+      );
+      // Remap surviving thumbs + await force-generate for every inserted page
+      // (page + menu Add/Merge and grid batch-insert all use this path)
+      await refreshThumbnailsAfterPageInsert(
+        prePagesOrder,
+        extraPageCount,
+        postPagesOrder,
+        newRawBytes,
+      );
 
       input.value = "";
       insertAfterPageNum = null;
@@ -477,29 +478,22 @@
       for (const p of postPages || []) mergedDoc.addPage(p);
 
       const newRawBytes = await mergedDoc.save();
+      // pdf-lib count only — avoid temp pdf.js getDocument (worker race on destroy)
+      const numPages = mergedDoc.getPageCount();
 
-      const loadingTask = pdfjsLib.getDocument({
-        data: new Uint8Array(newRawBytes),
-        cMapUrl: window.location.origin + "/cmaps/",
-        cMapPacked: true,
-        standardFontDataUrl: window.location.origin + "/standard_fonts/",
-        wasmUrl: window.location.origin + "/"
-      });
-      try {
-        const pdfDocument = await loadingTask.promise;
-        activeDoc.rawBytes = newRawBytes;
-        activeDoc.pageCount = pdfDocument.numPages;
-        activeDoc.pageOrder = Array.from(
-          { length: pdfDocument.numPages },
-          (_, idx) => idx + 1,
-        );
-      } finally {
-        try {
-          await loadingTask.destroy();
-        } catch {
-          /* ignore */
-        }
-      }
+      await destroySharedWorkspacePdf({ destroyWorker: false });
+      activeDoc.rawBytes = newRawBytes;
+      activeDoc.pageCount = numPages;
+      activeDoc.pageOrder = Array.from(
+        { length: numPages },
+        (_, idx) => idx + 1,
+      );
+      await refreshThumbnailsAfterPageInsert(
+        prePagesOrder,
+        1,
+        postPagesOrder,
+        newRawBytes,
+      );
     } catch (err) {
       console.error("Blank page insertion failure:", err);
       alert("Failed to insert blank page.");

@@ -202,8 +202,13 @@
   </div>
 
   {#if visibleRecents.length > 0}
+    <!--
+      5-column grid: equal column tracks + uniform gap.
+      Each card uses its own aspect-ratio (portrait taller, landscape wider-looking)
+      at full column width so neighbours never collide and portraits aren't sparse.
+    -->
     <div
-      class="w-full border-t border-slate-900/40 pt-5 max-w-5xl animate-fade-in pointer-events-auto mt-auto"
+      class="w-full border-t border-slate-900/40 pt-5 max-w-6xl animate-fade-in pointer-events-auto mt-auto"
     >
       <h2
         class="text-[9px] font-bold uppercase tracking-widest text-slate-500 pl-4 mb-3 text-left"
@@ -212,14 +217,15 @@
       </h2>
 
       <div
-        class="grid grid-cols-5 gap-x-4 gap-y-12 pt-10 pb-6 px-4 w-full overflow-visible justify-items-center"
+        class="grid grid-cols-5 gap-x-5 gap-y-12 pt-10 pb-6 px-4 w-full items-start"
+        style="grid-template-columns: repeat(5, minmax(0, 1fr));"
       >
         {#each visibleRecents as file}
           {@const exists = fileStatusMap[file.path] !== false}
           {@const isLandscape = file.orientation === "landscape"}
           {@const doc = { ...file, id: file.path }}
 
-          <div class="flex-shrink-0 relative snap-start {isLandscape ? 'w-64 h-40' : 'w-40 h-52'}">
+          <div class="relative snap-start min-w-0 w-full">
             <div
               onclick={() => {
                 if (exists) openRecentFile(file.name, file.path);
@@ -231,9 +237,11 @@
               tabindex={exists ? 0 : -1}
               aria-disabled={!exists}
               title={exists ? file.path : "File unavailable on disk"}
-              class="recent-card-item w-full h-full relative flex flex-col items-center bg-slate-950 rounded-none select-none group p-0 border border-slate-900/40 will-change-transform transform-gpu subpixel-antialiased [backface-visibility:hidden] {exists
-                ? 'cursor-pointer'
-                : 'recent-card-item--disabled opacity-40 cursor-default'}"
+              class="recent-card-item w-full relative flex flex-col items-center bg-slate-950 rounded-none select-none group p-0 border border-slate-900/40 will-change-transform transform-gpu subpixel-antialiased [backface-visibility:hidden] min-w-0
+                {isLandscape ? 'recent-card-item--landscape' : 'recent-card-item--portrait'}
+                {exists
+                  ? 'cursor-pointer'
+                  : 'recent-card-item--disabled opacity-40 cursor-default'}"
             >
               <div class="absolute -top-5 left-0 right-0 text-[10.5px] font-medium text-slate-400 group-hover:text-cyan-400 overflow-hidden whitespace-nowrap px-0.5 pointer-events-none w-full select-none">
                 {#if file.name.length > 22}
@@ -282,12 +290,6 @@
                   </button>
                 {/if}
               </div>
-
-              {#if exists}
-                <div class="absolute top-2.5 left-2.5 h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981] filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" title="File available on local storage disk"></div>
-              {:else}
-                <div class="absolute top-2.5 left-2.5 h-2 w-2 rounded-full bg-slate-700 filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]" title="File path missing or unreadable"></div>
-              {/if}
             </div>
           </div>
         {/each}
@@ -316,14 +318,25 @@
   }
 
   .recent-card-item {
-    transform: scale(0.9) translateY(0);
+    /* Intrinsic height from aspect-ratio — not a shared fixed box */
+    width: 100%;
+    height: auto;
+    transform: scale(0.92) translateY(0);
     transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1), border-color 240ms ease, box-shadow 240ms ease;
     position: relative;
     z-index: 10;
   }
 
+  /* Portrait: taller than wide (letter-ish). Landscape: wider than tall. */
+  .recent-card-item--portrait {
+    aspect-ratio: 3 / 4;
+  }
+  .recent-card-item--landscape {
+    aspect-ratio: 16 / 10;
+  }
+
   .recent-card-item:hover:not(.recent-card-item--disabled) {
-    transform: scale(1.06) translateY(-10px) !important;
+    transform: scale(1.05) translateY(-8px) !important;
     z-index: 50 !important;
     border-color: #22d3ee !important; /* cyan-400 structural highlight */
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85), 0 0 20px rgba(34, 211, 238, 0.2) !important;
@@ -339,7 +352,7 @@
     cursor: default !important;
   }
   .recent-card-item--disabled:hover {
-    transform: scale(0.9) translateY(0) !important;
+    transform: scale(0.92) translateY(0) !important;
     border-color: rgb(15 23 42 / 0.4) !important;
     box-shadow: none !important;
   }

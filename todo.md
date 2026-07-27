@@ -2,7 +2,6 @@
 
 ## Features to add ##
 1. Tools: scratch pad/clip board (persistant across all docs)
-2. Re-render P1 in hiher res after thumbs load (so recent docs looks better/not pixelated)
 2. Obeject alignment
 3. R/click tab - "Open in new window" 
 4. Forms creation (NOT XFA Forms!) + hyperlinks
@@ -21,15 +20,15 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 4. Switch to Bun - could be a big win for speed and bundle size.
 
 ## Fixes
-- [ ] form input boxes don't always align (zoom level issue?).
-- [ ] After pressing Ctrl+F and adding text to find. cycling through searched key words (up/down arrows). On some results the highlited yellow is not visible. This leave the user hinting around the page for highliting that isn't showing.
-- [ ] Merging documents didn't render the added documents new page thumbnails.
-- [ ] adding bookmarks from the workspace icon. The whole behaviour is wrong. Clicking the icon shouldn't submit "Untitled bookmark". It should open the edit view of the popout, focus the cursor on the text input so the user can add their own title.
+- [x] On the main page before any document is loaded: remove the green pulsing dot in the left top corner (it's not needed). landscape pages are bunched up they should be allowed more padding.
+- [x] Merging documents didn't render the added documents new page thumbnails.
+- [x] After pressing Ctrl+F and adding text to find. cycling through searched key words (up/down arrows). On some results the highlited yellow is not visible. This leave the user hinting around the page for highliting that isn't showing.
+- [x] addng bookmarks from the workspace icon. The whole behaviour is wrong. Clicking the icon shouldn't submit "Untitled bookmark". It should open the edit view of the popout, focus the cursor on the text input so the user can add their own title.
 The hover popout disapares as the user tries to "catch" the "add" button. this state of the popout is unnessicary. Hover is only needed when there's an active bookmark
-- [ ] zoom to pointer coords could be better (still zooms to the side)
-- [ ] Calculator could have memory of what you typed (dim small font in the main display - like the windows 11 basic calulator)
-- [ ] After rendering all of the thumbnails - replace p1 with a higher res image of Page 1. So the thumbnail for recent documents loks better.
-
+- [x] zoom to pointer coords could be better (still zooms to the side)
+- [x] Calculator could have memory of what you typed (dim small font in the main display - like the windows 11 basic calulator)
+- [x] After rendering all of the thumbnails - replace p1 with a higher res image of Page 1. So the thumbnail for recent documents looks better.
+- [x] form input boxes don't always align (zoom level issue?).
 - [x] aFter dropping a text annotation. if you select another tool (other than select tool or colour modifier) it should unselect the text that was dropped.
 - [x] If you change the fontsize of a text annotation it should resize the teatarea's bounding box size to
 - [x] hover over comment icon the the top right wrokspace comments icon correctly pops out the form for easy adding a comment. But there is "alt text" that pops over the input (clash). Bookmarks icon should popout in the same way and also have the altext removed. 
@@ -40,11 +39,6 @@ The hover popout disapares as the user tries to "catch" the "add" button. this s
 - [x] Disable F5 refresh!
 - [x] remove "Shift" key for grouping
 - [x] Save/Save As annotation duplication (clear baked overlays after flatten)
----
-- [ ] Percentage Coordinate Calculations: Scaling custom annotation coordinates using percentages handles responsive layout redraws smoothly. However, as heavy vector layers grow or high-density custom paths are drawn, processing structural text layouts might hit rendering delays on weaker hardware profiles.
-- [ ] Form Field Layout Boundaries: Limiting initial widget operations strictly to text inputs, checkboxes, and dropdown strings provides a highly optimized experience. However, you'll need to keep a close eye on incoming documents containing radio group blocks or complex XFA templates, which remain out of scope for now.
-
-
 ---
 - Can't OCR images (only PDF's work)
 - Old install files clean-up
@@ -140,13 +134,13 @@ git add .
 git commit -m "chore: release v1.0.6"
 
 # 2. Create the annotated tag locally
-git tag -a v1.0.8 -m "Release v1.0.8"
+git tag -a v1.0.9 -m "Release v1.0.9"
 
 # 3. Push your active branch code to GitHub
 git push origin main
 
 # 4. Push the v1.0.6 tag to trigger the GitHub release action
-git push origin v1.0.8
+git push origin v1.0.9
 ```
 
 

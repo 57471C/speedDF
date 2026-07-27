@@ -33,6 +33,10 @@ On large PDFs (~25MB+), memory climbed continuously with **no user interaction**
 - Re-generate only on **page rotate** (`invalidatePageThumbnail`) or **save** (`applyLiveThumbnail` / `syncLiveThumbnail` for annotated page 0).
 - Lazy priority: placeholder mounts `requestStaticThumb` with **IntersectionObserver** so visible cards jump the queue.
 - **Background fill:** after `markMainViewReady`, `startBackgroundThumbnailGeneration()` walks every uncached page **one at a time** on the low-priority render slot (shared PDF only), stores each JPEG in `pageThumbnailOverrides` + IndexedDB immediately, and yields between pages. **Order:** currently visible / near-visible PageSidebar cards first (`[data-sidebar-page]` + scroll root `[data-sidebar-thumb-scroll]`, ~240px margin), then the rest of `pageOrder`. Cancelled on tab switch / close via `stopBackgroundThumbnailGeneration` / `clearThumbnailInflight` (generation token).
+- **High-res Recent p1:** when the background fill finishes successfully, `upgradePage1RecentThumbnail` re-renders page 1 with `RECENT_THUMB_MAX_EDGE_PX` / `RECENT_THUMB_MAX_SCALE` / `RECENT_THUMB_JPEG_QUALITY` and calls `applyLiveThumbnail` so Recent Documents cards are sharp (sidebar-scale JPEGs look soft on the dashboard).
+- **Merge / blank insert:** after rewriting `rawBytes` + sequential `pageOrder`, **await** `refreshThumbnailsAfterPageInsert(prePages, extraCount, postPages, bytes)`. That remaps surviving thumbs, then `generateThumbnailsForPages` force-paints every new page with **high** render priority (no IntersectionObserver). Always `destroySharedWorkspacePdf` before rebinding bytes.
+- **Critical gate:** `destroySharedWorkspacePdf` → `clearPdfRenderQueue` sets `lowPriorityAllowed = false`. If `mainReady` is already true, `markMainViewReady` used to early-return and leave thumbs blocked forever. Fix: `markMainViewReady` always re-enables low priority; merge path also calls `setLowPriorityAllowed(true)` and uses high-priority slots for new-page thumbs.
+- **Do not** open a temporary `pdfjsLib.getDocument` just to count pages after merge (use `mergedDoc.getPageCount()` from pdf-lib).
 - **Main-first open:** low-priority paints blocked until `markMainViewReady()` (first main canvas paint) or 2.5s fallback (`mainViewGate.ts` + `setLowPriorityAllowed`).
 - **Persistent cache:** IndexedDB `speeddf_page_thumbs_v1` keyed by path + content fingerprint (`thumbnailPersist.ts`). Hydrated on open before `pageOrder` mounts.
 
@@ -242,7 +246,8 @@ Non-XFA AcroForms only. Detected on PDF open; values live in-memory per document
 ### Detection & Overlay
 
 - `extractFormFields(bytes)` → `formFields` + `formValues` on the workspace.
-- `FormLayer.svelte` draws widgets in page-relative % coordinates (same space as annotations).
+- Widget rects are mapped with **`pdfRectToDisplayPercent`** (CropBox origin + page `/Rotate`, pdf.js PageViewport matrix at scale 1) so percentages match the painted canvas — MediaBox-only Y-flip drifts on rotated / cropped pages.
+- `FormLayer.svelte` draws widgets in those page-relative % coordinates (same space as annotations). Chrome uses **outline** (not inset border) and zoom-scaled font/padding so fixed-px borders never shrink the hit box relative to the PDF field.
 - Interactive when tool is `select` or `text` so drawing tools are not stolen.
 
 ### Signature Fields
@@ -453,4 +458,80 @@ Do not static-import `pdfjs-dist` at the top of `hyperlinks.ts` — Node vitest 
 
 ---
 
-**Last Updated:** July 2026 (line tool stroke/geometry, PDF hyperlinks, form/text value memory, text edit session safety, auto-grow + shape drop geometry, Shift multi-select, Helvetica defaults, forms + workspaceId / Save As)
+## Section O: Ctrl+F Search Highlights (Text Layer)
+
+### The Problem
+
+Full-document search joined every pdf.js text item with spaces, then mapped “occurrence N” to **span N**. Multi-hit spans and item/span mismatches left some cycles with no visible yellow mark. Text-layer glyphs use `color: transparent`, so Tailwind-only classes on dynamic `<mark>` HTML were also easy to miss.
+
+### The Solution
+
+1. **Index per text item** (`collectMatchesFromPageItems`) so occurrence order matches the painted text layer.
+2. **Paint every hit** with escaped HTML marks (`sdf-search-hit` / `sdf-search-hit-current`) via `paintSearchHighlightsOnRoot`.
+3. **Explicit CSS** on `WorkspacePage`: normal hits use ~20% yellow wash; the focused hit uses ~50% yellow + a thin amber outline (Safari-style). Canvas text stays legible under the translucent marks.
+4. **Scroll the mark** into view; retry paint until the text layer exists (off-screen pages need time).
+5. Reuse **`getSharedWorkspacePdf`** for indexing — never open a second `getDocument` per keystroke.
+
+### Rules
+
+- Always `escapeHtml` mark text (never re-inject raw span `innerHTML`).
+- Bind/scroll the specific `<mark data-sdf-search-occ="N">`, not only the page shell.
+- Close search when document or zoom changes (text layer rebuilds).
+
+---
+
+## Section P: Zoom-to-Pointer (Ctrl+Wheel)
+
+### The Problem
+
+Re-anchoring with `scrollWidth` / `scrollHeight` ratios treats `mx-auto` side gutters as content. Zooming in collapses those margins → content drifts sideways under the cursor.
+
+### The Solution
+
+1. Mark the page stack with **`data-workspace-pages`**.
+2. Capture **content-local** cursor coords (client − content rect) and viewport coords before zoom.
+3. Apply `zoomScale`, `await tick()` + one animation frame for page-shell reflow.
+4. `scrollAfterZoomToPointer` places the same local point under the cursor using post-layout content placement (`contentRect − nodeRect`).
+5. Stack multi-notch wheels on `pendingZoom` so rapid events are not lost before rAF.
+
+### Rules
+
+- Prefer content element metrics over full `scrollWidth` when the stack is centered.
+- Keep `scroll-behavior: auto` while re-anchoring (`workspace-zooming` class).
+- Clamp scroll to `[0, scrollSize − clientSize]`.
+
+---
+
+## Section Q: Workspace Bookmark Icon (Click-to-Compose)
+
+### The Problem
+
+Empty bookmark icons used a hover popout with an “Add” button that disappeared when the cursor left the narrow gutter — users hunted for the control. Click also immediately committed an **Untitled** bookmark.
+
+### The Solution
+
+- **Empty:** click opens compose popout with focused title input; commit only on Add/Enter via `addBookmarkAction`. Escape / × cancels. **No hover popout** when empty.
+- **Existing:** hover shows title / rename / delete (same sticky-while-composing pattern as comments).
+- Sidebar bookmark list behaviour is unchanged.
+
+### Rules
+
+- Do not auto-create a bookmark on icon click without a user commit.
+- Hover is for **existing** bookmarks only.
+
+---
+
+## Section R: Calculator Expression Memory
+
+### Behaviour (Windows 11 style)
+
+- `CalculatorState.expression` is a dim secondary line above the main `display`.
+- Operator → e.g. `12 +`; equals → `12 + 3 =` with result on the main line.
+- Next digit after `=` clears the expression.
+- **CE** clears the current entry only (keeps expression); **C** resets everything.
+
+Engine: pure `src/lib/tools/calculator.ts` (no DOM). UI: `src/routes/tools/+page.svelte`.
+
+---
+
+**Last Updated:** July 2026 (form CropBox/rotate + outline chrome, Ctrl+F mark paint, merge thumb remap + high-res Recent p1, zoom-to-pointer, bookmark click-to-compose, calculator expression memory, line tool, hyperlinks, form/text value memory, workspaceId / Save As)

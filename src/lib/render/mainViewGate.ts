@@ -37,9 +37,17 @@ export function resetMainViewReady(): void {
 
 /**
  * Signal that the primary workspace page is on-screen (or fallback fired).
- * Idempotent — safe to call after every main paint.
+ * Safe to call after every main paint.
+ *
+ * NOTE: Always re-enables low-priority thumbnail paints. `destroySharedWorkspacePdf`
+ * → `clearPdfRenderQueue` sets `lowPriorityAllowed = false`; if `mainReady` was
+ * already true (e.g. after a merge), an early-return here used to leave thumbs
+ * blocked forever.
  */
 export function markMainViewReady(): void {
+	// Always unlock low-priority work — even when already "ready"
+	setLowPriorityAllowed(true);
+
 	if (mainReady) return;
 	mainReady = true;
 	if (fallbackTimer != null) {
@@ -55,8 +63,6 @@ export function markMainViewReady(): void {
 			/* ignore */
 		}
 	}
-	// Notify render queue that low-priority work may proceed
-	setLowPriorityAllowed(true);
 	// Arm shared-doc idle cleanup only after first main paint (or fallback).
 	// Starting the timer on getDocument resolve aborted large cold opens.
 	enableSharedPdfIdleCleanup();

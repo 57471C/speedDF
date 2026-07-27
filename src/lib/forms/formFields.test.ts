@@ -5,6 +5,7 @@ import {
 	extractFormFields,
 	fieldsForPage,
 	isSignatureStampValue,
+	pdfRectToDisplayPercent,
 } from "./formFields";
 
 /** Minimal 1×1 red PNG (valid for pdf-lib embedPng). */
@@ -67,6 +68,40 @@ async function makeSignatureFormPdf(): Promise<Uint8Array> {
 }
 
 describe("formFields", () => {
+	it("maps PDF rects to CSS % (rotation 0, top-left)", () => {
+		// Page 400×300, field at x=40,y=220,w=200,h=24 (pdf bottom-left origin)
+		const r = pdfRectToDisplayPercent(
+			{ x: 40, y: 220, width: 200, height: 24 },
+			0,
+			0,
+			400,
+			300,
+			0,
+		);
+		expect(r.x).toBeCloseTo(10, 5);
+		expect(r.y).toBeCloseTo(((300 - 220 - 24) / 300) * 100, 5);
+		expect(r.width).toBeCloseTo(50, 5);
+		expect(r.height).toBeCloseTo(8, 5);
+	});
+
+	it("swaps axes for 90° page rotation (matches pdf.js viewport)", () => {
+		// Point at media (0,0) bottom-left → after 90° display transform
+		const r = pdfRectToDisplayPercent(
+			{ x: 0, y: 0, width: 100, height: 50 },
+			0,
+			0,
+			400,
+			300,
+			90,
+		);
+		// Display size is 300×400; rect corners map via pdf.js matrix
+		expect(r.width).toBeGreaterThan(0);
+		expect(r.height).toBeGreaterThan(0);
+		// Width/height swap relative to unrotated percentages of the other axis
+		expect(r.width).toBeCloseTo((50 / 300) * 100, 4);
+		expect(r.height).toBeCloseTo((100 / 400) * 100, 4);
+	});
+
 	it("filters fields by page", () => {
 		const fields = [
 			{

@@ -3,8 +3,13 @@
 export type CalcOp = "+" | "-" | "*" | "/";
 
 export interface CalculatorState {
-	/** Current display string */
+	/** Current display string (main line) */
 	display: string;
+	/**
+	 * Dim secondary line (Windows 11 style) — e.g. "12 +" or "12 + 3 =".
+	 * Empty when idle / after clear.
+	 */
+	expression: string;
 	/** Accumulated value waiting for the next operand */
 	accumulator: number | null;
 	/** Pending operator */
@@ -20,6 +25,7 @@ export interface CalculatorState {
 export function createCalculatorState(): CalculatorState {
 	return {
 		display: "0",
+		expression: "",
 		accumulator: null,
 		pendingOp: null,
 		justEvaluated: false,
@@ -59,11 +65,31 @@ function parseDisplay(display: string): number {
 	return Number.isFinite(n) ? n : 0;
 }
 
+/** Glyph for the secondary expression line (Windows calculator style). */
+export function opGlyph(op: CalcOp): string {
+	switch (op) {
+		case "+":
+			return "+";
+		case "-":
+			return "−";
+		case "*":
+			return "×";
+		case "/":
+			return "÷";
+	}
+}
+
+function pendingExpression(acc: number, op: CalcOp): string {
+	return `${formatNumber(acc)} ${opGlyph(op)}`;
+}
+
 export function inputDigit(state: CalculatorState, digit: string): CalculatorState {
 	if (state.error) return clearAll();
 	if (state.justEvaluated || !state.entering) {
 		return {
 			...state,
+			// Fresh entry after = clears the memory line (Windows behaviour)
+			expression: state.justEvaluated ? "" : state.expression,
 			display: digit === "." ? "0." : digit,
 			justEvaluated: false,
 			entering: true,
@@ -85,10 +111,15 @@ export function inputOperator(state: CalculatorState, op: CalcOp): CalculatorSta
 	if (state.accumulator !== null && state.pendingOp && state.entering) {
 		const result = applyOp(state.accumulator, state.pendingOp, current);
 		if (result === "Error") {
-			return { ...createCalculatorState(), display: "Error", error: "Divide by zero" };
+			return {
+				...createCalculatorState(),
+				display: "Error",
+				error: "Divide by zero",
+			};
 		}
 		return {
 			display: formatNumber(result),
+			expression: pendingExpression(result, op),
 			accumulator: result,
 			pendingOp: op,
 			justEvaluated: false,
@@ -97,9 +128,15 @@ export function inputOperator(state: CalculatorState, op: CalcOp): CalculatorSta
 		};
 	}
 
+	const acc = state.accumulator !== null && state.pendingOp && !state.entering
+		? state.accumulator
+		: current;
+
 	return {
 		...state,
-		accumulator: current,
+		display: formatNumber(acc),
+		expression: pendingExpression(acc, op),
+		accumulator: acc,
 		pendingOp: op,
 		justEvaluated: false,
 		entering: false,
@@ -115,10 +152,16 @@ export function inputEquals(state: CalculatorState): CalculatorState {
 	const current = parseDisplay(state.display);
 	const result = applyOp(state.accumulator, state.pendingOp, current);
 	if (result === "Error") {
-		return { ...createCalculatorState(), display: "Error", error: "Divide by zero" };
+		return {
+			...createCalculatorState(),
+			display: "Error",
+			error: "Divide by zero",
+		};
 	}
+	const expr = `${formatNumber(state.accumulator)} ${opGlyph(state.pendingOp)} ${formatNumber(current)} =`;
 	return {
 		display: formatNumber(result),
+		expression: expr,
 		accumulator: null,
 		pendingOp: null,
 		justEvaluated: true,
@@ -133,6 +176,7 @@ export function clearAll(): CalculatorState {
 
 export function clearEntry(state: CalculatorState): CalculatorState {
 	if (state.error) return clearAll();
+	// CE clears only the current entry; keep the dim expression memory
 	return { ...state, display: "0", entering: false, error: null };
 }
 
@@ -176,6 +220,7 @@ export function pasteValue(state: CalculatorState, text: string): CalculatorStat
 	if (!Number.isFinite(n)) return state;
 	return {
 		...state,
+		expression: state.justEvaluated ? "" : state.expression,
 		display: formatNumber(n),
 		entering: true,
 		justEvaluated: false,

@@ -14,7 +14,7 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/lib/annotation/toolShapes.ts`**: Pure factories for tool-created shapes (box, freehand, **line**, text, stamps). Includes `createLineShape`, `lineBoundsFromPoints`, `arrowHeadVertices`, `defaultTextBoxHeightPct`, and empty-draft helpers.
 * **`src/lib/annotation/ghostDimensions.ts`**: Stamp ghost size defaults + localStorage cache for resized stamps.
 * **`src/lib/annotation/strokeStyles.ts`**: Shared SVG stroke-dasharray presets.
-* **`src/lib/forms/formFields.ts`**: AcroForm (non-XFA) field extraction, value application, signature stamp bake, and flatten helpers via pdf-lib.
+* **`src/lib/forms/formFields.ts`**: AcroForm (non-XFA) field extraction, value application, signature stamp bake, and flatten helpers via pdf-lib. Widget geometry uses **CropBox + page `/Rotate`** via `pdfRectToDisplayPercent` (pdf.js-compatible viewport matrix) so overlays match the painted page at every zoom.
 * **`src/lib/forms/formMemory.ts`**: Pure form/text value memory store — load/save `localStorage` key **`speeddf_form_memory`**, MRU lists, starts-with suggestions (min 2 chars).
 * **`src/lib/forms/formMemory.svelte.ts`**: Reactive facade over `formMemory` for UI (`rememberFormValue`, `getSuggestions`, `removeFormValue`, `clearAllFormMemory`).
 * **`src/lib/links/hyperlinks.ts`**: URI Link annotation extraction (PDF.js), safe-scheme validation (`http` / `https` / `mailto` only), and per-page link helpers. Pure URL helpers have no top-level PDF.js import (tests stay Node-safe).
@@ -22,21 +22,28 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/lib/comments/comments.ts`**: Threaded page comments, author profile, and Keywords embed/decode for save.
 * **`src/lib/interaction/dragHandler.svelte.ts`**: Page drag, multi-select (Ctrl/Cmd only), resize, **line click–click rubber-band**, line endpoint handles, text edit sessions (`activelyEditingIndex` + `textEditBaseline`), box click-to-drop defaults, and pointer event session for `WorkspacePage`.
 * **`src/lib/interaction/coordinates.ts`**: Percentage coordinate transforms (including image rotation).
+* **`src/lib/interaction/zoomToPointer.ts`**: Pure scroll math for Ctrl+wheel zoom-to-pointer (content-local re-anchor; accounts for `mx-auto` gutter collapse).
+* **`src/lib/interaction/textSearch.ts`**: Pure Ctrl+F helpers — per-item match index, safe highlight paint (`sdf-search-hit` / `sdf-search-hit-current` marks), escape HTML.
+* **`src/lib/tools/calculator.ts`**: Four-function calculator engine with Windows-style dim **`expression`** memory line.
+* **`src/lib/tools/formatTime.ts`**: Timer / stopwatch display formatters.
+* **`src/lib/tools/magic8Ball.ts`**: Magic 8 Ball answer pool + shake timing.
+* **`src/lib/tools/openToolsWindow.ts`**: Opens the always-on-top Tools widget window.
 * **`src/lib/render/pageRenderer.ts`**: PDF.js / image / TIFF canvas paint + text-layer pipeline.
 * **`src/lib/render/sharedPdfDocument.ts`**: Single shared `PDFDocumentProxy` for active workspace bytes + idle `cleanup()`; used by main paints and thumbnails (avoids per-paint `getDocument` leaks).
-* **`src/lib/render/pdfRenderQueue.ts`**: Global pdf.js paint concurrency gate (high = main, low = thumbs).
-* **`src/lib/render/thumbnailCache.ts`**: One-shot page JPEG generation into `pageThumbnailOverrides`; sidebar/grid serve static `<img>` (no re-render on zoom/view).
-* **`src/components/WorkspacePage.svelte`**: Page shell — layout, observers, bookmarks; delegates paint, interaction, annotation overlay, form overlay, and **link overlay**. Global Delete/Backspace skips when focus is in a text control or a text edit session is open.
+* **`src/lib/render/pdfRenderQueue.ts`**: Global pdf.js paint concurrency gate (high = main, low = thumbs). Also owns thumbnail scale knobs + **`RECENT_THUMB_*`** high-res page-1 constants.
+* **`src/lib/render/thumbnailCache.ts`**: One-shot page JPEG generation into `pageThumbnailOverrides`; sidebar/grid serve static `<img>` (no re-render on zoom/view). After merge: `refreshThumbnailsAfterPageInsert` remaps surviving thumbs. After background fill: **`upgradePage1RecentThumbnail`** re-renders p1 sharper for Recent Documents.
+* **`src/components/WorkspacePage.svelte`**: Page shell — layout, observers, **bookmark click-to-compose** rail, comments; delegates paint, interaction, annotation overlay, form overlay, and **link overlay**. Hosts Ctrl+F mark CSS over the transparent text layer. Global Delete/Backspace skips when focus is in a text control or a text edit session is open.
 * **`src/components/AnnotationLayer.svelte`**: SVG/DOM annotation overlay (shapes, **lines**, handles, ghosts, live drawing previews). Freehand signature/initial stamps live here (not AcroForm Sig fields). Hosts text editing UI, auto-grow text boxes, and value-memory popover for annotations. Line strokes use `vector-effect="non-scaling-stroke"` so thickness matches box shapes in CSS px.
-* **`src/components/FormLayer.svelte`**: AcroForm overlay (text / checkbox / dropdown / signature widgets). Signature widgets open a stamp picker reusing `savedSignatureSets` (no new drawing on form fields). Text widgets wire value-memory autocomplete.
+* **`src/components/FormLayer.svelte`**: AcroForm overlay (text / checkbox / dropdown / signature widgets). Chrome uses **outline** (not inset border) + zoom-scaled font/padding so fields stay glued to widget rects. Signature widgets open a stamp picker reusing `savedSignatureSets`. Text widgets wire value-memory autocomplete.
 * **`src/components/LinkLayer.svelte`**: PDF URI hyperlink overlay — underline/hover chrome; click confirms then opens via Tauri shell. Interactive only when tool is `select`.
 * **`src/components/ValueMemoryPopover.svelte`**: Portaled autocomplete for remembered form/annotation values (★ Remember, × remove, Clear all, ↓/↑/Enter).
 * **`src/components/DocumentTabs.svelte`**: Multi-document tab strip; tab ids use `documentKey()` (`workspaceId`).
 * **`src/components/TitleBar.svelte`**: Custom OS-level header: window chrome, file open/save dialogs, orchestrates save via `lib/export/flatten` + `commitActiveDocumentAfterSave` (also re-extracts hyperlinks after save).
-* **`src/components/Workspace.svelte`**: Primary layout container mapping scrollable `WorkspacePage`s; hosts text floating toolbar and “Document loaded in Xms” burn-in.
+* **`src/components/Workspace.svelte`**: Primary layout container mapping scrollable `WorkspacePage`s; **Ctrl/Cmd+wheel zoom-to-pointer** (content stack `data-workspace-pages`); hosts text floating toolbar and “Document loaded in Xms” burn-in.
 * **`src/components/ToolSidebar.svelte`**: Left-hand tools: select, stamps, shapes, **line**, freehand, colors, styles; thickness menu includes **Ends** (plain / end arrow / start+end).
-* **`src/components/PageSidebar.svelte`**: Right-hand panel: page order, thumbnails, outline/bookmarks, comments tab.
-* **`src/routes/+page.svelte`**: App root wiring sidebars, workspace, titlebar. Listens for **`startup-file-loaded`** (cold start) and **`open-file-request`** (second-instance / single-instance handoff).
+* **`src/components/PageSidebar.svelte`**: Right-hand panel: page order, thumbnails, outline/bookmarks, comments tab; **merge / blank-page insert** rebinds bytes + calls `refreshThumbnailsAfterPageInsert`.
+* **`src/routes/+page.svelte`**: App root wiring sidebars, workspace, titlebar, **Ctrl+F full-document search**. Listens for **`startup-file-loaded`** (cold start) and **`open-file-request`** (second-instance / single-instance handoff).
+* **`src/routes/tools/+page.svelte`**: Always-on-top Tools window — calculator (expression memory), timer, stopwatch, Magic 8 Ball.
 * **`src/routes/OcrPanel.svelte`**: Overlay for local AI OCR extraction.
 
 ### Backend System (Rust / Tauri)
@@ -81,10 +88,14 @@ Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary
 * **`switchActiveDocument(id)`** / **`closeDocumentWorkspace(id)`**: Tab switch/close by id (close delegates to `cleanupWorkspace`).
 * **`commitActiveDocumentAfterSave({ compiledBytes, filePath?, fileName? })`**: Post-save rebind of bytes/path/name, **clear shapes + selection + history** (annotations are baked into bytes), reset rotations / sequential page order, re-extract form fields **and hyperlinks**, **upsert Recent Documents** for the saved path. Does **not** change `workspaceId` / remount the tab.
 * **`setFormFieldValueAction(name, value)`**: Updates one AcroForm value (text / checkbox / dropdown / signature data URL) and marks dirty.
-* **`extractFormFields(bytes)`** / **`applyAndFlattenFormValues(pdfDoc, values)`** (`lib/forms/formFields.ts`): Detect widgets on open; bake values (including signature stamps drawn into Sig widgets) on save.
+* **`addBookmarkAction(pageNum, name)`**: Commit a bookmark with a title (workspace icon compose flow). Does **not** toggle/remove. Prefer over `addOrToggleBookmarkAction` when the user types a name first.
+* **`addOrToggleBookmarkAction(pageNum)`**: Legacy toggle (add empty name / remove). Still used where a one-shot flip is intentional.
+* **`extractFormFields(bytes)`** / **`applyAndFlattenFormValues(pdfDoc, values)`** (`lib/forms/formFields.ts`): Detect widgets on open; bake values (including signature stamps drawn into Sig widgets) on save. Geometry via `pdfRectToDisplayPercent`.
 * **`extractHyperlinksFromDocument(pdf)`** / **`extractHyperlinks(bytes)`** (`lib/links/hyperlinks.ts`): Detect URI Link annotations on open / post-save; scheme-filtered.
 * **`flattenWorkspaceToPDF()`** / **`flattenWorkspaceToImage()`** (`lib/export/flatten.ts`): Compile annotations (+ form bake for PDF) to bytes for save/print.
-* **`upsertRecentEntry` / `updateRecentThumbnail` / `applyLiveThumbnail`**: Recent Documents + sidebar thumbnail pipeline after save.
+* **`upsertRecentEntry` / `updateRecentThumbnail` / `applyLiveThumbnail`**: Recent Documents + sidebar thumbnail pipeline after save (and after high-res p1 upgrade).
+* **`refreshThumbnailsAfterPageInsert` / `remapThumbnailOverridesAfterInsert`**: Keep pre/post page thumbs after merge; leave holes for inserted pages; restart background fill.
+* **`startBackgroundThumbnailGeneration`**: Sequential low-priority fill; ends with **`upgradePage1RecentThumbnail`** (sharper Recent Documents card).
 * **`parse_tiff_document()`** (`lib.rs`): TIFF → PNG page buffers.
 * **`run_local_ocr()`** (`commands.rs`): Local OCR inference.
 * **`check_startup_file()`** (`lib.rs`): Fallback only; primary open-with path does not use it.
@@ -103,7 +114,8 @@ Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary
 ## 4. AcroForm Forms Entry (Non-XFA)
 
 * **Detect** on PDF load via `extractFormFields` → `formFields` + `formValues` on the active `DocumentWorkspace`.
-* **Overlay**: `FormLayer.svelte` on each page (interactive when tool is `select` or `text`).
+* **Geometry:** CropBox origin + page rotation mapped with a pdf.js-compatible viewport matrix (`pdfRectToDisplayPercent`) so widgets align with the canvas at any zoom.
+* **Overlay**: `FormLayer.svelte` on each page (interactive when tool is `select` or `text`). Chrome uses **outline** (not border inset) and zoom-scaled font/padding.
 * **Supported widgets (v1):** text, checkbox, dropdown, **signature** (stamp fill, not digital PKCS).
 * **Signature fields:** click → picker of `savedSignatureSets` (signature + initials); value is a data URL; clear with ×. Multi-tab safe (apply ignored if active tab changes mid-pick).
 * **Save:** `applyAndFlattenFormValues` sets text/check/dropdown, draws stamp images into Sig widget rects, removes Sig fields safely (pdf-lib cannot build Sig `/AP` streams), then flattens remaining fields. Export path is multi-document safe (uses active doc’s values only).
@@ -158,7 +170,50 @@ Personal autocomplete for repetitive typing — **not** stored in the PDF.
 
 ---
 
-## 8. Startup File / File Association Path (Important)
+## 8. Ctrl+F Full-Document Search
+
+* **UI:** Floating find popup in `+page.svelte` (Enter / Shift+Enter cycle; Aa case toggle).
+* **Index:** Scan every page via **shared** `getSharedWorkspacePdf` text items — **per item**, not space-joined page text (so occurrence order maps to text-layer spans).
+* **Paint:** `paintSearchHighlightsOnRoot` injects escaped `<mark class="sdf-search-hit">`; current match gets `sdf-search-hit-current`. CSS on `WorkspacePage`: ~20% yellow wash for hits, ~50% + thin outline for focus (canvas text stays legible under transparent glyphs).
+* **Navigate:** `scrollToMatch` forces page paint, retries until the target mark exists, then `scrollIntoView` on the **mark** (not only the page).
+* **Reset:** Close search on document change or zoom scale change (text layer rebuilds).
+
+---
+
+## 9. Workspace Bookmarks (Page Gutter Icon)
+
+* **Empty page:** Click icon → compose popout with **focused title input**. Nothing is committed until Add / Enter. Escape / × cancels. **No hover “Add” trap.**
+* **Existing bookmark:** Hover shows title + rename + delete. Rename re-enters compose with seed text. Click filled icon sets `currentPage`.
+* **Commit:** `addBookmarkAction(pageNum, name)` (does not toggle). Sidebar bookmark list behaviour unchanged.
+
+---
+
+## 10. Thumbnails: Merge, Background Fill, Recent p1
+
+* **Static thumbs:** `ensurePageThumbnail` → JPEG in `pageThumbnailOverrides[pageIndex]`; sidebar/grid are `<img>` only.
+* **Background fill:** `startBackgroundThumbnailGeneration` (low priority, visible-first). After completion, **`upgradePage1RecentThumbnail`** re-renders page 1 at `RECENT_THUMB_*` quality and calls `applyLiveThumbnail` for Recent Documents.
+* **Merge / blank insert (`PageSidebar`):** destroy shared PDF → rebind `rawBytes` / sequential `pageOrder` → `refreshThumbnailsAfterPageInsert(pre, extraCount, post, bytes)` remaps surviving thumbs and restarts fill for holes.
+* **Do not** leave old overrides in place after a structural rewrite — page indices no longer match content.
+
+---
+
+## 11. Ctrl+Wheel Zoom-to-Pointer
+
+* Handler: `Workspace.setupWheelZoom` on the scroll container.
+* Capture content-local coords on `[data-workspace-pages]` (not full `scrollWidth` — that drifts when `mx-auto` gutters collapse).
+* After Svelte reflow + layout frame, `scrollAfterZoomToPointer` corrects `scrollLeft` / `scrollTop`.
+* Coalesce multi-notch wheels on `pendingZoom`; stack deltas so rapid wheels are not lost.
+
+---
+
+## 12. Tools Window (Calculator / Timer / Stopwatch / 8-Ball)
+
+* Route: `src/routes/tools/+page.svelte` (separate always-on-top window).
+* **Calculator:** pure engine in `lib/tools/calculator.ts`. Main line = current value; dim **`expression`** line = pending op / last equation (Windows 11 style). CE keeps expression; C clears all.
+
+---
+
+## 13. Startup File / File Association Path (Important)
 
 ### Cold start (app not running)
 1. Rust setup reads `std::env::args()`.
@@ -178,14 +233,15 @@ Personal autocomplete for repetitive typing — **not** stored in the PDF.
 
 ---
 
-## 9. Security Notes
+## 14. Security Notes
 
 * Path-taking commands should go through `secure_verify_path` (or equivalent) to prevent directory traversal / relative paths / null bytes.
 * Startup and single-instance file loading only accept existing regular files with supported extensions.
 * Prefer shared validation helpers over one-off checks in each command.
 * Form/text memory stores plain strings in localStorage only — never write secrets into PDF metadata via this path.
 * Hyperlink open must always re-run `isSafeHyperlinkUrl` at click time and show a confirmation dialog before shell open. Never auto-navigate.
+* Search highlight HTML must always go through `escapeHtml` (never re-inject raw `innerHTML` from the text layer).
 
 ---
 
-**Last Updated:** July 2026 (line tool + ends, PDF hyperlinks, form/text value memory, text/shape polish, Shift multi-select, workspaceId / Save As, AcroForm signatures)
+**Last Updated:** July 2026 (form CropBox/rotate alignment, Ctrl+F mark paint, merge thumb remap + high-res Recent p1, bookmark click-to-compose, zoom-to-pointer, calculator expression memory, tools window, line tool + hyperlinks, form/text value memory, workspaceId / Save As)

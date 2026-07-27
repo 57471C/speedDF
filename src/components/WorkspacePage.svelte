@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { onMount, untrack } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import {
     activeDoc,
     pushHistorySnapshot,
     updateBookmarkNameAction,
     deleteBookmarkAction,
-    addOrToggleBookmarkAction,
+    addBookmarkAction,
     addCommentAction,
     requestCommentsPanel,
   } from "../pdfStore.svelte";
@@ -217,11 +217,53 @@
   let commentComposing = $state(false);
   let commentDraft = $state("");
 
+  // Bookmark rail: click-to-compose for empty; hover only when a bookmark exists
+  let bookmarkHovered = $state(false);
+  let bookmarkComposing = $state(false);
+  let bookmarkDraft = $state("");
+  let bookmarkInputEl = $state<HTMLInputElement | null>(null);
+
+  let pageHasBookmark = $derived(
+    (activeDoc.bookmarks || []).some((b) => b.pageNum === pageNumber),
+  );
+  let pageBookmark = $derived(
+    (activeDoc.bookmarks || []).find((b) => b.pageNum === pageNumber) ?? null,
+  );
+
   function submitPageComment() {
     const id = addCommentAction(pageNumber, commentDraft);
     if (id) {
       commentDraft = "";
       commentComposing = false;
+    }
+  }
+
+  /** Open compose popout and focus the title field (does not commit yet). */
+  async function openBookmarkCompose(seedName = "") {
+    bookmarkComposing = true;
+    bookmarkHovered = true;
+    bookmarkDraft = seedName;
+    await tick();
+    bookmarkInputEl?.focus();
+    bookmarkInputEl?.select();
+  }
+
+  function saveBookmarkCompose() {
+    const name = bookmarkDraft.trim();
+    if (pageHasBookmark) {
+      updateBookmarkNameAction(pageNumber, name);
+    } else {
+      addBookmarkAction(pageNumber, name);
+    }
+    bookmarkComposing = false;
+    bookmarkDraft = "";
+  }
+
+  function cancelBookmarkCompose() {
+    bookmarkComposing = false;
+    bookmarkDraft = "";
+    if (!pageHasBookmark) {
+      bookmarkHovered = false;
     }
   }
 
@@ -497,31 +539,20 @@
     {#if activeDoc.fileType === 'image'}
       <!-- Bookmarks / comments are not available for image documents -->
     {:else}
-      <!-- 1. Bookmark (top) — hover popout only; no native title/tooltip clash -->
-      {#if activeDoc.bookmarks.some(b => b.pageNum === pageNumber)}
-        {@const match = activeDoc.bookmarks.find(b => b.pageNum === pageNumber)!}
-        {@const s = (() => {
-          let isHovered = $state(false);
-          let isEditing = $state(false);
-          let tempName = $state(match.name);
-          return {
-            get isHovered() { return isHovered },
-            set isHovered(v) { isHovered = v },
-            get isEditing() { return isEditing },
-            set isEditing(v) { isEditing = v },
-            get tempName() { return tempName },
-            set tempName(v) { tempName = v }
-          };
-        })()}
-
+      <!-- 1. Bookmark (top)
+           - Empty: click opens compose popout (focused input) — no hover Add trap
+           - Existing: hover shows title / rename / delete -->
+      {#if pageHasBookmark && pageBookmark}
         <div
-          onmouseenter={() => s.isHovered = true}
-          onmouseleave={() => s.isHovered = false}
+          onmouseenter={() => (bookmarkHovered = true)}
+          onmouseleave={() => {
+            if (!bookmarkComposing) bookmarkHovered = false;
+          }}
           class="relative w-5 h-[26px] bg-transparent select-none"
         >
           <button
             type="button"
-            onclick={() => activeDoc.currentPage = pageNumber}
+            onclick={() => (activeDoc.currentPage = pageNumber)}
             class="absolute inset-0 flex items-start justify-start text-cyan-400 hover:text-cyan-300 drop-shadow-lg transition-transform active:scale-95"
             aria-label="Bookmark"
           >
@@ -530,30 +561,31 @@
             </svg>
           </button>
 
-          {#if s.isHovered || s.isEditing}
-            <div class="absolute left-full top-0 ml-1.5 flex items-center gap-2 bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1 shadow-2xl backdrop-blur-sm z-50 whitespace-nowrap pointer-events-auto">
-              {#if s.isEditing}
+          {#if bookmarkHovered || bookmarkComposing}
+            <div
+              class="absolute left-full top-0 ml-1.5 flex items-center gap-2 bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1 shadow-2xl backdrop-blur-sm z-50 whitespace-nowrap pointer-events-auto"
+              onmousedown={(e) => e.stopPropagation()}
+            >
+              {#if bookmarkComposing}
                 <input
+                  bind:this={bookmarkInputEl}
                   type="text"
-                  bind:value={s.tempName}
+                  bind:value={bookmarkDraft}
+                  placeholder="Bookmark title…"
                   onkeydown={(e) => {
-                    if (e.key === 'Enter') {
-                      updateBookmarkNameAction(pageNumber, s.tempName);
-                      s.isEditing = false;
-                    } else if (e.key === 'Escape') {
-                      s.tempName = match.name;
-                      s.isEditing = false;
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      saveBookmarkCompose();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      cancelBookmarkCompose();
                     }
                   }}
-                  class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-cyan-500 max-w-[110px] font-sans"
-                  autofocus
+                  class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-cyan-500 max-w-[130px] font-sans"
                 />
                 <button
                   type="button"
-                  onclick={() => {
-                    updateBookmarkNameAction(pageNumber, s.tempName);
-                    s.isEditing = false;
-                  }}
+                  onclick={saveBookmarkCompose}
                   class="p-0.5 rounded text-emerald-400 hover:bg-slate-800"
                   aria-label="Save bookmark name"
                 >
@@ -561,11 +593,11 @@
                 </button>
               {:else}
                 <span class="text-[10px] font-medium text-slate-300 max-w-[130px] truncate font-sans">
-                  {match.name || 'Untitled reference'}
+                  {pageBookmark.name || "Untitled reference"}
                 </span>
                 <button
                   type="button"
-                  onclick={() => s.isEditing = true}
+                  onclick={() => void openBookmarkCompose(pageBookmark.name || "")}
                   class="p-0.5 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"
                   aria-label="Rename bookmark"
                 >
@@ -575,7 +607,12 @@
 
               <button
                 type="button"
-                onclick={() => deleteBookmarkAction(pageNumber)}
+                onclick={() => {
+                  deleteBookmarkAction(pageNumber);
+                  bookmarkComposing = false;
+                  bookmarkHovered = false;
+                  bookmarkDraft = "";
+                }}
                 class="p-0.5 rounded text-slate-500 hover:text-red-400 hover:bg-slate-800"
                 aria-label="Remove bookmark"
               >
@@ -585,22 +622,14 @@
           {/if}
         </div>
       {:else}
-        <!-- Empty bookmark: hover popout (mirrors comments), no title tooltip -->
-        {@const emptyBm = (() => {
-          let isHovered = $state(false);
-          return {
-            get isHovered() { return isHovered },
-            set isHovered(v) { isHovered = v },
-          };
-        })()}
-        <div
-          onmouseenter={() => (emptyBm.isHovered = true)}
-          onmouseleave={() => (emptyBm.isHovered = false)}
-          class="relative w-5 h-[26px] bg-transparent select-none"
-        >
+        <!-- Empty bookmark: click-to-compose only (no hover popout to chase) -->
+        <div class="relative w-5 h-[26px] bg-transparent select-none">
           <button
             type="button"
-            onclick={() => addOrToggleBookmarkAction(pageNumber)}
+            onclick={(e) => {
+              e.stopPropagation();
+              void openBookmarkCompose("");
+            }}
             class="absolute inset-0 flex items-start justify-start text-slate-500 hover:text-slate-300 drop-shadow-md transition-colors active:scale-95"
             aria-label="Add bookmark"
           >
@@ -608,18 +637,41 @@
               <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
             </svg>
           </button>
-          {#if emptyBm.isHovered}
+          {#if bookmarkComposing}
             <div
               class="absolute left-full top-0 ml-1.5 flex items-center gap-2 bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1 shadow-2xl backdrop-blur-sm z-50 whitespace-nowrap pointer-events-auto"
               onmousedown={(e) => e.stopPropagation()}
             >
-              <span class="text-[10px] font-medium text-slate-300 font-sans">Add page bookmark</span>
+              <input
+                bind:this={bookmarkInputEl}
+                type="text"
+                bind:value={bookmarkDraft}
+                placeholder="Bookmark title…"
+                onkeydown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    saveBookmarkCompose();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelBookmarkCompose();
+                  }
+                }}
+                class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-cyan-500 max-w-[130px] font-sans"
+              />
               <button
                 type="button"
-                onclick={() => addOrToggleBookmarkAction(pageNumber)}
+                onclick={saveBookmarkCompose}
                 class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-cyan-600/20 text-cyan-300 hover:bg-cyan-600/30 border border-cyan-500/30"
               >
                 Add
+              </button>
+              <button
+                type="button"
+                onclick={cancelBookmarkCompose}
+                class="p-0.5 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-800"
+                aria-label="Cancel bookmark"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
           {/if}
@@ -837,5 +889,36 @@
   .textLayer :global(::-moz-selection) {
     background: rgba(0, 100, 255, 0.28);
     color: transparent;
+  }
+
+  /*
+   * Ctrl+F search marks — soft Safari-style yellow wash over the canvas text.
+   * Text-layer glyphs stay color:transparent; the PDF canvas shows through
+   * translucent backgrounds so keywords remain legible.
+   */
+  .textLayer :global(mark.sdf-search-hit) {
+    /* ~20% yellow — soft wash, not a solid box */
+    background-color: rgba(250, 204, 21, 0.2) !important;
+    color: transparent !important;
+    border-radius: 1px;
+    padding: 0 0.5px;
+    border: none;
+    outline: none;
+    box-shadow: none;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    position: relative;
+    z-index: 2;
+  }
+
+  .textLayer :global(mark.sdf-search-hit-current) {
+    /* ~50% yellow + thin outline for the focused match */
+    background-color: rgba(250, 204, 21, 0.5) !important;
+    /* 1px amber outline (outline doesn't eat layout; visible over canvas) */
+    outline: 1px solid rgba(202, 138, 4, 0.85);
+    outline-offset: 0px;
+    border-radius: 1px;
+    box-shadow: none;
+    z-index: 5;
   }
 </style>
