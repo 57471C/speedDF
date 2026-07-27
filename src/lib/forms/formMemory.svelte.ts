@@ -6,11 +6,14 @@
 import {
 	clearFormMemory as clearPure,
 	type FormMemoryData,
+	type FormMemoryRow,
 	isRemembered as isRememberedPure,
+	listAllMemoryValues as listAllPure,
 	loadFormMemory,
 	persistFormMemory,
 	rememberValue as rememberPure,
 	removeValue as removePure,
+	replaceMemoryValue as replacePure,
 	suggestionsFor as suggestionsPure,
 } from "./formMemory";
 
@@ -45,4 +48,21 @@ export function removeFormValue(value: string, key?: string): void {
 
 export function clearAllFormMemory(): void {
 	commit(clearPure());
+}
+
+/** All unique remembered values for the Settings table. */
+export function listAllFormMemory(): FormMemoryRow[] {
+	void revision;
+	return listAllPure(data);
+}
+
+/** Rename a remembered value everywhere it appears. */
+export function replaceFormMemoryValue(oldValue: string, newValue: string): void {
+	commit(replacePure(data, oldValue, newValue));
+}
+
+/** Snapshot of the raw store (read-only use). */
+export function getFormMemorySnapshot(): FormMemoryData {
+	void revision;
+	return data;
 }

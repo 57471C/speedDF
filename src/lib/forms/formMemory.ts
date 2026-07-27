@@ -201,3 +201,56 @@ export function isRemembered(
 	if (data.global.includes(value)) return true;
 	return keys.some((k) => (data.byKey[k] || []).includes(value));
 }
+
+/** One unique remembered string + which stores hold it. */
+export type FormMemoryRow = {
+	value: string;
+	/** "global" and/or form:field:… / form:text / annotation:text */
+	keys: string[];
+};
+
+/** Flat list of all unique remembered values (sorted A→Z) for Settings UI. */
+export function listAllMemoryValues(data: FormMemoryData): FormMemoryRow[] {
+	const map = new Map<string, Set<string>>();
+	const add = (value: string, key: string) => {
+		if (!value) return;
+		let set = map.get(value);
+		if (!set) {
+			set = new Set();
+			map.set(value, set);
+		}
+		set.add(key);
+	};
+	for (const v of data.global || []) add(v, "global");
+	for (const [k, list] of Object.entries(data.byKey || {})) {
+		for (const v of list || []) add(v, k);
+	}
+	return [...map.entries()]
+		.map(([value, keys]) => ({ value, keys: [...keys].sort() }))
+		.sort((a, b) => a.value.localeCompare(b.value, undefined, { sensitivity: "base" }));
+}
+
+/**
+ * Replace `oldRaw` with `newRaw` everywhere it appears (global + all keys).
+ * Returns unchanged data when either value is empty/invalid.
+ */
+export function replaceMemoryValue(
+	data: FormMemoryData,
+	oldRaw: string,
+	newRaw: string,
+): FormMemoryData {
+	const oldV = normalizeValue(oldRaw) ?? oldRaw.trim();
+	const newV = normalizeValue(newRaw);
+	if (!oldV || !newV || oldV === newV) return data;
+
+	const without = removeValue(data, oldV);
+	// Re-add under the same key set that held the old value
+	const keys: string[] = [];
+	if ((data.global || []).includes(oldV)) {
+		// global is always updated by rememberValue
+	}
+	for (const [k, list] of Object.entries(data.byKey || {})) {
+		if ((list || []).includes(oldV)) keys.push(k);
+	}
+	return rememberValue(without, newV, keys);
+}
