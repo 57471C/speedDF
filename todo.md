@@ -1,7 +1,7 @@
 # Todo List #
 
 ## Features to add ##
-1. Tools: scratch pad/clip board (persistant across all docs)
+1. ~~Tools: scratch pad/clip board (persistant across all docs)~~
 2. Obeject alignment
 3. R/click tab - "Open in new window" 
 4. Forms creation (NOT XFA Forms!) + hyperlinks

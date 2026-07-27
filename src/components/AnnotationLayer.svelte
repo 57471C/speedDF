@@ -13,6 +13,7 @@
     HIGHLIGHT_OPACITY,
     HIGHLIGHT_STROKE_WIDTH,
     lineStrokeEndpoints,
+    shapesInPaintOrder,
   } from "../lib/annotation/toolShapes";
   import {
     commentHasFlag,
@@ -67,6 +68,15 @@
     activeDoc.commentPinDraft?.pageNum === pageNumber
       ? activeDoc.commentPinDraft
       : null,
+  );
+
+  /**
+   * DOM paint order: ticks / dashes / signatures / initials after geometry so
+   * stamps always sit on top (z-index alone is not enough when layers share
+   * stacking contexts). Selection still uses the original array index.
+   */
+  let pageShapesPaintOrder = $derived(
+    shapesInPaintOrder(activeDoc.shapes[pageNumber] || []),
   );
 
   function autofocusAction(node: HTMLInputElement | HTMLTextAreaElement) {
@@ -384,7 +394,9 @@
       {/if}
     </svg>
 
-    {#each activeDoc.shapes[pageNumber] || [] as shape, idx}
+    {#each pageShapesPaintOrder as item (item.index)}
+      {@const shape = item.shape}
+      {@const idx = item.index}
       {@const display = getDisplayCoords(shape)}
       {#if shape && shapeTypesList.includes(shape.type)}
         {#if shape.type === "oval" || shape.type === "oval-fill"}
@@ -588,7 +600,7 @@
         <div
           data-shape-idx={idx}
           onmousedown={(e) => initShapeMove(e, idx)}
-          class="absolute pointer-events-auto z-40 flex items-center justify-center p-0.5 border rounded-sm cursor-move transition-[border-color,background-color] duration-100"
+          class="absolute pointer-events-auto z-[45] flex items-center justify-center p-0.5 border rounded-sm cursor-move transition-[border-color,background-color] duration-100"
           style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; border-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? '#00d2ff'
             : 'transparent'}; background-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
@@ -627,7 +639,7 @@
         <div
           data-shape-idx={idx}
           onmousedown={(e) => initShapeMove(e, idx)}
-          class="absolute pointer-events-auto z-40 flex items-center justify-center p-0.5 border rounded-sm cursor-move transition-[border-color,background-color] duration-100"
+          class="absolute pointer-events-auto z-[45] flex items-center justify-center p-0.5 border rounded-sm cursor-move transition-[border-color,background-color] duration-100"
           style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; border-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? '#00d2ff'
             : 'transparent'}; background-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
@@ -672,7 +684,7 @@
         <div
           data-shape-idx={idx}
           onmousedown={(e) => initShapeMove(e, idx)}
-          class="absolute pointer-events-auto z-40 flex items-center justify-center border rounded-sm cursor-move p-0.5 overflow-hidden mix-blend-multiply bg-transparent transition-[border-color,box-shadow] duration-100 {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
+          class="absolute pointer-events-auto z-[45] flex items-center justify-center border rounded-sm cursor-move p-0.5 overflow-hidden mix-blend-multiply bg-transparent transition-[border-color,box-shadow] duration-100 {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? 'border-[#00d2ff] shadow-[0_0_12px_rgba(0,210,255,0.35)]'
             : 'border-transparent hover:border-slate-400/30'}"
           style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%;"

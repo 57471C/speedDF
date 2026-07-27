@@ -32,6 +32,7 @@ import {
 	HIGHLIGHT_OPACITY,
 	HIGHLIGHT_STROKE_WIDTH,
 	lineStrokeEndpoints,
+	shapesInPaintOrder,
 } from "../annotation/toolShapes";
 import { encodeCommentsKeyword } from "../comments/comments";
 import { applyAndFlattenFormValues } from "../forms/formFields";
@@ -89,8 +90,11 @@ async function drawAnnotationsOnPage(
 	imageCache: Map<string, Promise<PDFImage>>,
 	fontCache: Map<string, Promise<PDFFont>>,
 ) {
-	const pageShapes = activeDoc.shapes[originalPageNumber] || [];
-	for (const shape of pageShapes) {
+	// Stamps (tick/dash/signature/initial) last so they always sit on top of boxes/ink
+	const pageShapes = shapesInPaintOrder(
+		activeDoc.shapes[originalPageNumber] || [],
+	);
+	for (const { shape } of pageShapes) {
 		if (!shape) continue;
 		const s = shape;
 
@@ -687,8 +691,9 @@ export async function flattenWorkspaceToImage(
 		ctx.rotate((rotation * Math.PI) / 180);
 		ctx.drawImage(img, -W / 2, -H / 2, W, H);
 
-		for (let i = 0; i < shapes.length; i++) {
-			const shape = shapes[i];
+		// Stamps last so they paint above boxes / freehand / text
+		const orderedShapes = shapesInPaintOrder(shapes);
+		for (const { shape, index: i } of orderedShapes) {
 			if (!shape) continue;
 
 			const x = -W / 2 + (shape.x / 100) * W;

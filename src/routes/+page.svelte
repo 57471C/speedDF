@@ -29,6 +29,8 @@
     cleanupWorkspace,
     closeDocumentWorkspace,
     closeAllDocumentWorkspaces,
+    pushHistorySnapshot,
+    type AnnotationShape,
   } from "../pdfStore.svelte";
   import { decodeCommentsFromKeywords } from "../lib/comments/comments";
   import { extractFormFields } from "../lib/forms/formFields";
@@ -48,6 +50,17 @@
     paintSearchHighlightsOnRoot,
     type TextSearchMatch,
   } from "../lib/interaction/textSearch";
+  import {
+    captureTextSelectionSnapshot,
+    getSelectedText,
+    selectionAnchorPct,
+    type TextSelectionSnapshot,
+  } from "../lib/interaction/textSelection";
+  import {
+    createFreehandShape,
+    createLineShape,
+    HIGHLIGHT_COLOR,
+  } from "../lib/annotation/toolShapes";
   import {
     hydrateThumbnailsFromDisk,
     removeDocumentThumbnailCaches,
@@ -1253,10 +1266,35 @@
     y: number;
   } | null>(null);
 
+  /** Snapshot of text selection at right-click (for selection-aware menu). */
+  let contextTextSelection = $state<TextSelectionSnapshot | null>(null);
+  let contextHasTextSelection = $derived(
+    !!(contextTextSelection && contextTextSelection.text),
+  );
+  let contextCanAnnotateSelection = $derived(
+    !!(contextTextSelection && contextTextSelection.rects.length > 0),
+  );
+  let contextSelectionPreview = $derived(contextTextSelection?.text || "");
+
   function handleRightClick(e: MouseEvent) {
     e.preventDefault();
     menuX = e.clientX;
     menuY = e.clientY;
+
+    // Snapshot selection *before* the menu steals focus / collapses the range
+    contextTextSelection = captureTextSelectionSnapshot();
+    // Form inputs: still show selection menu when text is selected there
+    if (!contextTextSelection) {
+      const t = getSelectedText();
+      if (t) {
+        contextTextSelection = {
+          text: t,
+          pageNum: activeDoc.currentPage || 1,
+          rects: [],
+        };
+      }
+    }
+
     showMenu = true;
 
     // Resolve page + % coords when right-click lands on a document page
@@ -1286,6 +1324,239 @@
     if (!target) return;
     // Place a pin draft + open compose popout (same UX as workspace comment bubble)
     beginCommentPinDraft(target.pageNum, target.x, target.y);
+  }
+
+  function appendShapesToPage(pageNum: number, shapes: AnnotationShape[]) {
+    if (!shapes.length || pageNum < 1) return;
+    pushHistorySnapshot();
+    const existing = activeDoc.shapes[pageNum] || [];
+    activeDoc.shapes = {
+      ...activeDoc.shapes,
+      [pageNum]: [...existing, ...shapes],
+    };
+    activeDoc.isDirty = true;
+  }
+
+  /** Highlight each selection line as freehand highlighter strokes. */
+  function handleHighlightSelection() {
+    const snap = contextTextSelection;
+    showMenu = false;
+    if (!snap?.rects?.length) return;
+    const shapes = snap.rects.map((r) => {
+      const yMid = r.y + r.height * 0.5;
+      return createFreehandShape(
+        "highlight",
+        [
+          { x: r.x, y: yMid },
+          { x: r.x + r.width, y: yMid },
+        ],
+        { color: HIGHLIGHT_COLOR, thickness: 2 },
+      );
+    });
+    appendShapesToPage(snap.pageNum, shapes);
+  }
+
+  function handleUnderlineSelection() {
+    const snap = contextTextSelection;
+    showMenu = false;
+    if (!snap?.rects?.length) return;
+    const color = activeDoc.activeColor || "#0ea5e9";
+    const shapes = snap.rects.map((r) => {
+      const y = r.y + r.height * 0.9;
+      return createLineShape(
+        { x: r.x, y },
+        { x: r.x + r.width, y },
+        {
+          color,
+          thickness: Math.max(1.5, (activeDoc.activeThickness || 2) * 0.6),
+          lineStyle: "solid",
+          lineEnds: "plain",
+        },
+      );
+    });
+    appendShapesToPage(snap.pageNum, shapes);
+  }
+
+  function handleStrikethroughSelection() {
+    const snap = contextTextSelection;
+    showMenu = false;
+    if (!snap?.rects?.length) return;
+    const color = activeDoc.activeColor || "#ef4444";
+    const shapes = snap.rects.map((r) => {
+      const y = r.y + r.height * 0.52;
+      return createLineShape(
+        { x: r.x, y },
+        { x: r.x + r.width, y },
+        {
+          color,
+          thickness: Math.max(1.5, (activeDoc.activeThickness || 2) * 0.55),
+          lineStyle: "solid",
+          lineEnds: "plain",
+        },
+      );
+    });
+    appendShapesToPage(snap.pageNum, shapes);
+  }
+
+  function handleCommentOnSelection() {
+    const snap = contextTextSelection;
+    showMenu = false;
+    if (!snap) return;
+    const anchor =
+      snap.rects.length > 0
+        ? selectionAnchorPct(snap)
+        : contextCommentTarget
+          ? { x: contextCommentTarget.x, y: contextCommentTarget.y }
+          : { x: 50, y: 50 };
+    beginCommentPinDraft(snap.pageNum, anchor.x, anchor.y);
+  }
+
+  function handleSearchSelection() {
+    const text =
+      contextTextSelection?.text || getSelectedText() || "";
+    showMenu = false;
+    if (!text) return;
+    showSearchPopup = true;
+    searchQuery = text;
+    void performTextSearch();
+  }
+
+  async function handleContextCut() {
+    showMenu = false;
+    try {
+      const el = document.activeElement;
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement
+      ) {
+        const start = el.selectionStart ?? 0;
+        const end = el.selectionEnd ?? 0;
+        if (end > start) {
+          const text = el.value.slice(start, end);
+          await navigator.clipboard.writeText(text);
+          if (typeof el.setRangeText === "function") {
+            el.setRangeText("", start, end, "end");
+          } else {
+            el.value = el.value.slice(0, start) + el.value.slice(end);
+            el.selectionStart = start;
+            el.selectionEnd = start;
+          }
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        return;
+      }
+      // PDF text layer cannot be cut — copy only
+      const sel = window.getSelection()?.toString() ?? "";
+      if (sel) await navigator.clipboard.writeText(sel);
+    } catch (err) {
+      console.warn("Context cut failed:", err);
+    }
+  }
+
+  function handleSelectAll() {
+    showMenu = false;
+    try {
+      const el = document.activeElement;
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement
+      ) {
+        el.select();
+        return;
+      }
+      // Select all text in the page under the cursor / current page
+      const pageNum =
+        contextTextSelection?.pageNum ||
+        contextCommentTarget?.pageNum ||
+        activeDoc.currentPage ||
+        1;
+      const pageEl = document.querySelector(
+        `[data-page-number="${pageNum}"]`,
+      ) as HTMLElement | null;
+      const textLayer = pageEl?.querySelector(".textLayer") as HTMLElement | null;
+      if (textLayer) {
+        const range = document.createRange();
+        range.selectNodeContents(textLayer);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        return;
+      }
+      document.execCommand("selectAll");
+    } catch (err) {
+      console.warn("Select all failed:", err);
+    }
+  }
+
+  /** Context-menu Copy — selection or focused text control. */
+  async function handleContextCopy() {
+    showMenu = false;
+    try {
+      const el = document.activeElement;
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement
+      ) {
+        const start = el.selectionStart ?? 0;
+        const end = el.selectionEnd ?? 0;
+        const text =
+          start !== end
+            ? el.value.slice(start, end)
+            : window.getSelection()?.toString() || "";
+        if (text) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+      }
+      const sel = window.getSelection()?.toString() ?? "";
+      if (sel) {
+        await navigator.clipboard.writeText(sel);
+        return;
+      }
+      // Last resort for native selection in some webviews
+      document.execCommand("copy");
+    } catch (err) {
+      console.warn("Context copy failed:", err);
+    }
+  }
+
+  /** Context-menu Paste — insert into focused field, or best-effort clipboard paste. */
+  async function handleContextPaste() {
+    showMenu = false;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      const el = document.activeElement;
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement
+      ) {
+        const start = el.selectionStart ?? el.value.length;
+        const end = el.selectionEnd ?? start;
+        // Prefer setRangeText when available (keeps undo stack in Chromium)
+        if (typeof el.setRangeText === "function") {
+          el.setRangeText(text, start, end, "end");
+        } else {
+          el.value =
+            el.value.slice(0, start) + text + el.value.slice(end);
+          const pos = start + text.length;
+          el.selectionStart = pos;
+          el.selectionEnd = pos;
+        }
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.focus();
+        return;
+      }
+      if (el instanceof HTMLElement && el.isContentEditable) {
+        el.focus();
+        document.execCommand("insertText", false, text);
+        return;
+      }
+      // No focused field — still put text on clipboard path via insertText fallback
+      document.execCommand("insertText", false, text);
+    } catch (err) {
+      console.warn("Context paste failed:", err);
+    }
   }
 
   const appWindow = getCurrentWindow();
@@ -2021,14 +2292,24 @@
   x={menuX}
   y={menuY}
   showAddComment={!!contextCommentTarget}
-  onOpen={openFile}
-  onSave={() => titleBarRef?.triggerSave?.()}
-  onSaveAs={() => titleBarRef?.triggerSaveAs?.()}
+  hasTextSelection={contextHasTextSelection}
+  canAnnotateSelection={contextCanAnnotateSelection}
+  selectionPreview={contextSelectionPreview}
   onAddComment={handleAddCommentHere}
+  onCopy={() => void handleContextCopy()}
+  onCut={() => void handleContextCut()}
+  onPaste={() => void handleContextPaste()}
+  onSelectAll={handleSelectAll}
+  onHighlightSelection={handleHighlightSelection}
+  onUnderlineSelection={handleUnderlineSelection}
+  onStrikethroughSelection={handleStrikethroughSelection}
+  onCommentOnSelection={handleCommentOnSelection}
+  onSearchSelection={handleSearchSelection}
   onOpenCalculator={() => void openToolsWindow("calculator")}
   onOpenTimer={() => void openToolsWindow("timer")}
   onOpenStopwatch={() => void openToolsWindow("stopwatch")}
   onOpenMagic8Ball={() => void openToolsWindow("magic8ball")}
+  onOpenScratchPad={() => void openToolsWindow("scratchpad")}
 />
 
 {#if showToast}

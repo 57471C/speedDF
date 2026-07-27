@@ -1,6 +1,11 @@
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
-export type ToolsMode = "calculator" | "timer" | "stopwatch" | "magic8ball";
+export type ToolsMode =
+	| "calculator"
+	| "timer"
+	| "stopwatch"
+	| "magic8ball"
+	| "scratchpad";
 
 const WINDOW_CONFIG: Record<
 	ToolsMode,
@@ -29,6 +34,12 @@ const WINDOW_CONFIG: Record<
 		title: "Magic 8 Ball",
 		width: 300,
 		height: 380,
+	},
+	scratchpad: {
+		label: "tools-scratchpad",
+		title: "Scratch Pad",
+		width: 360,
+		height: 480,
 	},
 };
 

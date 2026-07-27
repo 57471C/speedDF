@@ -20,8 +20,17 @@
     MAGIC_8_BALL_SHAKE_MS,
     pickMagic8BallAnswer,
   } from "../../lib/tools/magic8Ball";
+  import {
+    loadScratchPadHtml,
+    saveScratchPadHtml,
+  } from "../../lib/tools/scratchPad";
 
-  type ToolsMode = "calculator" | "timer" | "stopwatch" | "magic8ball";
+  type ToolsMode =
+    | "calculator"
+    | "timer"
+    | "stopwatch"
+    | "magic8ball"
+    | "scratchpad";
 
   let mode = $state<ToolsMode>("calculator");
 
@@ -315,6 +324,36 @@
     }, MAGIC_8_BALL_SHAKE_MS);
   }
 
+  // ── Scratch Pad ─────────────────────────────────────────
+  let padEl = $state<HTMLDivElement | null>(null);
+  let padReady = $state(false);
+
+  function persistPad() {
+    if (!padEl) return;
+    saveScratchPadHtml(padEl.innerHTML);
+  }
+
+  function padCommand(cmd: string, value?: string) {
+    padEl?.focus();
+    try {
+      document.execCommand(cmd, false, value);
+    } catch {
+      /* older webviews */
+    }
+    persistPad();
+  }
+
+  function onPadInput() {
+    persistPad();
+  }
+
+  function clearPad() {
+    if (!padEl) return;
+    padEl.innerHTML = "";
+    persistPad();
+    padEl.focus();
+  }
+
   // ── Window chrome ───────────────────────────────────────
   async function closeWindow() {
     try {
@@ -344,8 +383,16 @@
 
   function handleKeydown(e: KeyboardEvent) {
     // Ignore Escape while typing in an input (timer edit fields handle their own)
-    const tag = (e.target as HTMLElement | null)?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    const t = e.target as HTMLElement | null;
+    const tag = t?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable) {
+      // Scratch pad / fields: allow Esc to still close the widget
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeWindow();
+      }
+      return;
+    }
 
     if (e.key === "Escape") {
       e.preventDefault();
@@ -412,6 +459,8 @@
         return "Stopwatch";
       case "magic8ball":
         return "Magic 8 Ball";
+      case "scratchpad":
+        return "Scratch Pad";
     }
   }
 
@@ -422,12 +471,22 @@
       m === "timer" ||
       m === "stopwatch" ||
       m === "calculator" ||
-      m === "magic8ball"
+      m === "magic8ball" ||
+      m === "scratchpad"
     ) {
       mode = m;
     }
     document.title = modeTitle(mode);
     void revealToolsWindow();
+  });
+
+  // Hydrate scratch pad once the contenteditable node mounts
+  $effect(() => {
+    if (mode !== "scratchpad" || !padEl || padReady) return;
+    padEl.innerHTML = loadScratchPadHtml();
+    padReady = true;
+    // Focus after layout so caret is visible
+    requestAnimationFrame(() => padEl?.focus());
   });
 
   onDestroy(() => {
@@ -467,7 +526,9 @@
   <main
     class="flex-1 min-h-0 flex flex-col {mode === 'timer' || mode === 'magic8ball'
       ? 'px-3 pt-2 pb-2'
-      : 'p-3'}"
+      : mode === 'scratchpad'
+        ? 'p-0'
+        : 'p-3'}"
   >
     {#if mode === "calculator"}
       <!-- Windows-style calculator (dim expression memory above the main line) -->
@@ -827,6 +888,93 @@
           {/if}
         </p>
       </div>
+    {:else if mode === "scratchpad"}
+      <!-- Scratch Pad — early-iOS-Notes feel, black pad / white text -->
+      <div class="flex-1 min-h-0 flex flex-col bg-black">
+        <div
+          class="flex items-center gap-0.5 px-2 py-1.5 border-b border-zinc-800 bg-[#0a0a0a] shrink-0 no-drag"
+          role="toolbar"
+          aria-label="Formatting"
+        >
+          <button
+            type="button"
+            class="pad-fmt-btn"
+            title="Bold"
+            aria-label="Bold"
+            onclick={() => padCommand("bold")}
+          >
+            <span class="font-bold">B</span>
+          </button>
+          <button
+            type="button"
+            class="pad-fmt-btn"
+            title="Italic"
+            aria-label="Italic"
+            onclick={() => padCommand("italic")}
+          >
+            <span class="italic font-serif">I</span>
+          </button>
+          <button
+            type="button"
+            class="pad-fmt-btn"
+            title="Underline"
+            aria-label="Underline"
+            onclick={() => padCommand("underline")}
+          >
+            <span class="underline">U</span>
+          </button>
+          <span class="w-px h-4 bg-zinc-800 mx-1" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="pad-fmt-btn"
+            title="Bulleted list"
+            aria-label="Bulleted list"
+            onclick={() => padCommand("insertUnorderedList")}
+          >
+            <!-- list icon -->
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="9" x2="20" y1="6" y2="6" /><line x1="9" x2="20" y1="12" y2="12" /><line x1="9" x2="20" y1="18" y2="18" />
+              <circle cx="4" cy="6" r="1.2" fill="currentColor" stroke="none" />
+              <circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none" />
+              <circle cx="4" cy="18" r="1.2" fill="currentColor" stroke="none" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="pad-fmt-btn"
+            title="Numbered list"
+            aria-label="Numbered list"
+            onclick={() => padCommand("insertOrderedList")}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="10" x2="20" y1="6" y2="6" /><line x1="10" x2="20" y1="12" y2="12" /><line x1="10" x2="20" y1="18" y2="18" />
+              <path d="M4 6h1v4" /><path d="M4 10h2" /><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
+            </svg>
+          </button>
+          <span class="flex-1"></span>
+          <button
+            type="button"
+            class="pad-fmt-btn text-[10px] tracking-wide uppercase text-zinc-500 hover:text-red-300"
+            title="Clear pad"
+            aria-label="Clear pad"
+            onclick={clearPad}
+          >
+            Clear
+          </button>
+        </div>
+
+        <div
+          bind:this={padEl}
+          class="scratch-pad flex-1 min-h-0 overflow-y-auto px-4 py-3 text-white outline-none no-drag"
+          contenteditable="true"
+          role="textbox"
+          aria-multiline="true"
+          aria-label="Scratch pad notes"
+          data-placeholder="Start typing…"
+          oninput={onPadInput}
+          onblur={persistPad}
+        ></div>
+      </div>
     {/if}
   </main>
 </div>
@@ -886,6 +1034,60 @@
   .timer-edit:focus {
     border-color: #22d3ee;
     box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.35);
+  }
+
+  /* Scratch Pad — early-iOS-Notes feel */
+  .pad-fmt-btn {
+    width: 1.85rem;
+    height: 1.85rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 0.35rem;
+    background: transparent;
+    color: #a1a1aa;
+    cursor: pointer;
+    transition: background-color 0.1s ease, color 0.1s ease;
+  }
+  .pad-fmt-btn:hover {
+    background: #27272a;
+    color: #fafafa;
+  }
+  .scratch-pad {
+    font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    letter-spacing: 0.01em;
+    caret-color: #fafafa;
+    white-space: pre-wrap;
+    word-break: break-word;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  .scratch-pad:empty::before {
+    content: attr(data-placeholder);
+    color: #52525b;
+    pointer-events: none;
+  }
+  .scratch-pad :global(ul),
+  .scratch-pad :global(ol) {
+    margin: 0.25rem 0 0.25rem 1.25rem;
+    padding: 0;
+  }
+  .scratch-pad :global(li) {
+    margin: 0.1rem 0;
+  }
+  .scratch-pad :global(b),
+  .scratch-pad :global(strong) {
+    font-weight: 700;
+  }
+  .scratch-pad :global(i),
+  .scratch-pad :global(em) {
+    font-style: italic;
+  }
+  .scratch-pad :global(u) {
+    text-decoration: underline;
   }
   /* Keep close / controls clickable over drag region (WebView2) */
   .no-drag {

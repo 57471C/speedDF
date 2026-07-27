@@ -6,7 +6,8 @@
 		"tools-calculator",
 		"tools-timer",
 		"tools-stopwatch",
-		"tools-magic8ball"
+		"tools-magic8ball",
+		"tools-scratchpad"
 	],
 	"permissions": [
 		"core:default",

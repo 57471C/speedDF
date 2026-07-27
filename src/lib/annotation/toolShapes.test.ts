@@ -9,10 +9,42 @@ import {
 	createTextShape,
 	defaultTextBoxHeightPct,
 	hasEmptyTextDraft,
+	isStampShapeType,
 	lineBoundsFromPoints,
 	lineStrokeEndpoints,
+	shapesInPaintOrder,
 	withoutEmptyTextDrafts,
 } from "./toolShapes";
+
+describe("stamp paint order", () => {
+	it("detects stamp types", () => {
+		expect(isStampShapeType("tick")).toBe(true);
+		expect(isStampShapeType("dash")).toBe(true);
+		expect(isStampShapeType("signature")).toBe(true);
+		expect(isStampShapeType("initial")).toBe(true);
+		expect(isStampShapeType("rect")).toBe(false);
+		expect(isStampShapeType("text")).toBe(false);
+	});
+
+	it("paints stamps after geometry while keeping original indices", () => {
+		const shapes = [
+			{ type: "tick" as const },
+			{ type: "rect" as const },
+			{ type: "signature" as const },
+			{ type: "line" as const },
+			{ type: "dash" as const },
+		];
+		const ordered = shapesInPaintOrder(shapes);
+		expect(ordered.map((o) => o.shape.type)).toEqual([
+			"rect",
+			"line",
+			"tick",
+			"signature",
+			"dash",
+		]);
+		expect(ordered.map((o) => o.index)).toEqual([1, 3, 0, 2, 4]);
+	});
+});
 
 describe("createSignatureOrInitialShape", () => {
 	it("centers stamp on click", () => {

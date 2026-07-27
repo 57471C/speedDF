@@ -6,6 +6,38 @@
 import type { AnnotationShape } from "../../pdfStore.svelte";
 import { getGhostDimensions } from "./ghostDimensions";
 
+/** Stamp tools that must paint above geometry shapes (boxes, lines, ink). */
+export const STAMP_SHAPE_TYPES = new Set([
+	"tick",
+	"dash",
+	"signature",
+	"initial",
+]);
+
+export function isStampShapeType(
+	type: string | null | undefined,
+): boolean {
+	return !!type && STAMP_SHAPE_TYPES.has(type);
+}
+
+/**
+ * Stable paint order: non-stamps first (original index order), stamps last.
+ * Indices stay original so selection / history keep working.
+ */
+export function shapesInPaintOrder<T extends { type?: string } | null | undefined>(
+	shapes: readonly T[] | null | undefined,
+): { shape: T; index: number }[] {
+	const list = shapes || [];
+	const items = list.map((shape, index) => ({ shape, index }));
+	items.sort((a, b) => {
+		const aStamp = isStampShapeType(a.shape?.type);
+		const bStamp = isStampShapeType(b.shape?.type);
+		if (aStamp === bStamp) return a.index - b.index;
+		return aStamp ? 1 : -1;
+	});
+	return items;
+}
+
 export function createSignatureOrInitialShape(
 	toolType: "signature" | "initial",
 	mousePctX: number,
