@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { isToolEnabled } from "../lib/settings/appSettings.svelte";
+
   let {
     x = 0,
     y = 0,
@@ -20,6 +22,7 @@
     onStrikethroughSelection,
     onCommentOnSelection,
     onSearchSelection,
+    onLookUpSelection,
     onOpenCalculator,
     onOpenTimer,
     onOpenStopwatch,
@@ -43,6 +46,7 @@
     onStrikethroughSelection?: () => void;
     onCommentOnSelection?: () => void;
     onSearchSelection?: () => void;
+    onLookUpSelection?: () => void;
     onOpenCalculator?: () => void;
     onOpenTimer?: () => void;
     onOpenStopwatch?: () => void;
@@ -150,6 +154,14 @@
       >
         <span class="truncate pr-2">{searchLabel}</span>
       </button>
+      <button
+        type="button"
+        onclick={() => runAction(onLookUpSelection)}
+        class={rowBtn}
+        role="menuitem"
+      >
+        <span>Look Up</span>
+      </button>
     {:else}
       <!-- Simple menu (no text selection) -->
       {#if showAddComment && onAddComment}
@@ -176,47 +188,57 @@
       </button>
     {/if}
 
-    <!-- Quick tools row (both states) -->
+    <!-- Quick tools row (both states) — respects Settings tool toggles -->
     <div
       class="flex items-center justify-center gap-1.5 px-3 pt-2 pb-1 mt-1 border-t border-zinc-800"
       role="group"
       aria-label="Quick tools"
     >
-      <button
-        type="button"
-        class={iconBtn}
-        title="Calculator"
-        aria-label="Calculator"
-        onclick={() => openTool(onOpenCalculator)}
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect width="16" height="20" x="4" y="2" rx="2" /><line x1="8" x2="16" y1="6" y2="6" /><line x1="16" x2="16" y1="14" y2="18" />
-          <path d="M16 10h.01" /><path d="M12 10h.01" /><path d="M8 10h.01" /><path d="M12 14h.01" /><path d="M8 14h.01" /><path d="M12 18h.01" /><path d="M8 18h.01" />
-        </svg>
-      </button>
-      <button type="button" class={iconBtn} title="Timer" aria-label="Timer" onclick={() => openTool(onOpenTimer)}>
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="10" x2="14" y1="2" y2="2" /><line x1="12" x2="15" y1="14" y2="11" /><circle cx="12" cy="14" r="8" />
-        </svg>
-      </button>
-      <button type="button" class={iconBtn} title="Stopwatch" aria-label="Stopwatch" onclick={() => openTool(onOpenStopwatch)}>
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="13" r="8" /><path d="M12 9v4l2 2" /><path d="M5 4 7.5 6.5" /><path d="M19 4 16.5 6.5" /><path d="M12 5V3" /><path d="M10 3h4" />
-        </svg>
-      </button>
-      <button type="button" class={iconBtn} title="Magic 8 Ball" aria-label="Magic 8 Ball" onclick={() => openTool(onOpenMagic8Ball)}>
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.9" />
-          <circle cx="12" cy="12" r="4.2" fill="#0ea5e9" />
-          <text x="12" y="13.5" text-anchor="middle" font-size="6" font-weight="700" font-family="system-ui, sans-serif" fill="white">8</text>
-        </svg>
-      </button>
-      <button type="button" class={iconBtn} title="Scratch Pad" aria-label="Scratch Pad" onclick={() => openTool(onOpenScratchPad)}>
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z" />
-          <path d="M15 3v6h6" /><path d="M10 16h4" /><path d="M10 12h4" /><path d="M8 16h.01" /><path d="M8 12h.01" />
-        </svg>
-      </button>
+      {#if isToolEnabled("calculator")}
+        <button
+          type="button"
+          class={iconBtn}
+          title="Calculator"
+          aria-label="Calculator"
+          onclick={() => openTool(onOpenCalculator)}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect width="16" height="20" x="4" y="2" rx="2" /><line x1="8" x2="16" y1="6" y2="6" /><line x1="16" x2="16" y1="14" y2="18" />
+            <path d="M16 10h.01" /><path d="M12 10h.01" /><path d="M8 10h.01" /><path d="M12 14h.01" /><path d="M8 14h.01" /><path d="M12 18h.01" /><path d="M8 18h.01" />
+          </svg>
+        </button>
+      {/if}
+      {#if isToolEnabled("timer")}
+        <button type="button" class={iconBtn} title="Timer" aria-label="Timer" onclick={() => openTool(onOpenTimer)}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="10" x2="14" y1="2" y2="2" /><line x1="12" x2="15" y1="14" y2="11" /><circle cx="12" cy="14" r="8" />
+          </svg>
+        </button>
+      {/if}
+      {#if isToolEnabled("stopwatch")}
+        <button type="button" class={iconBtn} title="Stopwatch" aria-label="Stopwatch" onclick={() => openTool(onOpenStopwatch)}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="13" r="8" /><path d="M12 9v4l2 2" /><path d="M5 4 7.5 6.5" /><path d="M19 4 16.5 6.5" /><path d="M12 5V3" /><path d="M10 3h4" />
+          </svg>
+        </button>
+      {/if}
+      {#if isToolEnabled("magic8ball")}
+        <button type="button" class={iconBtn} title="Magic 8 Ball" aria-label="Magic 8 Ball" onclick={() => openTool(onOpenMagic8Ball)}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.9" />
+            <circle cx="12" cy="12" r="4.2" fill="#0ea5e9" />
+            <text x="12" y="13.5" text-anchor="middle" font-size="6" font-weight="700" font-family="system-ui, sans-serif" fill="white">8</text>
+          </svg>
+        </button>
+      {/if}
+      {#if isToolEnabled("scratchpad")}
+        <button type="button" class={iconBtn} title="Scratch Pad" aria-label="Scratch Pad" onclick={() => openTool(onOpenScratchPad)}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z" />
+            <path d="M15 3v6h6" /><path d="M10 16h4" /><path d="M10 12h4" /><path d="M8 16h.01" /><path d="M8 12h.01" />
+          </svg>
+        </button>
+      {/if}
     </div>
   </div>
 {/if}

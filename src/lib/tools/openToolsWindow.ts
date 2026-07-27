@@ -1,4 +1,6 @@
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { isToolEnabled } from "../settings/appSettings.svelte";
+import type { ToolId } from "../settings/appSettings";
 
 export type ToolsMode =
 	| "calculator"
@@ -49,11 +51,18 @@ async function hardenToolsWindow(win: WebviewWindow): Promise<void> {
 	await win.setAlwaysOnTop(true).catch(() => undefined);
 }
 
+export type OpenToolsResult = "opened" | "disabled" | "error";
+
 /**
  * Opens (or focuses) a lightweight always-on-top tools WebviewWindow.
  * Created hidden; the tools page reveals itself once UI is ready (avoids flash).
+ * Returns `"disabled"` when the user turned the tool off in Settings.
  */
-export async function openToolsWindow(mode: ToolsMode): Promise<void> {
+export async function openToolsWindow(mode: ToolsMode): Promise<OpenToolsResult> {
+	if (!isToolEnabled(mode as ToolId)) {
+		return "disabled";
+	}
+
 	const cfg = WINDOW_CONFIG[mode];
 
 	try {
@@ -63,7 +72,7 @@ export async function openToolsWindow(mode: ToolsMode): Promise<void> {
 			await existing.unminimize().catch(() => undefined);
 			await existing.show().catch(() => undefined);
 			await existing.setFocus().catch(() => undefined);
-			return;
+			return "opened";
 		}
 	} catch {
 		// getByLabel can throw outside Tauri; fall through to create.
@@ -97,7 +106,9 @@ export async function openToolsWindow(mode: ToolsMode): Promise<void> {
 		win.once("tauri://error", (event) => {
 			console.error(`[tools] Failed to open ${mode} window:`, event.payload);
 		});
+		return "opened";
 	} catch (err) {
 		console.error(`[tools] WebviewWindow unavailable for ${mode}:`, err);
+		return "error";
 	}
 }

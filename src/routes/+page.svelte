@@ -16,7 +16,13 @@
   import ContextMenu from "../components/ContextMenu.svelte";
   import OcrPanel from "./OcrPanel.svelte";
   import HelpModal from "../components/HelpModal.svelte";
+  import SettingsModal from "../components/SettingsModal.svelte";
   import RecentDashboard from "../components/RecentDashboard.svelte";
+  import {
+    isCheckUpdatesOnLaunch,
+    isDictionaryEnabled,
+    isOcrEnabled,
+  } from "../lib/settings/appSettings.svelte";
   import {
     activeDoc as activeDocStore,
     beginCommentPinDraft,
@@ -84,6 +90,7 @@
 
   let zoomScale = $state(120);
   let showHelpModal = $state(false);
+  let showSettingsModal = $state(false);
   let showUnsavedModal = $state(false);
   let showOcrDrawer = $state(false);
   let unsavedModalMessage = $state("");
@@ -363,7 +370,37 @@
   }
 
   function toggleOcrDrawer() {
+    if (!isOcrEnabled()) {
+      showNotification("Enable in Settings");
+      return;
+    }
     showOcrDrawer = !showOcrDrawer;
+  }
+
+  async function openToolOrToast(mode: Parameters<typeof openToolsWindow>[0]) {
+    const result = await openToolsWindow(mode);
+    if (result === "disabled") {
+      showNotification("Enable in Settings");
+    }
+  }
+
+  async function handleLookUpSelection() {
+    showMenu = false;
+    const text =
+      contextTextSelection?.text || getSelectedText() || "";
+    if (!text) return;
+    if (!isDictionaryEnabled()) {
+      showNotification("Enable in Settings");
+      return;
+    }
+    // Online dictionary lookup (network feature)
+    const q = encodeURIComponent(text.trim().slice(0, 80));
+    try {
+      await openBrowser(`https://www.merriam-webster.com/dictionary/${q}`);
+    } catch (err) {
+      console.warn("Look Up failed:", err);
+      showNotification("Unable to open dictionary");
+    }
   }
 
   function openCoffeeLink() {
@@ -1696,6 +1733,10 @@
 
     // Silent background check for production optimization patches
     async function checkForApplicationUpdates() {
+      if (!isCheckUpdatesOnLaunch()) {
+        console.log("Update check skipped (disabled in Settings)");
+        return;
+      }
       try {
         const update = await check();
         if (update && update.available) {
@@ -1717,7 +1758,7 @@
       }
     }
 
-    checkForApplicationUpdates();
+    void checkForApplicationUpdates();
 
     // 🛡️ Capturing Phase Firewall: Drops native browser print / refresh commands instantly
     const trapBrowserPrintShortcut = (e: KeyboardEvent) => {
@@ -2047,6 +2088,7 @@
     onMaximize={maximizeApp}
     onClose={closeApp}
     onToggleHelp={() => (showHelpModal = !showHelpModal)}
+    onToggleSettings={() => (showSettingsModal = !showSettingsModal)}
     onPrint={triggerHeadlessPrintSpool}
     onOpenFile={openFile}
     onCloseDocument={closeDocument}
@@ -2241,6 +2283,7 @@
 </div>
 
 <HelpModal bind:show={showHelpModal} {openCoffeeLink} />
+<SettingsModal bind:show={showSettingsModal} />
 
 {#if showUnsavedModal}
   <div
@@ -2305,11 +2348,12 @@
   onStrikethroughSelection={handleStrikethroughSelection}
   onCommentOnSelection={handleCommentOnSelection}
   onSearchSelection={handleSearchSelection}
-  onOpenCalculator={() => void openToolsWindow("calculator")}
-  onOpenTimer={() => void openToolsWindow("timer")}
-  onOpenStopwatch={() => void openToolsWindow("stopwatch")}
-  onOpenMagic8Ball={() => void openToolsWindow("magic8ball")}
-  onOpenScratchPad={() => void openToolsWindow("scratchpad")}
+  onLookUpSelection={() => void handleLookUpSelection()}
+  onOpenCalculator={() => void openToolOrToast("calculator")}
+  onOpenTimer={() => void openToolOrToast("timer")}
+  onOpenStopwatch={() => void openToolOrToast("stopwatch")}
+  onOpenMagic8Ball={() => void openToolOrToast("magic8ball")}
+  onOpenScratchPad={() => void openToolOrToast("scratchpad")}
 />
 
 {#if showToast}
