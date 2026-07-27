@@ -1,8 +1,10 @@
 # Todo List #
 
 ## Features to add ##
-3. Obeject alignment
-4. R/click tab - "Open in new window" 
+1. Tools: scratch pad/clip board (persistant across all docs)
+2. Re-render P1 in hiher res after thumbs load (so recent docs looks better/not pixelated)
+2. Obeject alignment
+3. R/click tab - "Open in new window" 
 4. Forms creation (NOT XFA Forms!) + hyperlinks
 
 ## long term goals (may never do)
@@ -19,8 +21,14 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 4. Switch to Bun - could be a big win for speed and bundle size.
 
 ## Fixes
+- [ ] form input boxes don't always align (zoom level issue?).
+- [ ] After pressing Ctrl+F and adding text to find. cycling through searched key words (up/down arrows). On some results the highlited yellow is not visible. This leave the user hinting around the page for highliting that isn't showing.
+- [ ] Merging documents didn't render the added documents new page thumbnails.
 - [ ] adding bookmarks from the workspace icon. The whole behaviour is wrong. Clicking the icon shouldn't submit "Untitled bookmark". It should open the edit view of the popout, focus the cursor on the text input so the user can add their own title.
 The hover popout disapares as the user tries to "catch" the "add" button. this state of the popout is unnessicary. Hover is only needed when there's an active bookmark
+- [ ] zoom to pointer coords could be better (still zooms to the side)
+- [ ] Calculator could have memory of what you typed (dim small font in the main display - like the windows 11 basic calulator)
+- [ ] After rendering all of the thumbnails - replace p1 with a higher res image of Page 1. So the thumbnail for recent documents loks better.
 
 - [x] aFter dropping a text annotation. if you select another tool (other than select tool or colour modifier) it should unselect the text that was dropped.
 - [x] If you change the fontsize of a text annotation it should resize the teatarea's bounding box size to
