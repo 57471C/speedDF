@@ -79,11 +79,13 @@
   const activeDoc = activeDocStore as any;
 
   const TIFF_EXTENSIONS = ["tiff", "tif"];
+  const HEIC_EXTENSIONS = ["heic", "heif"];
   const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "bmp"];
 
-  function determineFileType(fileName: string): "pdf" | "tiff" | "image" {
+  function determineFileType(fileName: string): "pdf" | "tiff" | "heic" | "image" {
     const ext = fileName.toLowerCase().split('.').pop() || "";
     if (TIFF_EXTENSIONS.includes(ext)) return "tiff";
+    if (HEIC_EXTENSIONS.includes(ext)) return "heic";
     if (IMAGE_EXTENSIONS.includes(ext)) return "image";
     return "pdf";
   }
@@ -729,6 +731,63 @@
         activeDoc.formFields = [];
         activeDoc.formValues = {};
         activeDoc.hyperlinks = [];
+      } else if (fileCategory === "heic") {
+        // One-time HEIC → PNG conversion via Rust pure decoder
+        const pngBytes = await invoke<number[] | Uint8Array>(
+          "parse_heic_document",
+          { path: filePath },
+        );
+        const convertedBytes = new Uint8Array(pngBytes);
+
+        // Set up as a single-page image workspace using converted PNG
+        activeDoc.fileType = "image";
+        activeDoc.tiffPages = [];
+        activeDoc.rawBytes = convertedBytes;
+        activeDoc.fileName = fileName;
+        activeDoc.filePath = filePath;
+        activeDoc.pageCount = 1;
+        activeDoc.pageOrder = [1];
+        activeDoc.currentPage = 1;
+        activeDoc.shapes = {};
+        activeDoc.bookmarks = [];
+        activeDoc.comments = [];
+        activeDoc.formFields = [];
+        activeDoc.formValues = {};
+        activeDoc.hyperlinks = [];
+        activeDoc.imageRotation = 0;
+        activeDoc.pageThumbnailOverrides = {};
+
+        const blob = new Blob([convertedBytes], { type: "image/png" });
+        if (activeDoc.imageUrl) {
+          try { URL.revokeObjectURL(activeDoc.imageUrl); } catch { /* ignore */ }
+        }
+        activeDoc.imageUrl = URL.createObjectURL(blob);
+        activeDoc.thumbnailVersion = (activeDoc.thumbnailVersion || 0) + 1;
+
+        // Generate sidebar thumbnail (same pattern as image branch)
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          const targetWidth = 140;
+          const scaleFactor = targetWidth / Math.max(1, img.width);
+          canvas.width = targetWidth;
+          canvas.height = Math.max(1, Math.round(img.height * scaleFactor));
+
+          ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const base64Thumbnail = canvas.toDataURL('image/jpeg', 0.6);
+
+          activeDoc.pageThumbnailOverrides = { 0: base64Thumbnail };
+          activeDoc.thumbnailVersion = (activeDoc.thumbnailVersion || 0) + 1;
+
+          registerRecentFile(fileName, filePath, base64Thumbnail, 'image');
+        };
+        img.onerror = () => {
+          console.warn("HEIC thumbnail decode failed; sidebar will use live imageUrl");
+        };
+        img.src = activeDoc.imageUrl;
+
+        console.log(`HEIC Conversion: Decoded and initialized image frame for ${fileName}`);
       } else if (fileCategory === "image") {
         // Setup the clean single-page layout structure for standard graphics
         activeDoc.fileType = "image";
@@ -1174,7 +1233,7 @@
       filters: [
         {
           name: "Supported Documents",
-          extensions: ["pdf", "tiff", "tif", "png", "jpg", "jpeg", "gif", "bmp"],
+          extensions: ["pdf", "tiff", "tif", "png", "jpg", "jpeg", "gif", "bmp", "heic", "heif"],
         },
       ],
     });
