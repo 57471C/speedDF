@@ -150,13 +150,13 @@ git add .
 git commit -m "chore: release v1.0.6"
 
 # 2. Create the annotated tag locally
-git tag -a v1.0.9 -m "Release v1.0.9"
+git tag -a v1.1.0 -m "Release v1.1.0"
 
 # 3. Push your active branch code to GitHub
 git push origin main
 
 # 4. Push the v1.0.6 tag to trigger the GitHub release action
-git push origin v1.0.9
+git push origin v1.1.0
 ```
 
 
