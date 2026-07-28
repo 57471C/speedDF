@@ -74,6 +74,8 @@ fn is_supported_startup_extension(path: &str) -> bool {
         || lower.ends_with(".tif")
         || lower.ends_with(".webp")
         || lower.ends_with(".bmp")
+        || lower.ends_with(".heic")
+        || lower.ends_with(".heif")
 }
 
 /// Scan process arguments for a supported document and load it into a FilePayload.
@@ -492,6 +494,46 @@ fn compress_pdf_pipeline(file_path: String) -> Result<String, String> {
     ))
 }
 
+/// Decode a HEIC/HEIF image file into PNG bytes (one-time conversion).
+/// Returns a single PNG byte vector for the primary image.
+/// Requires the `heic` Cargo feature to be enabled; otherwise returns an error.
+#[cfg(feature = "heic")]
+#[tauri::command]
+async fn parse_heic_document(path: String) -> Result<Vec<u8>, String> {
+    let safe_path = secure_verify_path(&path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = std::fs::read(&safe_path)
+            .map_err(|e| format!("Failed to read HEIC file: {}", e))?;
+
+        let output = heic::DecoderConfig::new()
+            .decode(&data, heic::PixelLayout::Rgba8)
+            .map_err(|e| format!("HEIC decode error: {}", e))?;
+
+        // Encode RGBA pixels to PNG (same pattern as TIFF pipeline)
+        let mut png_bytes = Vec::new();
+        let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
+        image::ImageEncoder::write_image(
+            encoder,
+            &output.data,
+            output.width,
+            output.height,
+            image::ExtendedColorType::Rgba8,
+        )
+        .map_err(|e| format!("PNG encoding error: {}", e))?;
+
+        Ok(png_bytes)
+    })
+    .await
+    .map_err(|e| format!("Blocking task failed: {}", e))?
+}
+
+/// Stub when HEIC feature is not enabled — returns a clear error message.
+#[cfg(not(feature = "heic"))]
+#[tauri::command]
+async fn parse_heic_document(_path: String) -> Result<Vec<u8>, String> {
+    Err("HEIC support is not enabled in this build. Rebuild with --features heic".to_string())
+}
+
 #[tauri::command]
 fn delete_file_from_disk(file_path: String) -> Result<String, String> {
     let safe_path = secure_verify_path(&file_path)?;
@@ -629,6 +671,7 @@ pub fn run() {
             read_file_bytes,
             read_file_binary,
             parse_tiff_document,
+            parse_heic_document,
             run_local_ocr,
             compress_pdf_pipeline,
             delete_file_from_disk

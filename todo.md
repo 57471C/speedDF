@@ -20,6 +20,9 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 4. Switch to Bun - could be a big win for speed and bundle size.
 
 ## Fixes
+- [ ] moving pages should move the bookmarks and comments with the page.
+- [ ] Esc key unselects any selected object and reverts to the select tool
+- [ ] snapshot tool greyout area does not zoom at the same rate as the display window (needs correction)
 - [x] On the main page before any document is loaded: remove the green pulsing dot in the left top corner (it's not needed). landscape pages are bunched up they should be allowed more padding.
 - [x] Merging documents didn't render the added documents new page thumbnails.
 - [x] After pressing Ctrl+F and adding text to find. cycling through searched key words (up/down arrows). On some results the highlited yellow is not visible. This leave the user hinting around the page for highliting that isn't showing.
@@ -44,11 +47,11 @@ The hover popout disapares as the user tries to "catch" the "add" button. this s
 - Old install files clean-up
 - Sometimes undo does the last two things (possible grouping or multi select - needs investigation).
 
-##📝 Short Description
+## 📝 Short Description
 speedDF is an ultra-lightweight, high-performance desktop PDF viewer and editor engineered to eliminate the resource bloat of legacy corporate PDF utilities. Built on a hybrid architecture that pairs a high-performance Rust backend with a modern Svelte 5 frontend, speedDF utilizes native operating system webviews instead of a heavy Chromium engine. This results in near-instant boot times, minimal memory consumption, and a fluid workspace interface. Core features include native document stream decryption, seamless multi-file merging, high-fidelity canvas highlighting, fluid page reordering, and a built-in cryptographic auto-updater channel.
 
-##🚀 The speedDF Tech Stack
-```
+## 🚀 The speedDF Tech Stack
+```plaintext
  ┌─────────────────────────────────────────────────────────┐
  │             FRONTEND: Svelte 5 / Tailwind CSS           │
  │      (PDF.js Canvas Renderer & Isolated Web Workers)    │
@@ -69,25 +72,22 @@ Tailwind CSS: Powers the sleek, ultra-responsive dark-mode utility design system
 
 SortableJS: Embedded directly inside the workspace layout panel to drive native drag-and-drop page serialization and order arrays.
 
-3. PDF Parsing & Vector Manipulation Engines
+## 3. PDF Parsing & Vector Manipulation Engines
 PDF.js (Mozilla Core): Handles client-side vector grid transformations and pushes multi-page rendering buffers cleanly to HTML5 elements. To bypass Tauri's isolated local origin context gates (tauri.localhost), the engine loads synchronized web worker files directly from an embedded static bundle cache.
 
 pdf-lib (JavaScript Matrix): Manages structural adjustments, canvas geometry injections, and local document exports.
 
 lopdf (Rust Native Engine): Anchors the backend computational heavy lifting. It processes low-level structural modifications directly inside native threads, enabling rapid multi-file backend stitching loops (PDF merging) and secure document stream decryption routines.
 
-4. Infrastructure, DevOps, & Security
+## 4. Infrastructure, DevOps, & Security
 GitHub Actions: Acts as the automated multi-matrix cloud compilation pipeline, generating secure architecture binaries for all targeted operational systems simultaneously on every repository tag push.
 
 Minisign Cryptography: Handles data safety with asymmetric key pairings. Releases are signed in the cloud via a private vault key, which the client verification engine validates locally using a hardened public public-key mechanism.
 
 Cloudflare Pages & Gateway CDN: Functions as the application distribution channel and homepage environment, delivering static deployment landing pages and routing automated software configuration update loops (latest.json) across a global, low-latency edge server network.
 
-```bash
-npx kill-port 1420
-npm run tauri dev
-```
 
+---
 ### OCR BENCHMARK RESULTS ###
 
 ```text
@@ -108,6 +108,21 @@ DEBUG CROP: Box target [2] -> x: 959, y: 86, w: 24, h: 19
 [BENCH] Number of text boxes: 181
 [BENCH] Avg time per box:     1.166ss
 ===================================
+```
+---
+## key commands ##
+- Build with HEIC enabled (waiting on OSS ket for MIT license)
+```bash
+# Default build (no HEIC support — MIT-clean):
+cargo build
+# With HEIC support enabled:
+cargo build --features heic
+# Or in tauri dev mode:
+cargo tauri dev -- --features heic
+```
+```bash
+npx kill-port 1420
+npm run tauri dev
 ```
 ---
 ## common git commands ##

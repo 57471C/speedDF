@@ -80,6 +80,12 @@
 				"name": "Image File",
 				"description": "Image Document",
 				"role": "Editor"
+			},
+			{
+				"ext": ["heic", "heif"],
+				"name": "HEIC Image",
+				"description": "iPhone HEIC/HEIF Photo",
+				"role": "Editor"
 			}
 		]
 	}

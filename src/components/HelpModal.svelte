@@ -182,6 +182,12 @@
                 • <b class="text-slate-300">Tauri Engine:</b> Copyright (c) 2019-2024
                 Tauri Programme Collective. Distributed under Apache 2.0 / MIT.
               </p>
+              <p>
+                • <b class="text-slate-300">heic (imazen):</b> Copyright (c) 2024-2026
+                Imazen LLC. Pure-Rust HEIC/HEIF decoder. Distributed under
+                AGPL-3.0-only OR Imazen Commercial License. Optional feature —
+                included only in builds compiled with HEIC support enabled.
+              </p>
             </div>
           </div>
         </div>

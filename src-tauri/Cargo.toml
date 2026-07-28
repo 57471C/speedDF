@@ -8,6 +8,10 @@ default-run = "speeddf"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+heic = ["dep:heic"]
+
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
@@ -42,6 +46,10 @@ tract-onnx = "0.21.3"  # 100% Rust NN execution; zero C++ dynamic links
 rayon = "1.10"
 sha2 = "0.11.0"
 hex = "0.4.3"
+
+# HEIC/HEIF iPhone photo support (pure-Rust, optional — AGPL-3.0 / Imazen Commercial)
+# Enable with: cargo build --features heic
+heic = { version = "0.1", default-features = false, features = ["std"], optional = true }
 
 [profile.release]
 opt-level = 3          # Maximize compilation speed performance optimizations

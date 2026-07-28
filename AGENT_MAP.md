@@ -47,7 +47,7 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/routes/OcrPanel.svelte`**: Overlay for local AI OCR extraction.
 
 ### Backend System (Rust / Tauri)
-* **`src-tauri/src/lib.rs`**: Backend command registry and application builder. Filesystem validation, TIFF multi-page parse, native dialogs, **startup file detection** (`std::env::args` → emit `startup-file-loaded`), and **`tauri-plugin-single-instance`** (focus existing window + emit `open-file-request` with file bytes).
+* **`src-tauri/src/lib.rs`**: Backend command registry and application builder. Filesystem validation, TIFF multi-page parse, **HEIC/HEIF one-time decode** (feature-gated), native dialogs, **startup file detection** (`std::env::args` → emit `startup-file-loaded`), and **`tauri-plugin-single-instance`** (focus existing window + emit `open-file-request` with file bytes).
 * **`src-tauri/src/commands.rs`**: Local ONNX OCR pipeline (DBNet + CRNN) via `tract-onnx`.
 * **`src-tauri/src/main.rs`**: Minimal binary entry point for the Tauri v2 app.
 
@@ -97,6 +97,7 @@ Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary
 * **`refreshThumbnailsAfterPageInsert` / `remapThumbnailOverridesAfterInsert`**: Keep pre/post page thumbs after merge; leave holes for inserted pages; restart background fill.
 * **`startBackgroundThumbnailGeneration`**: Sequential low-priority fill; ends with **`upgradePage1RecentThumbnail`** (sharper Recent Documents card).
 * **`parse_tiff_document()`** (`lib.rs`): TIFF → PNG page buffers.
+* **`parse_heic_document()`** (`lib.rs`): HEIC/HEIF → PNG one-time conversion (requires `--features heic`; returns error stub without feature). Uses pure-Rust `heic` crate with `backend-rust` — no FFI.
 * **`run_local_ocr()`** (`commands.rs`): Local OCR inference.
 * **`check_startup_file()`** (`lib.rs`): Fallback only; primary open-with path does not use it.
 
@@ -229,7 +230,9 @@ Personal autocomplete for repetitive typing — **not** stored in the PDF.
 
 **Do not** reintroduce a startup dependency on `invoke('check_startup_file')` for double-click / Open with (CSP/IPC cold-start issues). Keep it as fallback only.
 
-**Supported extensions:** `.pdf`, `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.webp`, `.bmp`
+**Supported extensions:** `.pdf`, `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.webp`, `.bmp`, `.heic`, `.heif`
+
+**HEIC/HEIF notes:** Requires the `heic` Cargo feature (`cargo build --features heic`). The `heic` crate is AGPL-3.0 / Imazen Commercial dual-licensed — disabled by default to keep the standard build MIT-clean. One-time conversion to PNG happens in Rust at open time; the converted image enters the standard image workspace pipeline (same as regular PNG/JPEG). File dialogs and OS file associations include `.heic` / `.heif` regardless of the feature flag; without the feature, opening a HEIC file returns a clear error message.
 
 ---
 
@@ -244,4 +247,4 @@ Personal autocomplete for repetitive typing — **not** stored in the PDF.
 
 ---
 
-**Last Updated:** July 2026 (form CropBox/rotate alignment, Ctrl+F mark paint, merge thumb remap + high-res Recent p1, bookmark click-to-compose, zoom-to-pointer, calculator expression memory, tools window, line tool + hyperlinks, form/text value memory, workspaceId / Save As)
+**Last Updated:** July 2026 (HEIC/HEIF feature-gated support, form CropBox/rotate alignment, Ctrl+F mark paint, merge thumb remap + high-res Recent p1, bookmark click-to-compose, zoom-to-pointer, calculator expression memory, tools window, line tool + hyperlinks, form/text value memory, workspaceId / Save As)
