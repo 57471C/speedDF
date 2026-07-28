@@ -21,8 +21,9 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 
 ## Fixes
 - [ ] moving pages should move the bookmarks and comments with the page.
-- [ ] Esc key unselects any selected object and reverts to the select tool
-- [ ] snapshot tool greyout area does not zoom at the same rate as the display window (needs correction)
+- [ ] feat: Esc key unselects any selected object and always reverts to the select tool
+- [ ] clicking anywhere on the page (unles ctrl is currently pressed down) should unslect any objects.
+- [ ] snapshot tool greyout area does not zoom at the same rate as the display window (needs correction).
 - [x] On the main page before any document is loaded: remove the green pulsing dot in the left top corner (it's not needed). landscape pages are bunched up they should be allowed more padding.
 - [x] Merging documents didn't render the added documents new page thumbnails.
 - [x] After pressing Ctrl+F and adding text to find. cycling through searched key words (up/down arrows). On some results the highlited yellow is not visible. This leave the user hinting around the page for highliting that isn't showing.
@@ -177,3 +178,39 @@ git push origin --delete v1.0.5
 # 3. Push your new, correct tag to GitHub
 git push origin v1.0.5
 ```
+---
+## Package updating prompt ##
+
+# Chore: Dependency health check & safe updates
+
+## Goal
+Review and safely update npm and Cargo dependencies without breaking the app.
+
+## Steps
+1. Report current outdated packages:
+   - Frontend: `npm outdated`
+   - Rust: `cargo outdated` (or `cargo update --dry-run` if the tool isn’t installed)
+
+2. Apply only safe updates:
+   - Patch and minor version bumps that look low-risk
+   - Do **not** jump major versions of Tauri, Svelte, pdfjs-dist, or pdf-lib without explicit approval
+
+3. After updates:
+   - Run `npm install`
+   - Run `npm run check`
+   - Run `cargo check` (and `cargo check --features heic` if the feature exists)
+   - Confirm no new TypeScript or Rust errors
+
+4. Summarise what was updated and what was deliberately left alone (and why).
+
+## Constraints
+- Work on the current branch only
+- Do not change application logic
+- Keep the build MIT-clean (do not force the heic feature on)
+- `npm run check` and `cargo check` must stay clean
+
+## Success criteria
+- Outdated report is clear
+- Safe updates applied
+- App still builds and type-checks
+- Clear summary of changes for the PR description

@@ -383,10 +383,12 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		)
 			return;
 
-		// Let the browser handle native PDF text selection (no annotation side-effects)
+		// Let the browser handle native PDF text selection (no annotation side-effects).
+		// Empty-glyph area still clears annotation selection (Ctrl/Cmd keeps multi-select).
 		if (targetElement.closest(".textLayer")) {
-			if (activeDoc.activeTool === "select") {
+			if (activeDoc.activeTool === "select" && !e.ctrlKey && !e.metaKey) {
 				activeDoc.selectedShape = null;
+				activeDoc.selectedShapes = [];
 			}
 			return;
 		}
@@ -417,9 +419,12 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		const rawY = e.clientY - rect.top;
 		const { x: mousePctX, y: mousePctY } = normalizeCoordinates(rawX, rawY);
 
+		// Empty page click: clear selection unless Ctrl/Cmd (multi-select modifier).
 		if (activeDoc.activeTool === "select") {
-			activeDoc.selectedShape = null;
-			activeDoc.selectedShapes = [];
+			if (!e.ctrlKey && !e.metaKey) {
+				activeDoc.selectedShape = null;
+				activeDoc.selectedShapes = [];
+			}
 			return;
 		}
 
