@@ -138,7 +138,7 @@ Also, without single-instance handling, opening a file while the app was already
 
 `check_startup_file` remains as a fallback only. Do not make double-click / Open with depend on it again.
 
-**Supported extensions:** `.pdf`, `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.webp`, `.bmp`
+**Supported extensions:** `.pdf`, `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.webp`, `.bmp`, `.heic`, `.heif`
 
 ---
 
@@ -534,4 +534,69 @@ Engine: pure `src/lib/tools/calculator.ts` (no DOM). UI: `src/routes/tools/+page
 
 ---
 
-**Last Updated:** July 2026 (form CropBox/rotate + outline chrome, Ctrl+F mark paint, merge thumb remap + high-res Recent p1, zoom-to-pointer, bookmark click-to-compose, calculator expression memory, line tool, hyperlinks, form/text value memory, workspaceId / Save As)
+## Section T: Page Move + Selection + Snapshot Overlay
+
+### Page-bound data travels with pages
+
+- **Reorder** (`pageOrder` drag in grid): page identities stay the same, so bookmarks/comments/shapes/**hyperlinks/form fields** keyed by `pageNum` automatically follow their pages. Multi-select drag preserves relative document order (not click order). Sidebar labels show **display position** via `displayPagePosition(pageOrder, pageNum)`.
+- **Delete**: after filtering `pageOrder`, call `prunePageBoundToOrder` so orphaned bookmarks/comments/**hyperlinks/form fields** are dropped (and formValues for removed field names).
+- **Merge / blank insert**: PDF is rewritten as sequential pages 1..N. Same pre/extra/post slices as thumbnail remap — use `remapSessionAfterPageInsert` for bookmarks, comments, shapes, rotations, **hyperlinks, form fields**, and `currentPage` **before** assigning the new `pageOrder`. Form *values* stay name-keyed (not remapped by page).
+
+Helpers live in pure `src/lib/pages/pageBoundData.ts` (unit-tested).
+
+### Esc and empty-page click selection
+
+- **Esc** (Workspace `handleKeyDown`): when focus is not in an editable field, clear `selectedShape` / `selectedShapes` and set `activeTool = "select"`. Compose/form Escape handlers keep working because focus is on their inputs.
+- **Empty page click** (`dragHandler`): with Select tool, plain click clears selection; **Ctrl/Cmd+click** keeps multi-select. Text-layer empty hits clear both selection arrays the same way.
+
+### Snapshot grey-out vs zoom
+
+Do **not** use `absolute inset-0` on the scroll container for the snapshot mask — it drifts relative to zoomed page shells (padding, scroll origin, content growth).
+
+- Measure `scrollContainer.getBoundingClientRect()` and paint a **fixed** mask at those screen coords; re-measure on zoom, scroll, and resize.
+- Marquee corners are pure `clientX` / `clientY`; capture maps screen → canvas via `getBoundingClientRect` + `canvas.width / displayWidth` (DPR-safe).
+
+---
+
+## Section S: HEIC/HEIF Support (Feature-Gated One-Time Conversion)
+
+### The Problem
+
+iPhone photos are saved as `.heic` / `.heif` (HEVC-compressed HEIF containers). The browser WebView cannot decode HEIC natively, and no web-standard API exists for it. Users expect to open iPhone photos the same way they open PNG/JPEG.
+
+### The Solution
+
+A Rust-side one-time conversion pipeline, mirroring the existing TIFF path:
+
+1. Frontend detects `.heic` / `.heif` via `determineFileType` → `"heic"` category.
+2. Invokes `parse_heic_document` (Tauri command) with the file path.
+3. Rust reads the file, decodes HEIC → RGBA8 via the `heic` crate (`DecoderConfig::new().decode()`), then encodes to PNG using `image::codecs::png::PngEncoder` (same encoder the TIFF pipeline uses).
+4. PNG bytes return over IPC. Frontend stores them as `rawBytes` and creates a blob URL → standard single-page `"image"` workspace. All existing image tools (annotations, rotation, export) work unchanged.
+5. Conversion is **one-time at open** — subsequent renders use the cached PNG bytes.
+
+### Feature gate
+
+The `heic` crate is **AGPL-3.0-only OR Imazen Commercial** dual-licensed. To keep the default build MIT-clean:
+
+- `Cargo.toml` declares `heic` as an **optional dependency** behind `[features] heic = ["dep:heic"]`.
+- The decode command uses `#[cfg(feature = "heic")]`; a `#[cfg(not(feature = "heic"))]` **stub** returns a descriptive error string.
+- Both variants are always registered in `invoke_handler` — Tauri's `generate_handler!` sees the stub in default builds.
+- File dialogs and OS file associations include `.heic`/`.heif` **regardless** of the feature, so users see the format is "known" and get a clear error if the feature is off.
+- Build with `cargo build --features heic` (or `cargo tauri build --features heic`) to enable.
+
+### Patent / licensing constraints
+
+- HEVC/HEIF is covered by MPEG-LA and Access Advance patent pools. The `heic` crate grants copyright but **not** patent rights. Consult a patent attorney before commercial distribution.
+- The `heic` crate attribution is listed in `HelpModal.svelte` (Open Source Compliance section) with a note that it is optional and feature-gated.
+
+### Rules
+
+- Do not compile the `heic` crate into the default (featureless) build.
+- Do not add FFI / system-library HEIC decoders — pure Rust only.
+- Do not re-decode on zoom/scroll/tab switch — rawBytes already holds the converted PNG.
+- After conversion, `fileType` is `"image"` (not a new `"heic"` type) so the entire render/export pipeline works without any conditional branches.
+- The `heic` 0.1.x series bundles its HEVC backend; no separate `backend-rust` feature needed. Version 0.2.0 was yanked.
+
+---
+
+**Last Updated:** July 2026 (page-move bookmarks/comments, Esc→select, empty-click deselect, snapshot overlay zoom, HEIC/HEIF feature-gated support, form CropBox/rotate, Ctrl+F marks, merge thumbs, zoom-to-pointer, bookmark compose, calculator memory, line tool, hyperlinks, form/text value memory, workspaceId / Save As)

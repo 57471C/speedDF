@@ -447,17 +447,36 @@
   let scrollLeftStart = 0;
   let scrollTopStart = 0;
 
+  function isEditableTarget(el: EventTarget | null): boolean {
+    if (!el || !(el instanceof HTMLElement)) return false;
+    const tag = el.tagName;
+    return (
+      tag === "INPUT" ||
+      tag === "TEXTAREA" ||
+      tag === "SELECT" ||
+      el.isContentEditable ||
+      el.getAttribute("contenteditable") === "true"
+    );
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     if (e.code === 'Space') {
-      const activeEl = document.activeElement;
-      const isInput = activeEl && (
-        activeEl.tagName === 'INPUT' ||
-        activeEl.tagName === 'TEXTAREA' ||
-        activeEl.getAttribute('contenteditable') === 'true'
-      );
-      if (!isInput) {
+      if (!isEditableTarget(document.activeElement)) {
         e.preventDefault();
         isSpacePressed = true;
+      }
+    }
+
+    // Esc: clear annotation selection and always return to the Select tool.
+    // Skip when focus is in a text field (compose / form / bookmark rename handle their own Esc).
+    // Switching off snapshot also aborts any in-progress marquee via the tool effect.
+    if (e.key === "Escape" || e.code === "Escape") {
+      if (!isEditableTarget(document.activeElement)) {
+        activeDoc.selectedShape = null;
+        activeDoc.selectedShapes = [];
+        if (activeDoc.activeTool !== "select") {
+          activeDoc.activeTool = "select";
+        }
       }
     }
 
@@ -534,11 +553,51 @@
   }
 
   let isDrawingMarquee = $state(false);
-  let marqueeStart = $state({ x: 0, y: 0 });
-  let marqueeCurrent = $state({ x: 0, y: 0 });
-
+  /** Screen-space marquee corners (clientX/Y) so zoom/scroll never desync the overlay. */
   let screenStart = $state({ x: 0, y: 0 });
   let screenCurrent = $state({ x: 0, y: 0 });
+
+  /**
+   * Snapshot dim + marquee are fixed to the scroll viewport in *screen* space.
+   * Absolute inset-0 on the scroller drifts vs zoomed page shells (padding,
+   * scroll origin, content growth). Measuring the scroller keeps the grey-out
+   * locked 1:1 with the visible display window at every zoom.
+   */
+  let snapshotOverlayBox = $state({ top: 0, left: 0, width: 0, height: 0 });
+
+  function refreshSnapshotOverlayBox() {
+    if (!scrollContainer) return;
+    const r = scrollContainer.getBoundingClientRect();
+    snapshotOverlayBox = {
+      top: r.top,
+      left: r.left,
+      width: r.width,
+      height: r.height,
+    };
+  }
+
+  // Keep the snapshot mask glued to the workspace viewport across zoom/scroll/resize.
+  $effect(() => {
+    if (activeDoc.activeTool !== "snapshot") {
+      isDrawingMarquee = false;
+      return;
+    }
+    // Re-measure when zoom changes (pages reflow → scroller metrics may shift)
+    void zoomScale;
+    void activeDoc.pageOrder.length;
+
+    refreshSnapshotOverlayBox();
+    const onScrollOrResize = () => refreshSnapshotOverlayBox();
+    scrollContainer?.addEventListener("scroll", onScrollOrResize, { passive: true });
+    window.addEventListener("resize", onScrollOrResize);
+    // One more frame after layout settles from zoom
+    const raf = requestAnimationFrame(() => refreshSnapshotOverlayBox());
+    return () => {
+      scrollContainer?.removeEventListener("scroll", onScrollOrResize);
+      window.removeEventListener("resize", onScrollOrResize);
+      cancelAnimationFrame(raf);
+    };
+  });
 
   async function handleExecuteCropCapture(e: MouseEvent) {
     if (!isDrawingMarquee) return;
@@ -576,31 +635,39 @@
 
     if (!activeCanvas) return;
 
-    // 3. Map screen-to-pixel metrics directly using identical coordinate fields
+    // 3. Map screen-to-pixel metrics via live getBoundingClientRect (tracks zoom/DPR)
     const displayRect = activeCanvas.getBoundingClientRect();
-    
+    if (displayRect.width < 1 || displayRect.height < 1) return;
+
     // Derive local canvas coordinates directly from raw screen differentials
     const cropLocalX = clientX1 - displayRect.left;
     const cropLocalY = clientY1 - displayRect.top;
 
-    // Density scale map linking visible DOM sizing parameters to internal pixel backstores
+    // Density scale: CSS display size → backing-store pixels (includes devicePixelRatio)
     const scaleX = activeCanvas.width / displayRect.width;
     const scaleY = activeCanvas.height / displayRect.height;
 
+    // Clamp crop rectangle to the canvas so zoom/edge marquee stays valid
+    const srcX = Math.max(0, cropLocalX * scaleX);
+    const srcY = Math.max(0, cropLocalY * scaleY);
+    const srcW = Math.min(activeCanvas.width - srcX, clientWidth * scaleX);
+    const srcH = Math.min(activeCanvas.height - srcY, clientHeight * scaleY);
+    if (srcW < 2 || srcH < 2) return;
+
     // 4. Initialize offscreen capture layout
     const cropCanvas = document.createElement('canvas');
-    cropCanvas.width = clientWidth * scaleX;
-    cropCanvas.height = clientHeight * scaleY;
+    cropCanvas.width = Math.max(1, Math.round(srcW));
+    cropCanvas.height = Math.max(1, Math.round(srcH));
     const cropCtx = cropCanvas.getContext('2d');
 
     if (cropCtx) {
       // Blit out pixel arrays directly mapping from original source boundaries
       cropCtx.drawImage(
         activeCanvas,
-        cropLocalX * scaleX,
-        cropLocalY * scaleY,
-        clientWidth * scaleX,
-        clientHeight * scaleY,
+        srcX,
+        srcY,
+        srcW,
+        srcH,
         0, 0, cropCanvas.width, cropCanvas.height
       );
 
@@ -668,37 +735,44 @@
       </span>
     </div>
   {/if}
-  {#if activeDoc.activeTool === 'snapshot'}
-    <div 
-      class="absolute inset-0 bg-black/25 z-[90] cursor-crosshair select-none"
+  {#if activeDoc.activeTool === 'snapshot' && snapshotOverlayBox.width > 0}
+    <!--
+      Fixed to the scroller's *screen* rect so the grey-out tracks the display
+      window 1:1 at every zoom/scroll (not absolute inset-0 over content).
+      Marquee corners are pure clientX/Y for the same reason.
+    -->
+    <div
+      class="fixed bg-black/25 z-[90] cursor-crosshair select-none"
+      style="
+        top: {snapshotOverlayBox.top}px;
+        left: {snapshotOverlayBox.left}px;
+        width: {snapshotOverlayBox.width}px;
+        height: {snapshotOverlayBox.height}px;
+      "
       onmousedown={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
+        e.preventDefault();
         isDrawingMarquee = true;
-        marqueeStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-        marqueeCurrent = { ...marqueeStart };
-        
-        // Lock down global screen origin coordinates
         screenStart = { x: e.clientX, y: e.clientY };
         screenCurrent = { x: e.clientX, y: e.clientY };
       }}
       onmousemove={(e) => {
         if (!isDrawingMarquee) return;
-        const rect = e.currentTarget.getBoundingClientRect();
-        marqueeCurrent = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-        
-        // Continually map current global screen pointers
         screenCurrent = { x: e.clientX, y: e.clientY };
       }}
       onmouseup={handleExecuteCropCapture}
+      onmouseleave={(e) => {
+        // Finalize if the pointer leaves the mask mid-drag
+        if (isDrawingMarquee) void handleExecuteCropCapture(e);
+      }}
     >
       {#if isDrawingMarquee}
-        <div 
-          class="absolute border border-dashed border-cyan-400 bg-cyan-400/15 shadow-[0_0_12px_rgba(34,211,238,0.35)]"
+        <div
+          class="absolute border border-dashed border-cyan-400 bg-cyan-400/15 shadow-[0_0_12px_rgba(34,211,238,0.35)] pointer-events-none"
           style="
-            left: {Math.min(marqueeStart.x, marqueeCurrent.x)}px;
-            top: {Math.min(marqueeStart.y, marqueeCurrent.y)}px;
-            width: {Math.abs(marqueeStart.x - marqueeCurrent.x)}px;
-            height: {Math.abs(marqueeStart.y - marqueeCurrent.y)}px;
+            left: {Math.min(screenStart.x, screenCurrent.x) - snapshotOverlayBox.left}px;
+            top: {Math.min(screenStart.y, screenCurrent.y) - snapshotOverlayBox.top}px;
+            width: {Math.abs(screenStart.x - screenCurrent.x)}px;
+            height: {Math.abs(screenStart.y - screenCurrent.y)}px;
           "
         ></div>
       {/if}

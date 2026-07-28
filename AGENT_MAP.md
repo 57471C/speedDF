@@ -23,6 +23,7 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/lib/interaction/dragHandler.svelte.ts`**: Page drag, multi-select (Ctrl/Cmd only), resize, **line click–click rubber-band**, line endpoint handles, text edit sessions (`activelyEditingIndex` + `textEditBaseline`), box click-to-drop defaults, and pointer event session for `WorkspacePage`.
 * **`src/lib/interaction/coordinates.ts`**: Percentage coordinate transforms (including image rotation).
 * **`src/lib/interaction/zoomToPointer.ts`**: Pure scroll math for Ctrl+wheel zoom-to-pointer (content-local re-anchor; accounts for `mx-auto` gutter collapse).
+* **`src/lib/pages/pageBoundData.ts`**: Pure helpers to prune/remap bookmarks, comments, shapes, rotations, **hyperlinks**, and **form fields** when pages are deleted or rewritten via merge/insert; `displayPagePosition` for sidebar labels.
 * **`src/lib/interaction/textSearch.ts`**: Pure Ctrl+F helpers — per-item match index, safe highlight paint (`sdf-search-hit` / `sdf-search-hit-current` marks), escape HTML.
 * **`src/lib/tools/calculator.ts`**: Four-function calculator engine with Windows-style dim **`expression`** memory line.
 * **`src/lib/tools/formatTime.ts`**: Timer / stopwatch display formatters.

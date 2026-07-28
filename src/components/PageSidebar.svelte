@@ -25,6 +25,11 @@
     refreshThumbnailsAfterPageInsert,
   } from "../lib/render/thumbnailCache";
   import { destroySharedWorkspacePdf } from "../lib/render/sharedPdfDocument";
+  import {
+    displayPagePosition,
+    prunePageBoundToOrder,
+    remapSessionAfterPageInsert,
+  } from "../lib/pages/pageBoundData";
 
   let sidebarContainer = $state<HTMLDivElement | null>(null);
   let thumbnailElements = $state<Record<number, HTMLDivElement>>({});
@@ -275,6 +280,63 @@
     activeDoc.currentPage = pageNum;
   }
 
+  /**
+   * After page delete: drop page-bound session data for removed pages
+   * (bookmarks, comments, hyperlinks, form fields + orphaned form values).
+   * Reorder does not need this — page identities stay the same.
+   */
+  function prunePageBoundSessionToPageOrder() {
+    const pruned = prunePageBoundToOrder(
+      activeDoc.pageOrder,
+      activeDoc.bookmarks,
+      activeDoc.comments,
+      activeDoc.hyperlinks,
+      activeDoc.formFields,
+      activeDoc.formValues,
+    );
+    activeDoc.bookmarks = pruned.bookmarks;
+    activeDoc.comments = pruned.comments;
+    activeDoc.hyperlinks = pruned.hyperlinks;
+    activeDoc.formFields = pruned.formFields;
+    activeDoc.formValues = pruned.formValues as typeof activeDoc.formValues;
+  }
+
+  /**
+   * After merge/blank insert rewrites bytes as sequential pages 1..N,
+   * remap session page-bound data the same way thumbnails are remapped
+   * (bookmarks, comments, shapes, rotations, hyperlinks, form fields).
+   */
+  function applySessionRemapAfterInsert(
+    prePagesOrder: number[],
+    extraPageCount: number,
+    postPagesOrder: number[],
+  ) {
+    const remapped = remapSessionAfterPageInsert({
+      prePagesOrder,
+      extraPageCount,
+      postPagesOrder,
+      bookmarks: activeDoc.bookmarks,
+      comments: activeDoc.comments,
+      shapes: activeDoc.shapes,
+      rotations: activeDoc.rotations,
+      currentPage: activeDoc.currentPage,
+      hyperlinks: activeDoc.hyperlinks,
+      formFields: activeDoc.formFields,
+      formValues: activeDoc.formValues,
+    });
+    activeDoc.bookmarks = remapped.bookmarks;
+    activeDoc.comments = remapped.comments;
+    activeDoc.shapes = remapped.shapes;
+    activeDoc.rotations = remapped.rotations;
+    activeDoc.currentPage = remapped.currentPage;
+    activeDoc.hyperlinks = remapped.hyperlinks;
+    activeDoc.formFields = remapped.formFields;
+    // formValues stay name-keyed; pass-through keeps filled values with remapped fields
+    activeDoc.formValues = remapped.formValues as typeof activeDoc.formValues;
+    activeDoc.selectedShape = null;
+    activeDoc.selectedShapes = [];
+  }
+
   function dropTargetPageElement(e: MouseEvent, pageNum: number) {
     e.stopPropagation();
     if (activeDoc.pageOrder.length <= 1) {
@@ -283,13 +345,15 @@
       );
       return;
     }
+    pushHistorySnapshot();
     activeDoc.pageOrder = activeDoc.pageOrder.filter((n) => n !== pageNum);
     if (activeDoc.currentPage === pageNum) {
-      const remainingIndex = activeDoc.pageOrder.indexOf(pageNum);
       activeDoc.currentPage =
-        activeDoc.pageOrder[Math.max(0, remainingIndex - 1)];
+        activeDoc.pageOrder[Math.max(0, activeDoc.pageOrder.length - 1)] || 1;
     }
+    prunePageBoundSessionToPageOrder();
     activeDoc.selectedShape = null;
+    activeDoc.selectedShapes = [];
   }
 
   async function handleInsertFile(event: Event) {
@@ -359,6 +423,8 @@
       await destroySharedWorkspacePdf({ destroyWorker: false });
       activeDoc.rawBytes = newRawBytes;
       activeDoc.pageCount = numPages;
+      // Bookmarks/comments/shapes travel with content through the rewrite
+      applySessionRemapAfterInsert(prePagesOrder, extraPageCount, postPagesOrder);
       activeDoc.pageOrder = Array.from(
         { length: numPages },
         (_, idx) => idx + 1,
@@ -426,8 +492,10 @@
     if (!activeDoc.pageOrder.includes(activeDoc.currentPage)) {
       activeDoc.currentPage = activeDoc.pageOrder[0] || 1;
     }
+    prunePageBoundSessionToPageOrder();
     selectedPages = [activeDoc.currentPage];
     activeDoc.selectedShape = null;
+    activeDoc.selectedShapes = [];
   }
 
   function triggerBatchInsert() {
@@ -484,6 +552,8 @@
       await destroySharedWorkspacePdf({ destroyWorker: false });
       activeDoc.rawBytes = newRawBytes;
       activeDoc.pageCount = numPages;
+      // Bookmarks/comments/shapes travel with content through the rewrite
+      applySessionRemapAfterInsert(prePagesOrder, 1, postPagesOrder);
       activeDoc.pageOrder = Array.from(
         { length: numPages },
         (_, idx) => idx + 1,
@@ -509,18 +579,26 @@
     let newOrder = [...(activeDoc.pageOrder || [])];
 
     if (selectedPages.includes(draggedPage) && selectedPages.length > 1) {
+      // Preserve relative document order of the multi-selected block
+      // (not click-selection order) so bookmarks/comments stay with pages.
+      const moving = (activeDoc.pageOrder || []).filter((p) =>
+        selectedPages.includes(p),
+      );
       const referencePage = activeDoc.pageOrder[newIndex];
-      newOrder = newOrder.filter(p => !selectedPages.includes(p));
+      newOrder = newOrder.filter((p) => !selectedPages.includes(p));
       let insertAt = newOrder.indexOf(referencePage);
       if (oldIndex < newIndex) {
         insertAt += 1;
       }
-      newOrder.splice(insertAt, 0, ...selectedPages);
+      if (insertAt < 0) insertAt = newOrder.length;
+      newOrder.splice(insertAt, 0, ...moving);
     } else {
       const [movedPage] = newOrder.splice(oldIndex, 1);
       newOrder.splice(newIndex, 0, movedPage);
     }
     
+    // Reorder only changes pageOrder; page identities (and thus bookmarks /
+    // comments keyed by pageNum) travel with their pages automatically.
     activeDoc.pageOrder = newOrder;
   }
 
@@ -909,7 +987,7 @@
 
               <div class="flex items-center justify-end pl-1 shrink-0">
                 <span class="text-[8px] font-bold px-1.5 py-0.5 rounded bg-slate-900/80 text-slate-500 uppercase tracking-widest group-hover:hidden">
-                  p. {b.pageNum}
+                  p. {displayPagePosition(activeDoc.pageOrder, b.pageNum) || b.pageNum}
                 </span>
 
                 <div class="hidden group-hover:flex items-center gap-1">
@@ -976,7 +1054,7 @@
                       class="text-[8px] font-bold px-1 py-0.5 rounded bg-slate-900 text-cyan-500/80 uppercase tracking-wider hover:bg-slate-800"
                       title="Go to page"
                     >
-                      p.{thread.pageNum}
+                      p.{displayPagePosition(activeDoc.pageOrder, thread.pageNum) || thread.pageNum}
                     </button>
                   </div>
                 </div>
