@@ -1,10 +1,11 @@
 # Todo List #
 
 ## Features to add ##
-1. ~~Tools: scratch pad/clip board (persistant across all docs)~~
+1. Images only: resize by %, H:V px apect ratio locked (like power toys)
 2. Obeject alignment
 3. R/click tab - "Open in new window" 
-4. Forms creation (NOT XFA Forms!) + hyperlinks
+3. Forms creation (NOT XFA Forms!) + hyperlinks
+4. ~~Tools: scratch pad/clip board (persistant across all docs)~~
 
 ## long term goals (may never do)
 1. lopdf + docx-rs export to Word, lopdf + rust_xlsxwriter for Excel
@@ -20,29 +21,12 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 4. Switch to Bun - could be a big win for speed and bundle size.
 
 ## Fixes
-- [ ] moving pages should move the bookmarks and comments with the page.
-- [ ] feat: Esc key unselects any selected object and always reverts to the select tool
-- [ ] clicking anywhere on the page (unles ctrl is currently pressed down) should unslect any objects.
-- [ ] snapshot tool greyout area does not zoom at the same rate as the display window (needs correction).
+- [x] moving pages should move the bookmarks and comments with the page.
+- [x] feat: Esc key unselects any selected object and always reverts to the select tool
+- [x] clicking anywhere on the page (unles ctrl is currently pressed down) should unslect any objects.
+- [x] snapshot tool greyout area does not zoom at the same rate as the display window (needs correction).
 - [x] On the main page before any document is loaded: remove the green pulsing dot in the left top corner (it's not needed). landscape pages are bunched up they should be allowed more padding.
-- [x] Merging documents didn't render the added documents new page thumbnails.
-- [x] After pressing Ctrl+F and adding text to find. cycling through searched key words (up/down arrows). On some results the highlited yellow is not visible. This leave the user hinting around the page for highliting that isn't showing.
-- [x] addng bookmarks from the workspace icon. The whole behaviour is wrong. Clicking the icon shouldn't submit "Untitled bookmark". It should open the edit view of the popout, focus the cursor on the text input so the user can add their own title.
-The hover popout disapares as the user tries to "catch" the "add" button. this state of the popout is unnessicary. Hover is only needed when there's an active bookmark
-- [x] zoom to pointer coords could be better (still zooms to the side)
-- [x] Calculator could have memory of what you typed (dim small font in the main display - like the windows 11 basic calulator)
-- [x] After rendering all of the thumbnails - replace p1 with a higher res image of Page 1. So the thumbnail for recent documents looks better.
-- [x] form input boxes don't always align (zoom level issue?).
-- [x] aFter dropping a text annotation. if you select another tool (other than select tool or colour modifier) it should unselect the text that was dropped.
-- [x] If you change the fontsize of a text annotation it should resize the teatarea's bounding box size to
-- [x] hover over comment icon the the top right wrokspace comments icon correctly pops out the form for easy adding a comment. But there is "alt text" that pops over the input (clash). Bookmarks icon should popout in the same way and also have the altext removed. 
-- [x] when Ctrl+scrolling to zoom, it should zoom to the pointer/co-ords
-- [x] 2 click shape. when adding a shap 1 x click drops a shape with a size based on document zoom. change this to 1 c click ancors the top left corner (rubberbands). 2nd click finalises the size of the shape. BUT STILL ALLOW CLICK DRAG as the primary way to draw shapes.
-- [x] smoother zoom resizing - is it possible?
-- [x] dropping a text annotation is lower than it should be. it seems like the top/r of the text input drops at the center of the cursour. It should be the top.
-- [x] Disable F5 refresh!
-- [x] remove "Shift" key for grouping
-- [x] Save/Save As annotation duplication (clear baked overlays after flatten)
+
 ---
 - Can't OCR images (only PDF's work)
 - Old install files clean-up

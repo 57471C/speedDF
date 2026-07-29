@@ -2,6 +2,11 @@ import {
 	patchSelectedShapes,
 	selectionNeedsPropertyUpdate,
 } from "./lib/annotation/shapeHelpers";
+import {
+	clampPx,
+	mimeFromFileName,
+	resampleImageToBytes,
+} from "./lib/annotation/imageResize";
 import type { PageComment } from "./lib/comments/comments";
 import {
 	clampCommentPct,
@@ -181,6 +186,12 @@ export interface DocumentWorkspace {
 	hyperlinks: HyperlinkDef[];
 	imageRotation?: number;
 	imageUrl?: string | null;
+	/**
+	 * Original pixel size when the image tab was opened (or HEIC-converted).
+	 * Used as the Scale (%) baseline for the image resize strip; multi-doc safe.
+	 */
+	imageNativeWidth?: number;
+	imageNativeHeight?: number;
 	isDirty: boolean;
 	tiffPages: Uint8Array[];
 	rotations: Record<number, number>;
@@ -241,6 +252,8 @@ export interface SharedDocumentState {
 	fileType: "pdf" | "tiff" | "image" | null;
 	imageUrl?: string | null;
 	imageRotation?: number;
+	imageNativeWidth?: number;
+	imageNativeHeight?: number;
 	tiffPages: Uint8Array[];
 	flushDocumentState(): void;
 	isDirty: boolean;
@@ -693,6 +706,12 @@ export async function commitActiveDocumentAfterSave(opts: {
 			else if (lower.endsWith(".webp")) mime = "image/webp";
 			const blob = new Blob([doc.rawBytes as BlobPart], { type: mime });
 			doc.imageUrl = URL.createObjectURL(blob);
+			// After save, the written pixels are the new original — reset Scale (%) baseline
+			const dims = doc.cachedDimensions?.[0];
+			if (dims) {
+				doc.imageNativeWidth = dims.width;
+				doc.imageNativeHeight = dims.height;
+			}
 		} catch (err) {
 			console.warn("Post-save image URL refresh failed:", err);
 		}
@@ -793,6 +812,8 @@ export function purgeDocumentResources(doc: DocumentWorkspace): void {
 	doc.pageCount = 0;
 	doc.currentPage = 1;
 	doc.imageRotation = 0;
+	doc.imageNativeWidth = undefined;
+	doc.imageNativeHeight = undefined;
 	doc.isDirty = false;
 	doc.fileType = null;
 }
@@ -1039,6 +1060,8 @@ export function initializeNewDocument(
 		hyperlinks: [],
 		imageRotation: 0,
 		imageUrl: null,
+		imageNativeWidth: undefined,
+		imageNativeHeight: undefined,
 		isDirty: false,
 		tiffPages: [],
 		rotations: {},
@@ -1159,6 +1182,18 @@ export const activeDoc: SharedDocumentState = {
 	},
 	set imageUrl(val) {
 		if (this.current) this.current.imageUrl = val;
+	},
+	get imageNativeWidth() {
+		return this.current?.imageNativeWidth;
+	},
+	set imageNativeWidth(val) {
+		if (this.current) this.current.imageNativeWidth = val;
+	},
+	get imageNativeHeight() {
+		return this.current?.imageNativeHeight;
+	},
+	set imageNativeHeight(val) {
+		if (this.current) this.current.imageNativeHeight = val;
 	},
 	get isDirty() {
 		return this.current?.isDirty || false;
@@ -1539,6 +1574,47 @@ export function updateSignatureSetAction(updated: SignatureSet) {
 	next[idx] = updated;
 	persistSignatureSets(next);
 	syncCommentAuthorFromSignatureSet(updated);
+}
+
+/**
+ * Resample the active image document to target pixel size.
+ * Updates rawBytes, imageUrl, and cachedDimensions; multi-document safe.
+ * Scale (%) baseline (imageNative*) is preserved for the session.
+ */
+export async function applyImageResizeAction(
+	targetWidth: number,
+	targetHeight: number,
+): Promise<boolean> {
+	const doc = findOpenDocument(activeDocumentId);
+	if (!doc || doc.fileType !== "image" || !doc.imageUrl) return false;
+
+	const w = clampPx(targetWidth);
+	const h = clampPx(targetHeight);
+	const mime = mimeFromFileName(doc.filePath || doc.fileName);
+	const bytes = await resampleImageToBytes(doc.imageUrl, w, h, mime);
+	if (!bytes) return false;
+
+	try {
+		if (doc.imageUrl) {
+			URL.revokeObjectURL(doc.imageUrl);
+		}
+	} catch {
+		/* ignore */
+	}
+
+	doc.rawBytes = bytes;
+	const blob = new Blob([bytes as BlobPart], { type: mime });
+	doc.imageUrl = URL.createObjectURL(blob);
+	doc.cachedDimensions = [{ width: w, height: h }];
+	// Seed native baseline once if missing (e.g. load race)
+	if (!doc.imageNativeWidth || !doc.imageNativeHeight) {
+		doc.imageNativeWidth = w;
+		doc.imageNativeHeight = h;
+	}
+	doc.isDirty = true;
+	// Bump openDocuments so multi-tab UI re-reads the active slot
+	openDocuments = [...openDocuments];
+	return true;
 }
 
 export function rotatePageAction(
