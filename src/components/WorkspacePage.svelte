@@ -49,11 +49,13 @@
   let basePageHeight = $state<number>(792);
   let loadedDimensions = $state(false);
 
-  // Apply cached dimensions on initialization if available
+  // Apply cached dimensions on initialization if available; also re-sync when
+  // image resize updates cachedDimensions for the active image document.
   $effect(() => {
-    if (cachedDim && !loadedDimensions) {
+    if (cachedDim) {
       basePageWidth = cachedDim.width;
       basePageHeight = cachedDim.height;
+      if (!loadedDimensions) loadedDimensions = true;
     }
   });
 

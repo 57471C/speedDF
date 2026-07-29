@@ -2,6 +2,7 @@
   import {
     activeDoc,
     FONT_MAP,
+    pushHistorySnapshot,
   } from "../pdfStore.svelte";
   import type { PageInteraction } from "../lib/interaction/dragHandler.svelte";
   import {
@@ -15,6 +16,14 @@
     lineStrokeEndpoints,
     shapesInPaintOrder,
   } from "../lib/annotation/toolShapes";
+  import {
+    alignShapes,
+    distributeShapes,
+    selectionUnionBounds,
+    type AlignMode,
+    type DistributeMode,
+  } from "../lib/annotation/alignShapes";
+  import { getShapeBounds } from "../lib/annotation/shapeBounds";
   import {
     commentHasFlag,
     commentsForPage,
@@ -62,6 +71,74 @@
   let pageFlagComments = $derived(
     commentsForPage(activeDoc.comments, pageNumber).filter(commentHasFlag),
   );
+
+  /** Multi-select indices on this page only (alignment is page-local). */
+  let pageMultiSelectIndices = $derived(
+    activeDoc.selectedShapes
+      .filter((s) => s.pageNumber === pageNumber)
+      .map((s) => s.index),
+  );
+
+  /** Show floating align bar when 2+ objects selected on this page. */
+  let showAlignBar = $derived(pageMultiSelectIndices.length >= 2);
+
+  /** Selection union in display-% for positioning the align bar. */
+  let selectionDisplayBounds = $derived.by(() => {
+    if (!showAlignBar) return null;
+    const shapes = activeDoc.shapes[pageNumber] || [];
+    const storageRects = pageMultiSelectIndices.map((index) => {
+      const shape = shapes[index];
+      if (!shape) return { x: 0, y: 0, width: 0, height: 0 };
+      const b = getShapeBounds(shape);
+      return getDisplayCoords({
+        x: b.x,
+        y: b.y,
+        width: b.width,
+        height: b.height,
+      });
+    });
+    // Reuse storage union on already-display rects
+    return selectionUnionBounds(
+      storageRects.map((r) => ({
+        type: "rect",
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+      })),
+      storageRects.map((_, i) => i),
+    );
+  });
+
+  let marqueeRect = $derived.by(() => {
+    if (!ix.isMarqueeSelecting || !ix.marqueeStartPct || !ix.marqueeCurrentPct) {
+      return null;
+    }
+    const s = ix.marqueeStartPct;
+    const c = ix.marqueeCurrentPct;
+    return {
+      left: Math.min(s.x, c.x),
+      top: Math.min(s.y, c.y),
+      width: Math.abs(c.x - s.x),
+      height: Math.abs(c.y - s.y),
+    };
+  });
+
+  function runAlign(mode: AlignMode) {
+    if (pageMultiSelectIndices.length < 2) return;
+    pushHistorySnapshot();
+    const shapes = activeDoc.shapes[pageNumber] || [];
+    const next = alignShapes(shapes, pageMultiSelectIndices, mode);
+    activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: next };
+  }
+
+  function runDistribute(mode: DistributeMode) {
+    if (pageMultiSelectIndices.length < 3) return;
+    pushHistorySnapshot();
+    const shapes = activeDoc.shapes[pageNumber] || [];
+    const next = distributeShapes(shapes, pageMultiSelectIndices, mode);
+    activeDoc.shapes = { ...activeDoc.shapes, [pageNumber]: next };
+  }
 
   /** Pending pin from right-click "Add Comment Here" on this page. */
   let pinDraft = $derived(
@@ -877,4 +954,123 @@
         </div>
       {/if}
     {/if}
+
+    <!-- Shift+drag marquee multi-select overlay (display %) -->
+    {#if marqueeRect && marqueeRect.width > 0 && marqueeRect.height > 0}
+      <div
+        class="absolute pointer-events-none z-[55] border border-dashed border-cyan-400 bg-cyan-400/10 shadow-[0_0_12px_rgba(34,211,238,0.25)]"
+        style="left: {marqueeRect.left}%; top: {marqueeRect.top}%; width: {marqueeRect.width}%; height: {marqueeRect.height}%;"
+        aria-hidden="true"
+      ></div>
+    {/if}
+
+    <!-- Object alignment bar: 2+ selected, near top-right of selection bounds -->
+    {#if showAlignBar && selectionDisplayBounds}
+      <div
+        class="absolute z-[60] pointer-events-auto flex items-center gap-0.5 bg-[#090d16]/95 border border-slate-800/80 rounded-lg px-1 py-0.5 shadow-[0_8px_24px_rgba(0,0,0,0.45)] backdrop-blur-md"
+        style="left: {selectionDisplayBounds.x + selectionDisplayBounds.width}%; top: {selectionDisplayBounds.y}%; transform: translate(-100%, calc(-100% - 6px));"
+        role="toolbar"
+        aria-label="Align objects"
+        onpointerdown={(e) => e.stopPropagation()}
+        onmousedown={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          class="align-btn"
+          title="Align Left"
+          aria-label="Align left"
+          onclick={() => runAlign("left")}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4v16M8 8h10M8 12h6M8 16h10"/></svg>
+        </button>
+        <button
+          type="button"
+          class="align-btn"
+          title="Align Centre"
+          aria-label="Align centre"
+          onclick={() => runAlign("center")}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v16M7 8h10M9 12h6M7 16h10"/></svg>
+        </button>
+        <button
+          type="button"
+          class="align-btn"
+          title="Align Right"
+          aria-label="Align right"
+          onclick={() => runAlign("right")}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 4v16M6 8h10M8 12h8M6 16h10"/></svg>
+        </button>
+        <span class="w-px h-4 bg-slate-700 mx-0.5" aria-hidden="true"></span>
+        <button
+          type="button"
+          class="align-btn"
+          title="Align Top"
+          aria-label="Align top"
+          onclick={() => runAlign("top")}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h16M8 8v10M12 8v6M16 8v10"/></svg>
+        </button>
+        <button
+          type="button"
+          class="align-btn"
+          title="Align Middle"
+          aria-label="Align middle"
+          onclick={() => runAlign("middle")}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h16M8 7v10M12 9v6M16 7v10"/></svg>
+        </button>
+        <button
+          type="button"
+          class="align-btn"
+          title="Align Bottom"
+          aria-label="Align bottom"
+          onclick={() => runAlign("bottom")}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20h16M8 6v10M12 10v6M16 6v10"/></svg>
+        </button>
+        <span class="w-px h-4 bg-slate-700 mx-0.5" aria-hidden="true"></span>
+        <button
+          type="button"
+          class="align-btn"
+          title="Distribute Horizontally"
+          aria-label="Distribute horizontally"
+          disabled={pageMultiSelectIndices.length < 3}
+          onclick={() => runDistribute("horizontal")}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4v16M20 4v16M9 8v8M15 8v8"/></svg>
+        </button>
+        <button
+          type="button"
+          class="align-btn"
+          title="Distribute Vertically"
+          aria-label="Distribute vertically"
+          disabled={pageMultiSelectIndices.length < 3}
+          onclick={() => runDistribute("vertical")}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4h16M4 20h16M8 9h8M8 15h8"/></svg>
+        </button>
+      </div>
+    {/if}
   </div>
+
+<style>
+  .align-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 0.25rem;
+    color: rgb(148 163 184);
+    transition: color 0.15s, background-color 0.15s;
+  }
+  .align-btn:hover:not(:disabled) {
+    color: white;
+    background-color: rgb(30 41 59);
+  }
+  .align-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+</style>

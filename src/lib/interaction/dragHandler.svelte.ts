@@ -30,6 +30,11 @@ import {
 } from "./coordinates";
 import { clampPct, computeResizedBounds } from "./resizeMath";
 import { isBoxShapeTool, SHAPE_TYPES_LIST } from "./shapeTypes";
+import {
+	getShapeBounds,
+	indicesIntersectingMarquee,
+	type RectPct as BoundsRect,
+} from "../annotation/shapeBounds";
 
 export { isBoxShapeTool, SHAPE_TYPES_LIST } from "./shapeTypes";
 
@@ -92,6 +97,17 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 	let dragStartMouseX = 0;
 	let dragStartMouseY = 0;
 	let dragTargetElement: HTMLElement | null = null;
+
+	/**
+	 * Shift+drag marquee multi-select (select tool only).
+	 * Coordinates are page-container display % (0–100) so the overlay matches
+	 * the rotated image shell; hit-testing uses display bounds of each shape.
+	 */
+	let isMarqueeSelecting = $state(false);
+	let marqueeStartPct = $state<PointPct | null>(null);
+	let marqueeCurrentPct = $state<PointPct | null>(null);
+	/** When true, marquee results are unioned with the existing selection. */
+	let marqueeAdditive = false;
 
 	// Non-reactive caching layer for shape dragging/drawing coordinates
 	let dragActive = false;
@@ -419,8 +435,30 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		const rawY = e.clientY - rect.top;
 		const { x: mousePctX, y: mousePctY } = normalizeCoordinates(rawX, rawY);
 
-		// Empty page click: clear selection unless Ctrl/Cmd (multi-select modifier).
+		// Select tool on empty page:
+		// - Shift+drag → marquee multi-select (intersecting objects)
+		// - plain click → clear selection (unless Ctrl/Cmd keeps multi-select)
 		if (activeDoc.activeTool === "select") {
+			if (e.shiftKey) {
+				e.preventDefault();
+				const displayX = (rawX / Math.max(1, rect.width)) * 100;
+				const displayY = (rawY / Math.max(1, rect.height)) * 100;
+				isMarqueeSelecting = true;
+				marqueeAdditive = e.ctrlKey || e.metaKey;
+				marqueeStartPct = { x: displayX, y: displayY };
+				marqueeCurrentPct = { x: displayX, y: displayY };
+				if (!marqueeAdditive) {
+					activeDoc.selectedShape = null;
+					activeDoc.selectedShapes = [];
+				}
+				dragActive = true;
+				rawStartX = e.clientX;
+				rawStartY = e.clientY;
+				rawCurrentX = e.clientX;
+				rawCurrentY = e.clientY;
+				capturePagePointer(e);
+				return;
+			}
 			if (!e.ctrlKey && !e.metaKey) {
 				activeDoc.selectedShape = null;
 				activeDoc.selectedShapes = [];
@@ -561,7 +599,8 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			return;
 		e.stopPropagation();
 
-		// Ctrl/Cmd multi-select — toggle without starting a drag (Shift is not a group modifier)
+		// Ctrl/Cmd multi-select — toggle without starting a drag.
+		// Shift is reserved for marquee (empty-page); on a shape it acts like a normal select.
 		const hasModifier = e.ctrlKey || e.metaKey;
 		const isAlreadySelected = activeDoc.selectedShapes.some(
 			(s) => s.pageNumber === pageNumber && s.index === index,
@@ -858,6 +897,17 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 				if (moved > 3) boxDidDrag = true;
 			}
 		}
+
+		// Case 5: Shift+marquee multi-select preview
+		else if (isMarqueeSelecting && marqueeStartPct) {
+			const rect = dragPageRect || pageContainer.getBoundingClientRect();
+			const dx = rawCurrentX - rect.left;
+			const dy = rawCurrentY - rect.top;
+			marqueeCurrentPct = {
+				x: (dx / Math.max(1, rect.width)) * 100,
+				y: (dy / Math.max(1, rect.height)) * 100,
+			};
+		}
 	}
 
 	function handlePointerMove(e: PointerEvent) {
@@ -894,7 +944,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		hoverPctX = mousePctX;
 		hoverPctY = mousePctY;
 
-		if (dragActive || lineAwaitingEnd || boxAwaitingEnd) {
+		if (dragActive || lineAwaitingEnd || boxAwaitingEnd || isMarqueeSelecting) {
 			e.preventDefault();
 			rawCurrentX = e.clientX;
 			rawCurrentY = e.clientY;
@@ -930,6 +980,69 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		}
 	}
 
+	function finalizeMarqueeSelect() {
+		const pageNumber = getPageNumber();
+		const start = marqueeStartPct;
+		const end = marqueeCurrentPct;
+		isMarqueeSelecting = false;
+		marqueeStartPct = null;
+		marqueeCurrentPct = null;
+		dragActive = false;
+
+		if (!start || !end) {
+			marqueeAdditive = false;
+			return;
+		}
+
+		const marquee: BoundsRect = {
+			x: Math.min(start.x, end.x),
+			y: Math.min(start.y, end.y),
+			width: Math.abs(end.x - start.x),
+			height: Math.abs(end.y - start.y),
+		};
+		// Tiny drag ≈ click — selection already cleared on marquee start (non-additive)
+		if (marquee.width < 0.35 && marquee.height < 0.35) {
+			marqueeAdditive = false;
+			return;
+		}
+
+		const shapesList = activeDoc.shapes[pageNumber] || [];
+		// Hit-test in display % so rotated image documents match the overlay
+		const displayShapes = shapesList.map((shape) => {
+			if (!shape) return shape;
+			const b = getShapeBounds(shape);
+			const display = getDisplayCoords({
+				x: b.x,
+				y: b.y,
+				width: b.width,
+				height: b.height,
+			});
+			return {
+				type: shape.type,
+				x: display.x,
+				y: display.y,
+				width: display.width,
+				height: display.height,
+			};
+		});
+		const hit = indicesIntersectingMarquee(displayShapes, marquee);
+		const nextSel = hit.map((index) => ({ pageNumber, index }));
+
+		if (marqueeAdditive && nextSel.length > 0) {
+			const key = (s: { pageNumber: number; index: number }) =>
+				`${s.pageNumber}:${s.index}`;
+			const map = new Map(
+				activeDoc.selectedShapes.map((s) => [key(s), s] as const),
+			);
+			for (const s of nextSel) map.set(key(s), s);
+			activeDoc.selectedShapes = [...map.values()];
+		} else {
+			activeDoc.selectedShapes = nextSel;
+		}
+		activeDoc.selectedShape = activeDoc.selectedShapes[0] || null;
+		marqueeAdditive = false;
+	}
+
 	function handlePointerUp(e: PointerEvent) {
 		const pageContainer = getPageContainer();
 		const pageNumber = getPageNumber();
@@ -937,7 +1050,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		if (
 			activePointerId !== null &&
 			e.pointerId !== activePointerId &&
-			(dragActive || isDrawing)
+			(dragActive || isDrawing || isMarqueeSelecting)
 		) {
 			return;
 		}
@@ -945,6 +1058,21 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		if (animationFrameId) {
 			cancelAnimationFrame(animationFrameId);
 			animationFrameId = null;
+		}
+
+		if (isMarqueeSelecting) {
+			// Flush last pointer position into marquee before commit
+			if (pageContainer) {
+				const rect = dragPageRect || pageContainer.getBoundingClientRect();
+				marqueeCurrentPct = {
+					x: ((e.clientX - rect.left) / Math.max(1, rect.width)) * 100,
+					y: ((e.clientY - rect.top) / Math.max(1, rect.height)) * 100,
+				};
+			}
+			finalizeMarqueeSelect();
+			dragPageRect = null;
+			releasePagePointer(e);
+			return;
 		}
 
 		// Line tool uses click-click (not drag-release). Release capture after each click
@@ -1269,8 +1397,8 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 	function handlePointerLeave() {
 		isMouseOverPage = false;
 		// With pointer capture, leave is non-fatal for in-progress strokes.
-		// Keep line rubber-band alive; freehand continues via capture until up.
-		if (lineAwaitingEnd || activePointerId !== null) {
+		// Keep line rubber-band / marquee alive; freehand continues via capture until up.
+		if (lineAwaitingEnd || isMarqueeSelecting || activePointerId !== null) {
 			return;
 		}
 		dragPageRect = null;
@@ -1406,6 +1534,15 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		},
 		get animationFrameId() {
 			return animationFrameId;
+		},
+		get isMarqueeSelecting() {
+			return isMarqueeSelecting;
+		},
+		get marqueeStartPct() {
+			return marqueeStartPct;
+		},
+		get marqueeCurrentPct() {
+			return marqueeCurrentPct;
 		},
 		normalizeCoordinates,
 		getDisplayCoords,

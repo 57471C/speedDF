@@ -767,6 +767,14 @@
         // Generate sidebar thumbnail (same pattern as image branch)
         const img = new Image();
         img.onload = () => {
+          const nw = img.naturalWidth || img.width;
+          const nh = img.naturalHeight || img.height;
+          if (activeDoc.current) {
+            activeDoc.current.imageNativeWidth = nw;
+            activeDoc.current.imageNativeHeight = nh;
+            activeDoc.current.cachedDimensions = [{ width: nw, height: nh }];
+          }
+
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
           const targetWidth = 140;
@@ -826,6 +834,15 @@
 
         const img = new Image();
         img.onload = () => {
+          const nw = img.naturalWidth || img.width;
+          const nh = img.naturalHeight || img.height;
+          // Session baseline for Scale (%) — multi-doc field on the workspace slot
+          if (activeDoc.current) {
+            activeDoc.current.imageNativeWidth = nw;
+            activeDoc.current.imageNativeHeight = nh;
+            activeDoc.current.cachedDimensions = [{ width: nw, height: nh }];
+          }
+
           const canvas = document.createElement('canvas');
           const ctx = canvas.getContext('2d');
           const targetWidth = 140;

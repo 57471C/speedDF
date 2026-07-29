@@ -3,6 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import * as pdfjsLib from "pdfjs-dist";
   import WorkspacePage from "./WorkspacePage.svelte";
+  import ImageResizeStrip from "./ImageResizeStrip.svelte";
   import { activeDoc, FONT_MAP, pushHistorySnapshot } from "../pdfStore.svelte";
   import { debounceLeadingLatest } from "../lib/render/pdfRenderQueue";
   import { notePdfActivity } from "../lib/render/sharedPdfDocument";
@@ -779,9 +780,13 @@
     </div>
   {/if}
 
+  <!-- Image docs: resize strip under title bar (same capsule pattern as text toolbar) -->
+  <ImageResizeStrip />
+
   {#if showFloatingMenu}
+    <!-- Drop below the image resize strip when both are visible -->
     <div
-      class="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-[#090d16]/95 border border-slate-800/80 px-4 py-2 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.5)] flex items-center gap-3 backdrop-blur-md select-none pointer-events-auto transition-all duration-200"
+      class="fixed left-1/2 -translate-x-1/2 z-50 bg-[#090d16]/95 border border-slate-800/80 px-4 py-2 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.5)] flex items-center gap-3 backdrop-blur-md select-none pointer-events-auto transition-all duration-200 {activeDoc.fileType === 'image' ? 'top-28' : 'top-14'}"
     >
       <div class="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold tracking-wider uppercase border-r border-slate-800 pr-3">
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-cyan-400"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
