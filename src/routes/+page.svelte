@@ -75,6 +75,7 @@
   } from "../lib/render/thumbnailCache";
   import DocumentTabs from "../components/DocumentTabs.svelte";
   import { openToolsWindow } from "../lib/tools/openToolsWindow";
+  import { isSecondaryDocumentWindow } from "../lib/window/openDocumentWindow";
 
   const activeDoc = activeDocStore as any;
 
@@ -1807,8 +1808,13 @@
     (activeDoc as any).compileAndFlattenDocumentBytes = () =>
       titleBarRef.getAnnotatedPdfBytes();
 
+    const windowLabel = appWindow.label;
+    const isSecondaryWindow = isSecondaryDocumentWindow(windowLabel);
+
     // Silent background check for production optimization patches
+    // (main window only — secondary doc windows skip updater noise)
     async function checkForApplicationUpdates() {
+      if (isSecondaryWindow) return;
       if (!isCheckUpdatesOnLaunch()) {
         console.log("Update check skipped (disabled in Settings)");
         return;
@@ -1835,6 +1841,32 @@
     }
 
     void checkForApplicationUpdates();
+
+    // Secondary windows: bootstrap the document from `/?open=<path>` (Open in new window).
+    // Main window never uses this path — cold start uses Rust `startup-file-loaded`.
+    if (typeof window !== "undefined") {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const openPath = params.get("open");
+        if (openPath) {
+          const fileName = openPath.split(/[/\\]/).pop() || "Document";
+          // Drop the query so a later SPA navigation does not re-open.
+          try {
+            const clean = `${window.location.pathname}${window.location.hash || ""}`;
+            window.history.replaceState({}, "", clean || "/");
+          } catch {
+            /* ignore */
+          }
+          void promptAndLoadFile(
+            openPath,
+            fileName,
+            "You have unsaved changes. Open this file and discard progress?",
+          );
+        }
+      } catch (err) {
+        console.warn("Failed to parse ?open= bootstrap path:", err);
+      }
+    }
 
     // 🛡️ Capturing Phase Firewall: Drops native browser print / refresh commands instantly
     const trapBrowserPrintShortcut = (e: KeyboardEvent) => {
@@ -1895,6 +1927,7 @@
     // — that IPC path can be blocked by CSP on cold start.
     // Second-instance opens (while app already running) emit `open-file-request`
     // via the single-instance plugin — always open as a new tab (or focus existing).
+    // Only the main window listens: secondary doc windows bootstrap via `?open=`.
     let startupFileHandled = false;
     let destroyStartupFileListener: (() => void) | null = null;
     let destroyOpenFileListener: (() => void) | null = null;
@@ -1925,24 +1958,26 @@
       }
     }
 
-    import("@tauri-apps/api/event")
-      .then(({ listen }) =>
-        Promise.all([
-          listen<StartupPayload>("startup-file-loaded", (event) => {
-            void handleStartupFilePayload(event.payload);
-          }),
-          listen<StartupPayload>("open-file-request", (event) => {
-            void handleOpenFileRequest(event.payload);
-          }),
-        ]),
-      )
-      .then((unlistenFns) => {
-        destroyStartupFileListener = unlistenFns[0];
-        destroyOpenFileListener = unlistenFns[1];
-      })
-      .catch((err) =>
-        console.warn("Startup/open-file event listener registration failed:", err),
-      );
+    if (!isSecondaryWindow) {
+      import("@tauri-apps/api/event")
+        .then(({ listen }) =>
+          Promise.all([
+            listen<StartupPayload>("startup-file-loaded", (event) => {
+              void handleStartupFilePayload(event.payload);
+            }),
+            listen<StartupPayload>("open-file-request", (event) => {
+              void handleOpenFileRequest(event.payload);
+            }),
+          ]),
+        )
+        .then((unlistenFns) => {
+          destroyStartupFileListener = unlistenFns[0];
+          destroyOpenFileListener = unlistenFns[1];
+        })
+        .catch((err) =>
+          console.warn("Startup/open-file event listener registration failed:", err),
+        );
+    }
 
     // Capture system Close Button actions cleanly via browser-native confirmation prompts
     const unlistenCloseRequest = appWindow.onCloseRequested(async (event) => {
@@ -2190,6 +2225,7 @@
           recentFiles={recentFiles}
           {fileStatusMap}
           onOpenRecent={openRecentFile}
+          onNotify={showNotification}
         />
         {#if activeDoc.rawBytes}
           {#key activeDoc.activeDocumentId}

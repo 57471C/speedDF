@@ -9,13 +9,17 @@ import "../global.css";
 let { children } = $props();
 
 onMount(() => {
-  // Main window starts `visible: false` in tauri.conf — reveal once UI is ready.
+  // Main + secondary doc windows start hidden — reveal once UI is ready.
   // Tools widgets create themselves hidden and reveal from `/tools` after paint.
   setTimeout(async () => {
     try {
       const win = getCurrentWindow();
       if (win.label.startsWith("tools-")) return;
       await win.show();
+      // Secondary doc windows may remain behind the parent until focused
+      if (win.label.startsWith("doc-")) {
+        await win.setFocus().catch(() => undefined);
+      }
     } catch (e) {
       console.warn("Failed to reveal window:", e);
     }
