@@ -37,3 +37,61 @@ export function clearScratchPadHtml(): void {
 		/* ignore */
 	}
 }
+
+/**
+ * Strips font typefaces, font sizes, font colors, and background colors from HTML,
+ * preserving semantic structure (bold, italic, underline, lists, paragraphs).
+ */
+export function stripFontStylesFromHtml(html: string): string {
+	if (!html || !html.trim()) return html;
+
+	if (typeof DOMParser !== "undefined") {
+		const parser = new DOMParser();
+		const doc = parser.parseFromString(html, "text/html");
+
+		const cleanNode = (node: Node) => {
+			if (node.nodeType === 1) {
+				const el = node as HTMLElement;
+				const tagName = el.tagName.toLowerCase();
+
+				el.removeAttribute("style");
+				el.removeAttribute("color");
+				el.removeAttribute("face");
+				el.removeAttribute("size");
+				el.removeAttribute("bgcolor");
+
+				if (tagName === "font") {
+					const parent = el.parentNode;
+					if (parent) {
+						while (el.firstChild) {
+							parent.insertBefore(el.firstChild, el);
+						}
+						parent.removeChild(el);
+						return;
+					}
+				}
+
+				const children = Array.from(el.childNodes);
+				for (const child of children) {
+					cleanNode(child);
+				}
+			}
+		};
+
+		const children = Array.from(doc.body.childNodes);
+		for (const child of children) {
+			cleanNode(child);
+		}
+
+		return doc.body.innerHTML;
+	}
+
+	return html
+		.replace(/\s*style="[^"]*"/gi, "")
+		.replace(/\s*style='[^']*'/gi, "")
+		.replace(/\s*color="[^"]*"/gi, "")
+		.replace(/\s*face="[^"]*"/gi, "")
+		.replace(/\s*size="[^"]*"/gi, "")
+		.replace(/<\/?font[^>]*>/gi, "");
+}
+

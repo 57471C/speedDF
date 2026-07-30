@@ -192,20 +192,21 @@
 
 {#if activeDoc.openDocuments.length > 0}
   <div
-    class="w-full shrink-0 flex items-stretch bg-[#080c14] border-b border-slate-900 select-none"
-    style="color-scheme: dark;"
+    class="w-full shrink-0 flex items-stretch border-b select-none"
+    style="background: var(--sdf-bg-app); border-color: var(--sdf-border-subtle);"
   >
     <!-- LEFT: Recent documents -->
     <div
-      class="flex items-center shrink-0 border-r border-slate-900/80 bg-[#080c14] px-1 relative"
+      class="flex items-center shrink-0 border-r bg-transparent px-1 relative"
+      style="border-color: var(--sdf-border-subtle);"
       bind:this={recentMenuEl}
     >
       <button
         type="button"
-        class="h-7 px-2.5 rounded text-[10px] font-bold uppercase tracking-wider transition-colors
-          {showRecentMenu
-            ? 'bg-cyan-950/40 text-cyan-400'
-            : 'text-slate-500 hover:text-slate-200 hover:bg-slate-900'}"
+        class="h-7 px-2.5 rounded text-[10px] font-bold uppercase tracking-wider transition-colors"
+        style={showRecentMenu
+          ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent);'
+          : 'color: var(--sdf-text-muted);'}
         title="Open from Recent"
         onclick={() => {
           showRecentMenu = !showRecentMenu;
@@ -217,15 +218,17 @@
 
       {#if showRecentMenu}
         <div
-          class="absolute left-0 top-full mt-1 z-[80] w-64 max-h-72 overflow-y-auto rounded-lg border border-slate-800 bg-[#0b101c] shadow-2xl py-1"
+          class="absolute left-0 top-full mt-1 z-[80] w-64 max-h-72 overflow-y-auto rounded-lg border shadow-2xl py-1"
+          style="background: var(--sdf-bg-chrome); border-color: var(--sdf-border);"
         >
           <div
-            class="px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest text-slate-500 border-b border-slate-900"
+            class="px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest font-sans"
+            style="color: var(--sdf-text-muted); border-bottom: 1px solid var(--sdf-border-subtle);"
           >
             Recent documents
           </div>
           {#if availableRecents.length === 0}
-            <div class="px-3 py-4 text-[11px] text-slate-600 text-center">
+            <div class="px-3 py-4 text-[11px] text-center" style="color: var(--sdf-text-faint);">
               No other recent files
             </div>
           {:else}
@@ -249,26 +252,27 @@
                   <img
                     src={rec.thumbnail}
                     alt=""
-                    class="w-8 h-10 object-cover rounded border border-slate-800 shrink-0 bg-slate-950 {exists
+                    class="w-8 h-10 object-cover rounded shrink-0 {exists
                       ? ''
                       : 'grayscale brightness-75'}"
+                    style="background: var(--sdf-bg-surface); border: 1px solid var(--sdf-border-subtle);"
                   />
                 {:else}
                   <div
-                    class="w-8 h-10 rounded border border-slate-800 bg-slate-950 shrink-0 flex items-center justify-center text-[10px] text-slate-600"
+                    class="w-8 h-10 rounded shrink-0 flex items-center justify-center text-[10px]"
+                    style="background: var(--sdf-bg-surface); border: 1px solid var(--sdf-border-subtle); color: var(--sdf-text-faint);"
                   >
                     📄
                   </div>
                 {/if}
                 <div class="min-w-0 flex-1">
                   <div
-                    class="text-[11px] font-medium truncate {exists
-                      ? 'text-slate-200'
-                      : 'text-slate-500'}"
+                    class="text-[11px] font-medium truncate"
+                    style="color: {exists ? 'var(--sdf-text-primary)' : 'var(--sdf-text-muted)'};"
                   >
                     {rec.name}
                   </div>
-                  <div class="text-[9px] text-slate-600 truncate">
+                  <div class="text-[9px] truncate" style="color: var(--sdf-text-faint);">
                     {exists ? rec.path : "Unavailable"}
                   </div>
                 </div>
@@ -296,12 +300,8 @@
           data-tab-index={index}
           aria-selected={isActive}
           tabindex="0"
-          class="doc-tab group relative flex items-center gap-1.5 max-w-[200px] min-w-[110px] px-3 py-1.5 border-r border-slate-900/80 cursor-grab active:cursor-grabbing transition-colors shrink-0 touch-none
-            {isActive
-              ? 'bg-[#121a2b] text-slate-100 shadow-[inset_0_-2px_0_0_#06b6d4]'
-              : 'bg-transparent text-slate-500 hover:bg-slate-900/60 hover:text-slate-300'}
-            {isDragOver ? 'ring-1 ring-inset ring-cyan-500/50 bg-cyan-950/20' : ''}
-            {isDragSource && isDragging ? 'opacity-50' : ''}"
+          class="doc-tab group relative flex items-center gap-1.5 max-w-[200px] min-w-[110px] px-3 py-1.5 border-r cursor-grab active:cursor-grabbing transition-colors shrink-0 touch-none"
+          style="border-color: var(--sdf-border-subtle); {isActive ? 'background: var(--sdf-bg-elevated); color: var(--sdf-text-primary); box-shadow: inset 0 -2px 0 0 var(--sdf-accent);' : 'color: var(--sdf-text-muted);'} {isDragOver ? 'outline: 1px solid rgba(6,182,212,0.5); background: var(--sdf-accent-bg);' : ''} {isDragSource && isDragging ? 'opacity: 0.5;' : ''}"
           onpointerdown={(e) => onTabPointerDown(e, index)}
           onpointermove={onTabPointerMove}
           onpointerup={(e) => onTabPointerUp(e, index)}
@@ -318,7 +318,8 @@
         >
           {#if isActive}
             <span
-              class="absolute left-0 top-1 bottom-1 w-0.5 rounded-r bg-cyan-400"
+              class="absolute left-0 top-1 bottom-1 w-0.5 rounded-r"
+              style="background: var(--sdf-accent);"
               aria-hidden="true"
             ></span>
           {/if}
@@ -337,10 +338,11 @@
           </span>
           <button
             type="button"
-            class="ml-auto shrink-0 w-4 h-4 flex items-center justify-center rounded text-[11px] leading-none transition-all
+            class="ml-auto shrink-0 w-4 h-4 flex items-center justify-center rounded text-[11px] leading-none transition-all hover:text-red-400
               {isActive
-                ? 'text-slate-400 hover:text-red-400 hover:bg-slate-800 opacity-100'
-                : 'text-slate-600 opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-slate-800'}"
+                ? 'opacity-100'
+                : 'opacity-0 group-hover:opacity-100'}"
+            style={isActive ? 'color: var(--sdf-text-secondary);' : 'color: var(--sdf-text-muted);'}
             title="Close tab"
             onclick={(e) => {
               e.stopPropagation();
@@ -355,11 +357,12 @@
     </div>
 
     <!-- RIGHT: Overflow / Close all -->
-    <div class="flex items-center shrink-0 border-l border-slate-900/80 bg-[#080c14] px-1 relative">
+    <div class="flex items-center shrink-0 border-l bg-transparent px-1 relative" style="border-color: var(--sdf-border-subtle);">
       <button
         id="doc-tabs-overflow-btn"
         type="button"
-        class="h-7 w-7 flex items-center justify-center rounded text-slate-500 hover:text-slate-200 hover:bg-slate-900 transition-colors text-sm"
+        class="h-7 w-7 flex items-center justify-center rounded transition-colors text-sm"
+        style={showOverflowMenu ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent);' : 'color: var(--sdf-text-muted);'}
         title="Tab options"
         onclick={() => {
           showOverflowMenu = !showOverflowMenu;
@@ -371,11 +374,13 @@
       {#if showOverflowMenu}
         <div
           id="doc-tabs-overflow-menu"
-          class="absolute right-0 top-full mt-1 z-[80] w-44 rounded-lg border border-slate-800 bg-[#0b101c] shadow-2xl py-1"
+          class="absolute right-0 top-full mt-1 z-[80] w-44 rounded-lg border shadow-2xl py-1"
+          style="background: var(--sdf-bg-chrome); border-color: var(--sdf-border);"
         >
           <button
             type="button"
-            class="w-full px-3 py-2 text-left text-[11px] text-slate-300 hover:bg-slate-900 hover:text-red-400 transition-colors"
+            class="w-full px-3 py-2 text-left text-[11px] hover:text-red-400 transition-colors"
+            style="color: var(--sdf-text-secondary);"
             onclick={() => {
               showOverflowMenu = false;
               onRequestCloseAll();
@@ -384,7 +389,8 @@
             Close all tabs
           </button>
           <div
-            class="px-3 py-1.5 text-[9px] text-slate-600 border-t border-slate-900"
+            class="px-3 py-1.5 text-[9px] font-mono"
+            style="color: var(--sdf-text-faint); border-top: 1px solid var(--sdf-border-subtle);"
           >
             Ctrl+Tab cycle · drag to reorder
           </div>
@@ -397,13 +403,13 @@
 <style>
   .doc-tab-strip {
     scrollbar-width: thin;
-    scrollbar-color: #1e293b transparent;
+    scrollbar-color: var(--sdf-scrollbar-thumb) transparent;
   }
   .doc-tab-strip::-webkit-scrollbar {
     height: 4px;
   }
   .doc-tab-strip::-webkit-scrollbar-thumb {
-    background: #1e293b;
+    background: var(--sdf-scrollbar-thumb);
     border-radius: 2px;
   }
   .doc-tab-strip::-webkit-scrollbar-track {

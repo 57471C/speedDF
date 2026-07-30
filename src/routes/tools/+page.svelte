@@ -23,6 +23,7 @@
   import {
     loadScratchPadHtml,
     saveScratchPadHtml,
+    stripFontStylesFromHtml,
   } from "../../lib/tools/scratchPad";
 
   type ToolsMode =
@@ -347,6 +348,23 @@
     persistPad();
   }
 
+  function onPadPaste(e: ClipboardEvent) {
+    e.preventDefault();
+    const clipboardData = e.clipboardData;
+    if (!clipboardData) return;
+
+    const htmlData = clipboardData.getData("text/html");
+    const plainText = clipboardData.getData("text/plain");
+
+    if (htmlData && htmlData.trim()) {
+      const cleanHtml = stripFontStylesFromHtml(htmlData);
+      document.execCommand("insertHTML", false, cleanHtml);
+    } else if (plainText) {
+      document.execCommand("insertText", false, plainText);
+    }
+    persistPad();
+  }
+
   function clearPad() {
     if (!padEl) return;
     padEl.innerHTML = "";
@@ -499,15 +517,18 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div
-  class="h-screen w-screen flex flex-col bg-[#1e1e1e] text-zinc-100 font-sans select-none overflow-hidden"
+  class="h-screen w-screen flex flex-col font-sans select-none overflow-hidden"
+  style="background: var(--sdf-bg-app); color: var(--sdf-text-primary);"
 >
   <!-- Frameless custom title bar (drag region + close) -->
   <header
-    class="flex items-center justify-between pl-3 pr-1 py-1.5 bg-[#2d2d2d] border-b border-zinc-700/80 shrink-0"
+    class="flex items-center justify-between pl-3 pr-1 py-1.5 border-b shrink-0"
+    style="background: var(--sdf-bg-chrome); border-color: var(--sdf-border);"
     data-tauri-drag-region
   >
     <span
-      class="text-xs font-semibold tracking-wide text-zinc-300 uppercase pointer-events-none"
+      class="text-xs font-semibold tracking-wide uppercase pointer-events-none"
+      style="color: var(--sdf-text-secondary);"
       data-tauri-drag-region
     >
       {modeTitle(mode)}
@@ -515,7 +536,8 @@
     <button
       type="button"
       onclick={closeWindow}
-      class="w-9 h-7 flex items-center justify-center rounded-sm hover:bg-red-600 text-zinc-400 hover:text-white transition-colors text-sm no-drag"
+      class="w-9 h-7 flex items-center justify-center rounded-sm hover:bg-red-600 hover:text-white transition-colors text-sm no-drag"
+      style="color: var(--sdf-text-secondary);"
       title="Close (Esc)"
       aria-label="Close"
     >
@@ -533,19 +555,20 @@
     {#if mode === "calculator"}
       <!-- Windows-style calculator (dim expression memory above the main line) -->
       <div
-        class="mb-3 px-3 py-2.5 bg-[#1a1a1a] border border-zinc-700 rounded text-right font-mono tracking-tight tabular-nums min-h-[3.75rem] flex flex-col items-end justify-end overflow-hidden gap-0.5"
+        class="mb-3 px-3 py-2.5 border rounded text-right font-mono tracking-tight tabular-nums min-h-[3.75rem] flex flex-col items-end justify-end overflow-hidden gap-0.5"
+        style="background: var(--sdf-bg-surface); border-color: var(--sdf-border);"
         aria-live="polite"
       >
         <span
           class="w-full truncate text-xs leading-tight min-h-[1rem]
-            {calc.expression ? 'text-zinc-500' : 'text-transparent'}"
+            {calc.expression ? '' : 'text-transparent'}" style="color: var(--sdf-text-muted);"
           aria-hidden={!calc.expression}
         >
           {calc.expression || "\u00a0"}
         </span>
         <span
           class="truncate w-full text-3xl leading-none
-            {calc.error ? 'text-red-400' : 'text-white'}"
+            {calc.error ? 'text-red-400' : ''}" style="{calc.error ? '' : 'color: var(--sdf-text-primary);'}"
         >
           {calc.display}
         </span>
@@ -586,7 +609,7 @@
         =
       </button>
 
-      <p class="mt-2 text-[10px] text-zinc-500 text-center">
+      <p class="mt-2 text-[10px] text-center" style="color: var(--sdf-text-muted);">
         Ctrl+V paste · Esc close
       </p>
     {:else if mode === "timer"}
@@ -594,7 +617,8 @@
       <div class="flex flex-col items-center gap-2.5">
         {#if timerRunning}
           <div
-            class="font-mono text-4xl tabular-nums tracking-tight text-cyan-300 pt-1"
+            class="font-mono text-4xl tabular-nums tracking-tight pt-1"
+            style="color: var(--sdf-accent);"
             aria-live="polite"
           >
             {formatCountdown(timerRemainingMs)}
@@ -602,12 +626,11 @@
         {:else}
           <!-- Editable H : MM : SS when stopped -->
           <div
-            class="flex items-end justify-center gap-1 {timerDone
-              ? 'text-red-400'
-              : 'text-white'}"
+            class="flex items-end justify-center gap-1"
+            style="color: {timerDone ? '#f87171' : 'var(--sdf-text-primary)'};"
           >
             <label class="flex flex-col items-center gap-0.5">
-              <span class="text-[9px] uppercase tracking-wider text-zinc-500">Hrs</span>
+              <span class="text-[9px] uppercase tracking-wider" style="color: var(--sdf-text-muted);">Hrs</span>
               <input
                 type="text"
                 inputmode="numeric"
@@ -619,9 +642,9 @@
                 aria-label="Hours"
               />
             </label>
-            <span class="font-mono text-2xl pb-1 text-zinc-500">:</span>
+            <span class="font-mono text-2xl pb-1" style="color: var(--sdf-text-muted);">:</span>
             <label class="flex flex-col items-center gap-0.5">
-              <span class="text-[9px] uppercase tracking-wider text-zinc-500">Min</span>
+              <span class="text-[9px] uppercase tracking-wider" style="color: var(--sdf-text-muted);">Min</span>
               <input
                 type="text"
                 inputmode="numeric"
@@ -633,9 +656,9 @@
                 aria-label="Minutes"
               />
             </label>
-            <span class="font-mono text-2xl pb-1 text-zinc-500">:</span>
+            <span class="font-mono text-2xl pb-1" style="color: var(--sdf-text-muted);">:</span>
             <label class="flex flex-col items-center gap-0.5">
-              <span class="text-[9px] uppercase tracking-wider text-zinc-500">Sec</span>
+              <span class="text-[9px] uppercase tracking-wider" style="color: var(--sdf-text-muted);">Sec</span>
               <input
                 type="text"
                 inputmode="numeric"
@@ -661,10 +684,10 @@
               type="button"
               onclick={() => setTimerPreset(mins)}
               disabled={timerRunning}
-              class="px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed
-                {timerInitialMs === mins * 60 * 1000 && !timerRunning
-                ? 'bg-cyan-600/30 border-cyan-500/60 text-cyan-200'
-                : 'bg-zinc-800 border-zinc-600 text-zinc-300 hover:bg-zinc-700'}"
+              class="px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              style={timerInitialMs === mins * 60 * 1000 && !timerRunning
+                ? 'background: var(--sdf-accent-bg); border-color: var(--sdf-accent-border); color: var(--sdf-accent);'
+                : 'background: var(--sdf-hover-bg); border-color: var(--sdf-border); color: var(--sdf-text-secondary);'}
             >
               {mins} min
             </button>
@@ -682,7 +705,8 @@
           <button
             type="button"
             onclick={resetTimer}
-            class="px-5 py-1.5 rounded-lg text-sm font-bold bg-zinc-700 hover:bg-zinc-600 text-zinc-100 transition-colors min-w-[5.5rem]"
+            class="px-5 py-1.5 rounded-lg text-sm font-bold transition-colors min-w-[5.5rem]"
+            style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary);"
           >
             Reset
           </button>
@@ -693,9 +717,8 @@
       <div class="flex-1 flex flex-col min-h-0">
         <div class="flex flex-col items-center justify-center gap-3 py-3 shrink-0">
           <div
-            class="font-mono text-4xl tabular-nums tracking-tight {swRunning
-              ? 'text-emerald-300'
-              : 'text-white'}"
+            class="font-mono text-4xl tabular-nums tracking-tight"
+            style="color: {swRunning ? '#10b981' : 'var(--sdf-text-primary)'};"
             aria-live="polite"
           >
             {formatStopwatch(swElapsedMs)}
@@ -722,7 +745,8 @@
             <button
               type="button"
               onclick={resetStopwatch}
-              class="px-5 py-2 rounded-lg text-sm font-bold bg-zinc-700 hover:bg-zinc-600 text-zinc-100 transition-colors min-w-[5.5rem]"
+              class="px-5 py-2 rounded-lg text-sm font-bold transition-colors min-w-[5.5rem]"
+            style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary);"
             >
               Reset
             </button>
@@ -730,15 +754,16 @@
         </div>
 
         <div
-          class="flex-1 min-h-0 overflow-y-auto rounded-lg border border-zinc-700/80 bg-[#151515]"
+          class="flex-1 min-h-0 overflow-y-auto rounded-lg border"
+          style="background: var(--sdf-bg-surface); border-color: var(--sdf-border);"
         >
           {#if swLaps.length === 0}
-            <p class="text-center text-xs text-zinc-500 py-6">No laps yet</p>
+            <p class="text-center text-xs py-6" style="color: var(--sdf-text-muted);">No laps yet</p>
           {:else}
-            <ul class="divide-y divide-zinc-800 text-sm font-mono">
+            <ul class="divide-y text-sm font-mono" style="--tw-divide-opacity:1;" >
               {#each swLaps as lap, i}
-                <li class="flex justify-between px-3 py-1.5 text-zinc-300">
-                  <span class="text-zinc-500">Lap {swLaps.length - i}</span>
+                <li class="flex justify-between px-3 py-1.5" style="color: var(--sdf-text-secondary); border-color: var(--sdf-border-subtle);">
+                  <span style="color: var(--sdf-text-muted);">Lap {swLaps.length - i}</span>
                   <span class="tabular-nums">{formatStopwatch(lap)}</span>
                 </li>
               {/each}
@@ -749,7 +774,7 @@
     {:else if mode === "magic8ball"}
       <!-- Magic 8 Ball -->
       <div class="flex-1 flex flex-col items-center justify-center gap-3 min-h-0">
-        <p class="text-[11px] text-zinc-500 uppercase tracking-widest font-semibold">
+        <p class="text-[11px] uppercase tracking-widest font-semibold" style="color: var(--sdf-text-muted);">
           Ask a yes / no question
         </p>
 
@@ -875,8 +900,9 @@
         </button>
 
         <p
-          class="text-center text-sm min-h-[2.5rem] px-3 leading-snug
-            {eightReveal ? 'eight-caption-show text-cyan-200' : 'text-zinc-500'}"
+          class="text-center text-sm min-h-[2.5rem] px-3 leading-snug font-semibold
+            {eightReveal ? 'eight-caption-show' : ''}"
+          style="color: {eightReveal ? 'var(--sdf-accent)' : 'var(--sdf-text-muted)'};"
           aria-live="polite"
         >
           {#if eightShaking}
@@ -890,9 +916,10 @@
       </div>
     {:else if mode === "scratchpad"}
       <!-- Scratch Pad — early-iOS-Notes feel, black pad / white text -->
-      <div class="flex-1 min-h-0 flex flex-col bg-black">
+      <div class="flex-1 min-h-0 flex flex-col" style="background: var(--sdf-bg-app);">
         <div
-          class="flex items-center gap-0.5 px-2 py-1.5 border-b border-zinc-800 bg-[#0a0a0a] shrink-0 no-drag"
+          class="flex items-center gap-0.5 px-2 py-1.5 border-b shrink-0 no-drag"
+          style="background: var(--sdf-bg-surface); border-color: var(--sdf-border-subtle);"
           role="toolbar"
           aria-label="Formatting"
         >
@@ -923,7 +950,7 @@
           >
             <span class="underline">U</span>
           </button>
-          <span class="w-px h-4 bg-zinc-800 mx-1" aria-hidden="true"></span>
+          <span class="w-px h-4 mx-1" style="background: var(--sdf-border-subtle);" aria-hidden="true"></span>
           <button
             type="button"
             class="pad-fmt-btn"
@@ -954,7 +981,7 @@
           <span class="flex-1"></span>
           <button
             type="button"
-            class="pad-fmt-btn text-[10px] tracking-wide uppercase text-zinc-500 hover:text-red-300"
+            class="pad-fmt-btn text-[10px] tracking-wide uppercase hover:text-red-300" style="color: var(--sdf-text-muted);"
             title="Clear pad"
             aria-label="Clear pad"
             onclick={clearPad}
@@ -965,13 +992,15 @@
 
         <div
           bind:this={padEl}
-          class="scratch-pad flex-1 min-h-0 overflow-y-auto px-4 py-3 text-white outline-none no-drag"
+          class="scratch-pad flex-1 min-h-0 overflow-y-auto px-4 py-3 outline-none no-drag"
+          style="color: var(--sdf-text-primary);"
           contenteditable="true"
           role="textbox"
           aria-multiline="true"
           aria-label="Scratch pad notes"
           data-placeholder="Start typing…"
           oninput={onPadInput}
+          onpaste={onPadPaste}
           onblur={persistPad}
         ></div>
       </div>
@@ -990,26 +1019,26 @@
     min-height: 2.5rem;
   }
   .calc-num {
-    background: #323232;
-    color: #f3f4f6;
+    background: var(--sdf-hover-bg);
+    color: var(--sdf-text-primary);
   }
   .calc-num:hover {
-    background: #3f3f3f;
+    background: var(--sdf-active-bg);
   }
   .calc-fn {
-    background: #2a2a2a;
-    color: #e4e4e7;
+    background: var(--sdf-bg-surface);
+    color: var(--sdf-text-primary);
   }
   .calc-fn:hover {
-    background: #383838;
+    background: var(--sdf-hover-bg);
   }
   .calc-op {
-    background: #2d2d2d;
-    color: #67e8f9;
-    border-color: #3f3f46;
+    background: var(--sdf-bg-chrome);
+    color: var(--sdf-accent-text);
+    border-color: var(--sdf-border);
   }
   .calc-op:hover {
-    background: #3f3f46;
+    background: var(--sdf-hover-bg);
   }
   .calc-eq {
     background: #0891b2;
@@ -1024,8 +1053,8 @@
     font-size: 1.65rem;
     line-height: 1.1;
     text-align: center;
-    background: #151515;
-    border: 1px solid #3f3f46;
+    background: var(--sdf-bg-surface);
+    border: 1px solid var(--sdf-border);
     border-radius: 0.4rem;
     color: inherit;
     padding: 0.25rem 0.1rem;
@@ -1046,20 +1075,20 @@
     border: 0;
     border-radius: 0.35rem;
     background: transparent;
-    color: #a1a1aa;
+    color: var(--sdf-text-secondary);
     cursor: pointer;
     transition: background-color 0.1s ease, color 0.1s ease;
   }
   .pad-fmt-btn:hover {
-    background: #27272a;
-    color: #fafafa;
+    background: var(--sdf-hover-bg);
+    color: var(--sdf-text-primary);
   }
   .scratch-pad {
     font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
     font-size: 15px;
     line-height: 1.55;
     letter-spacing: 0.01em;
-    caret-color: #fafafa;
+    caret-color: var(--sdf-text-primary);
     white-space: pre-wrap;
     word-break: break-word;
     user-select: text;
@@ -1067,7 +1096,7 @@
   }
   .scratch-pad:empty::before {
     content: attr(data-placeholder);
-    color: #52525b;
+    color: var(--sdf-text-muted);
     pointer-events: none;
   }
   .scratch-pad :global(ul),

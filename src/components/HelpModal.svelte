@@ -9,24 +9,27 @@
   >
     <div
       onclick={(e) => e.stopPropagation()}
-      class="bg-[#0b101c] border border-slate-800 w-full max-w-2xl max-h-[85vh] rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-300"
+      class="border w-full max-w-2xl max-h-[85vh] rounded-xl shadow-2xl flex flex-col overflow-hidden"
+      style="background: var(--sdf-bg-chrome); border-color: var(--sdf-border); color: var(--sdf-text-secondary);"
     >
       <div
-        class="p-4 border-b border-slate-900/60 flex items-center justify-between bg-[#0e1524]/60"
+        class="p-4 border-b flex items-center justify-between shrink-0"
+        style="border-color: var(--sdf-border-subtle); background: color-mix(in srgb, var(--sdf-bg-surface) 60%, transparent);"
       >
         <div class="flex items-center gap-2">
           <span
-            class="text-xs font-bold uppercase tracking-widest text-slate-400"
+            class="text-xs font-bold uppercase tracking-widest" style="color: var(--sdf-text-secondary);"
             >speedDF Engine Configuration & Licensing</span
           >
           <span
-            class="text-[10px] px-1.5 py-0.5 bg-slate-800 rounded font-mono text-slate-400"
+            class="text-[10px] px-1.5 py-0.5 rounded font-mono"
+            style="background: var(--sdf-hover-bg); color: var(--sdf-text-secondary);"
             >v1.1.0</span
           >
         </div>
         <button
           onclick={() => (show = false)}
-          class="text-slate-500 hover:text-white text-sm transition-colors"
+          class="text-sm transition-colors" style="color: var(--sdf-text-muted);"
           >✕</button
         >
       </div>
@@ -34,40 +37,41 @@
       <div class="flex-1 overflow-y-auto p-5 space-y-6 text-xs leading-relaxed">
         <div>
           <h4
-            class="text-slate-100 font-bold uppercase tracking-wide text-[11px] mb-2.5 flex items-center gap-1.5 text-emerald-400"
+            class="font-bold uppercase tracking-wide text-[11px] mb-2.5 flex items-center gap-1.5 text-emerald-400"
           >
             ⌨️ Keyboard Operations Map
           </h4>
           <div
-            class="bg-slate-950/50 rounded-lg border border-slate-900 p-3 grid grid-cols-2 gap-2 font-mono text-[11px]"
+            class="rounded-lg border p-3 grid grid-cols-2 gap-2 font-mono text-[11px]"
+            style="background: color-mix(in srgb, var(--sdf-bg-input) 50%, transparent); border-color: var(--sdf-border-subtle);"
           >
             <div class="flex items-center gap-2">
               <kbd
-                class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >Ctrl + Z</kbd
               > <span>Undo Action Transaction</span>
             </div>
             <div class="flex items-center gap-2">
               <kbd
-                class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >Ctrl + Y</kbd
               > <span>Redo Action Transaction</span>
             </div>
             <div class="flex items-center gap-2">
               <kbd
-                class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >Ctrl + ←</kbd
               > <span>Counter-Clockwise Rotation</span>
             </div>
             <div class="flex items-center gap-2">
               <kbd
-                class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >Ctrl + →</kbd
               > <span>Clockwise Page Rotation</span>
             </div>
             <div class="flex items-center gap-2">
               <kbd
-                class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >F1</kbd
               > <span>Toggle This System Control Panel</span>
             </div>
@@ -76,22 +80,24 @@
 
         <div>
           <h4
-            class="text-slate-100 font-bold uppercase tracking-wide text-[11px] mb-2.5 flex items-center gap-1.5 text-cyan-400"
+            class="font-bold uppercase tracking-wide text-[11px] mb-2.5 flex items-center gap-1.5 text-cyan-400"
+            style="color: var(--sdf-accent-text);"
           >
             🌐 Canvas Navigation
           </h4>
           <div
-            class="bg-slate-950/50 rounded-lg border border-slate-900 p-3 grid grid-cols-2 gap-2 font-mono text-[11px]"
+            class="rounded-lg border p-3 grid grid-cols-2 gap-2 font-mono text-[11px]"
+            style="background: color-mix(in srgb, var(--sdf-bg-input) 50%, transparent); border-color: var(--sdf-border-subtle);"
           >
             <div class="flex items-center gap-2">
               <span class="flex gap-1">
                 <kbd
-                  class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                  class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                   >Spacebar</kbd
                 >
-                <span class="text-slate-500 font-sans">+</span>
+                <span class="font-sans" style="color: var(--sdf-text-muted);">+</span>
                 <kbd
-                  class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                  class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                   >Drag</kbd
                 >
               </span>
@@ -100,12 +106,12 @@
             <div class="flex items-center gap-2">
               <span class="flex gap-1">
                 <kbd
-                  class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                  class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                   >Ctrl</kbd
                 >
-                <span class="text-slate-500 font-sans">+</span>
+                <span class="font-sans" style="color: var(--sdf-text-muted);">+</span>
                 <kbd
-                  class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                  class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                   >Wheel</kbd
                 >
               </span>
@@ -113,7 +119,7 @@
             </div>
             <div class="flex items-center gap-2">
               <kbd
-                class="bg-slate-800 px-1.5 py-0.5 rounded text-white border-b border-slate-600"
+                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >Ctrl + P</kbd
               > <span>Print Document</span>
             </div>
@@ -122,14 +128,15 @@
 
         <div>
           <h4
-            class="text-slate-100 font-bold uppercase tracking-wide text-[11px] mb-2 flex items-center gap-1.5 text-blue-400"
+            class="font-bold uppercase tracking-wide text-[11px] mb-2 flex items-center gap-1.5 text-blue-400"
           >
             ⚖️ End-User License Agreement (EULA)
           </h4>
           <div
-            class="bg-slate-950/40 rounded-lg border border-slate-900 p-3 h-28 overflow-y-auto text-slate-400 text-[10px] space-y-2 font-mono"
+            class="rounded-lg border p-3 h-28 overflow-y-auto text-[10px] space-y-2 font-mono"
+            style="background: color-mix(in srgb, var(--sdf-bg-input) 40%, transparent); border-color: var(--sdf-border-subtle); color: var(--sdf-text-secondary);"
           >
-            <p class="font-bold text-slate-300">
+            <p class="font-bold" style="color: var(--sdf-text-primary);">
               1. LICENSE GRANT & RESTRICTIONS
             </p>
             <p>
@@ -138,7 +145,7 @@
               decompile, or distribute compiled workspace assets commercially
               without express written consent.
             </p>
-            <p class="font-bold text-slate-300">2. NO WARRANTY (AS-IS)</p>
+            <p class="font-bold" style="color: var(--sdf-text-primary);">2. NO WARRANTY (AS-IS)</p>
             <p>
               THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
               EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
@@ -153,37 +160,38 @@
 
         <div>
           <h4
-            class="text-slate-100 font-bold uppercase tracking-wide text-[11px] mb-2 flex items-center gap-1.5 text-amber-500"
+            class="font-bold uppercase tracking-wide text-[11px] mb-2 flex items-center gap-1.5 text-amber-500"
           >
             📜 Open Source Compliance & Legal Notices
           </h4>
           <div
-            class="bg-slate-950/40 rounded-lg border border-slate-900 p-3 text-[10px] space-y-3 font-mono text-slate-400"
+            class="rounded-lg border p-3 text-[10px] space-y-3 font-mono"
+            style="background: color-mix(in srgb, var(--sdf-bg-input) 40%, transparent); border-color: var(--sdf-border-subtle); color: var(--sdf-text-secondary);"
           >
             <p>
               This software utilizes public open-source libraries. In compliance
               with active licensing terms, the following copyright notices must
               remain hardcoded inside binary distributions:
             </p>
-            <div class="border-l-2 border-slate-800 pl-2.5 space-y-1.5">
+            <div class="border-l-2 pl-2.5 space-y-1.5" style="border-color: var(--sdf-border);">
               <p>
-                • <b class="text-slate-300">pdf-lib:</b> Copyright (c) 2019 Andrew
+                • <b style="color: var(--sdf-text-primary);">pdf-lib:</b> Copyright (c) 2019 Andrew
                 Chon. Distributed under the MIT License.
               </p>
               <p>
-                • <b class="text-slate-300">lopdf:</b> Copyright (c) 2016-2024 lopdf
+                • <b style="color: var(--sdf-text-primary);">lopdf:</b> Copyright (c) 2016-2024 lopdf
                 Developers. Distributed under the MIT License.
               </p>
               <p>
-                • <b class="text-slate-300">PDF.js:</b> Copyright (c) Mozilla Foundation.
+                • <b style="color: var(--sdf-text-primary);">PDF.js:</b> Copyright (c) Mozilla Foundation.
                 Distributed under the Apache License 2.0.
               </p>
               <p>
-                • <b class="text-slate-300">Tauri Engine:</b> Copyright (c) 2019-2024
+                • <b style="color: var(--sdf-text-primary);">Tauri Engine:</b> Copyright (c) 2019-2024
                 Tauri Programme Collective. Distributed under Apache 2.0 / MIT.
               </p>
               <p>
-                • <b class="text-slate-300">heic (imazen):</b> Copyright (c) 2024-2026
+                • <b style="color: var(--sdf-text-primary);">heic (imazen):</b> Copyright (c) 2024-2026
                 Imazen LLC. Pure-Rust HEIC/HEIF decoder. Distributed under
                 AGPL-3.0-only OR Imazen Commercial License. Optional feature —
                 included only in builds compiled with HEIC support enabled.
@@ -194,7 +202,8 @@
       </div>
 
       <div
-        class="p-3 border-t border-slate-900/60 bg-[#0e1524]/40 flex justify-between items-center"
+        class="p-3 border-t flex justify-between items-center"
+        style="border-color: var(--sdf-border-subtle); background: color-mix(in srgb, var(--sdf-bg-surface) 40%, transparent);"
       >
         <button
           onclick={openCoffeeLink}
@@ -222,7 +231,8 @@
 
         <button
           onclick={() => (show = false)}
-          class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-[11px] font-bold transition-colors shadow-md"
+          class="px-4 py-1.5 text-white rounded-lg text-[11px] font-bold transition-colors shadow-md"
+          style="background: var(--sdf-hover-bg);"
         >
           Acknowledge & Close
         </button>

@@ -219,7 +219,8 @@
     onmousedown={keepFocus}
   >
     <div
-      class="rounded-md border border-slate-700/90 bg-[#0b1220]/97 shadow-xl shadow-black/40 backdrop-blur-sm overflow-hidden"
+      class="rounded-md border shadow-xl shadow-black/40 backdrop-blur-sm overflow-hidden"
+      style="background: color-mix(in srgb, var(--sdf-bg-chrome) 97%, transparent); border-color: var(--sdf-border);"
     >
       {#if suggestions.length > 0}
         <ul class="max-h-40 overflow-y-auto py-0.5">
@@ -257,7 +258,8 @@
       {/if}
 
       <div
-        class="flex items-center gap-1 border-t border-slate-800/80 px-1.5 py-1 bg-[#080c14]/80"
+        class="flex items-center gap-1 border-t px-1.5 py-1"
+        style="border-color: var(--sdf-border-subtle); background: color-mix(in srgb, var(--sdf-bg-surface) 80%, transparent);"
         class:border-t-0={suggestions.length === 0}
       >
         <button

@@ -34,8 +34,8 @@ describe("appSettings", () => {
 		expect(isToolEnabled(loaded, "calculator")).toBe(true);
 	});
 
-	it("forces dark theme until light ships", () => {
+	it("preserves light theme through normalization", () => {
 		const n = normalizeAppSettings({ theme: "light" } as never);
-		expect(n.theme).toBe("dark");
+		expect(n.theme).toBe("light");
 	});
 });

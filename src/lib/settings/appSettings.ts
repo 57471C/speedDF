@@ -77,8 +77,7 @@ export function normalizeAppSettings(
 	}
 	return {
 		version: 1,
-		// Light is not implemented yet — always force dark until shipped
-		theme: raw.theme === "light" ? "dark" : "dark",
+		theme: raw.theme === "light" ? "light" : "dark",
 		tools,
 		ocr: coerceBool(raw.ocr, d.ocr),
 		dictionary: coerceBool(raw.dictionary, d.dictionary),

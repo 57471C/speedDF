@@ -706,14 +706,12 @@
   onpointerup={handlePointerUp}
   onpointerleave={handlePointerLeave}
   onwheel={() => settleLoadBurnIn()}
-  class="flex-1 min-w-0 h-full overflow-auto bg-[#070a12] flex flex-col pt-8 px-4 relative workspace-scroll-container transition-colors duration-200
+  class="flex-1 min-w-0 h-full overflow-auto flex flex-col pt-8 px-4 relative workspace-scroll-container transition-colors duration-200
     {isDragging ? '' : 'scroll-smooth'}
     [&::-webkit-scrollbar]:w-2 
     [&::-webkit-scrollbar-track]:bg-transparent 
-    [&::-webkit-scrollbar-thumb]:bg-slate-800/80 
-    [&::-webkit-scrollbar-thumb]:rounded-full 
-    hover:[&::-webkit-scrollbar-thumb]:bg-slate-700"
-  style={(isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : '') + ' touch-action: pan-x pan-y;'}
+    [&::-webkit-scrollbar-thumb]:rounded-full"
+  style="background-color: var(--sdf-canvas-bg); {isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : ''} touch-action: pan-x pan-y;"
 >
   {#if showLoadBurnIn && openDurationMs != null}
     <!-- Viewport-fixed background layer: stays under document pages (z-0 vs pages z-10) -->
@@ -723,14 +721,13 @@
       aria-live="polite"
     >
       <span
-        class="inline-block font-mono text-[10px] font-semibold tracking-wider uppercase text-right
-          drop-shadow-[0_1px_2px_rgba(0,0,0,0.75)]
-          {loadBurnInSettled ? 'text-slate-400/80' : 'text-slate-200'}"
+        class="inline-block font-mono text-[10px] font-semibold tracking-wider uppercase text-right"
+        style="color: var(--sdf-text-secondary);"
       >
         Document loaded in
         <span
-          class="font-bold tabular-nums
-            {loadBurnInSettled ? 'text-cyan-400/70' : 'text-cyan-300'}"
+          class="font-bold tabular-nums"
+          style="color: var(--sdf-accent);"
           >{openDurationMs}ms</span
         >
       </span>
@@ -786,19 +783,21 @@
   {#if showFloatingMenu}
     <!-- Drop below the image resize strip when both are visible -->
     <div
-      class="fixed left-1/2 -translate-x-1/2 z-50 bg-[#090d16]/95 border border-slate-800/80 px-4 py-2 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.5)] flex items-center gap-3 backdrop-blur-md select-none pointer-events-auto transition-all duration-200 {activeDoc.fileType === 'image' ? 'top-28' : 'top-14'}"
+      class="fixed left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl flex items-center gap-3 backdrop-blur-md select-none pointer-events-auto transition-all duration-200 border {activeDoc.fileType === 'image' ? 'top-28' : 'top-14'}"
+      style="background: color-mix(in srgb, var(--sdf-bg-app) 95%, transparent); border-color: var(--sdf-border); box-shadow: 0 12px 40px rgba(0,0,0,0.5);"
     >
-      <div class="flex items-center gap-1.5 text-slate-400 text-[10px] font-bold tracking-wider uppercase border-r border-slate-800 pr-3">
+      <div class="flex items-center gap-1.5 text-[10px] font-bold tracking-wider uppercase pr-3" style="color: var(--sdf-text-secondary); border-right: 1px solid var(--sdf-border);">
         <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-cyan-400"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg>
         <span>Text Style</span>
       </div>
 
       <div class="flex items-center gap-1.5 font-sans">
-        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Font</span>
+        <span class="text-[10px] font-bold uppercase tracking-wide" style="color: var(--sdf-text-muted);">Font</span>
         <select
           value={selectedFont}
           onchange={handleFontChange}
-          class="bg-slate-900 border border-slate-800 text-slate-200 rounded px-2 py-1 text-xs font-medium outline-none focus:border-cyan-500 transition-colors cursor-pointer"
+          class="rounded px-2 py-1 text-xs font-medium outline-none transition-colors cursor-pointer border"
+          style="background: var(--sdf-bg-input); border-color: var(--sdf-border); color: var(--sdf-text-primary);"
         >
           <option value="Helvetica" style="font-family: Helvetica, Arial, sans-serif;">Standard Sans (Helvetica)</option>
           <option value="Times-Roman" style="font-family: 'Times New Roman', serif;">Standard Serif (Times)</option>
@@ -808,8 +807,8 @@
         </select>
       </div>
 
-      <div class="flex items-center gap-1.5 border-l border-slate-800 pl-3">
-        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Size</span>
+      <div class="flex items-center gap-1.5 pl-3" style="border-left: 1px solid var(--sdf-border);">
+        <span class="text-[10px] font-bold uppercase tracking-wide" style="color: var(--sdf-text-muted);">Size</span>
         <div class="relative flex items-center size-combobox-wrapper">
           <input
             type="number"
@@ -818,7 +817,8 @@
             onfocus={() => showSizeDropdown = true}
             min="6"
             max="120"
-            class="bg-slate-900 border border-slate-800 text-slate-200 rounded-l px-2 pr-6 py-1 text-xs font-medium outline-none focus:border-cyan-500 transition-colors w-16 text-center font-mono appearance-none"
+            class="rounded-l px-2 pr-6 py-1 text-xs font-medium outline-none transition-colors w-16 text-center font-mono appearance-none border"
+            style="background: var(--sdf-bg-input); border-color: var(--sdf-border); color: var(--sdf-text-primary);"
           />
           <button
             type="button"
@@ -826,20 +826,23 @@
               e.stopPropagation();
               showSizeDropdown = !showSizeDropdown;
             }}
-            class="absolute right-0 top-0 bottom-0 px-1.5 flex items-center justify-center text-slate-400 hover:text-white border-l border-slate-800 bg-slate-900 rounded-r focus:outline-none"
+            class="absolute right-0 top-0 bottom-0 px-1.5 flex items-center justify-center rounded-r focus:outline-none border-l"
+            style="color: var(--sdf-text-secondary); background: var(--sdf-bg-input); border-color: var(--sdf-border);"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="transition-transform duration-200 {showSizeDropdown ? 'rotate-180' : ''}"><polyline points="6 9 12 15 18 9"></polyline></svg>
           </button>
           
           {#if showSizeDropdown}
             <div
-              class="absolute top-full left-0 mt-1 max-h-48 overflow-y-auto z-50 bg-slate-900 border border-slate-800 rounded shadow-xl w-16 text-center font-mono size-dropdown-menu"
+              class="absolute top-full left-0 mt-1 max-h-48 overflow-y-auto z-50 rounded shadow-xl w-16 text-center font-mono size-dropdown-menu border"
+              style="background: var(--sdf-bg-input); border-color: var(--sdf-border);"
             >
               {#each [8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72] as sz}
                 <button
                   type="button"
                   onclick={() => selectCustomSize(sz)}
-                  class="w-full block py-1 text-xs text-slate-300 hover:text-white hover:bg-slate-800/80 transition-colors border-b border-slate-900/60 last:border-0"
+                  class="w-full block py-1 text-xs transition-colors last:border-0"
+                  style="color: var(--sdf-text-secondary); border-bottom: 1px solid var(--sdf-border-subtle);"
                 >
                   {sz}
                 </button>
@@ -849,12 +852,13 @@
         </div>
       </div>
 
-      <div class="flex items-center gap-1.5 border-l border-slate-800 pl-3">
-        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Align</span>
+      <div class="flex items-center gap-1.5 pl-3" style="border-left: 1px solid var(--sdf-border);">
+        <span class="text-[10px] font-bold uppercase tracking-wide" style="color: var(--sdf-text-muted);">Align</span>
         <select
           value={activeDoc.activeTextAlignment}
           onchange={handleAlignmentChange}
-          class="bg-slate-800 text-slate-200 text-xs border border-slate-700 rounded px-1.5 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-500 mx-1 font-sans"
+          class="text-xs rounded px-1.5 py-1 cursor-pointer focus:outline-none focus:ring-1 focus:ring-cyan-500 mx-1 font-sans border"
+          style="background: var(--sdf-hover-bg); border-color: var(--sdf-border); color: var(--sdf-text-primary);"
         >
           <option value="left">≡ Left</option>
           <option value="center">≢ Center</option>
@@ -862,12 +866,13 @@
         </select>
       </div>
 
-      <div class="flex items-center gap-1.5 border-l border-slate-800 pl-3">
-        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Style</span>
+      <div class="flex items-center gap-1.5 pl-3" style="border-left: 1px solid var(--sdf-border);">
+        <span class="text-[10px] font-bold uppercase tracking-wide" style="color: var(--sdf-text-muted);">Style</span>
         <select
           value={selectedStyle}
           onchange={handleStyleChange}
-          class="bg-slate-900 border border-slate-800 text-slate-200 rounded px-2 py-1 text-xs font-medium outline-none focus:border-cyan-500 transition-colors cursor-pointer"
+          class="rounded px-2 py-1 text-xs font-medium outline-none transition-colors cursor-pointer border"
+          style="background: var(--sdf-bg-input); border-color: var(--sdf-border); color: var(--sdf-text-primary);"
         >
           <option value="Normal">Normal</option>
           <option value="Bold">Bold</option>
@@ -897,17 +902,20 @@
 
   {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
     <div
-      class="fixed bottom-5 left-1/2 transform -translate-x-1/2 bg-[#090d16]/90 border border-slate-900 px-3 py-1.5 rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-md z-40 select-none pointer-events-auto"
+      class="fixed bottom-5 left-1/2 transform -translate-x-1/2 px-3 py-1.5 rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-md z-40 select-none pointer-events-auto border"
+      style="background: color-mix(in srgb, var(--sdf-bg-app) 90%, transparent); border-color: var(--sdf-border-subtle);"
     >
       <button
         onclick={() => (zoomScale = Math.max(5, zoomScale - 10))}
-        class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-full text-xs font-bold transition-colors"
+        class="w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold transition-colors"
+        style="color: var(--sdf-text-secondary);"
         >—</button
       >
-      <span class="text-[10px] font-bold text-slate-300 w-10 text-center tracking-wider uppercase">{zoomScale}%</span>
+      <span class="text-[10px] font-bold w-10 text-center tracking-wider uppercase" style="color: var(--sdf-text-secondary);">{zoomScale}%</span>
       <button
         onclick={shrinkToWindow}
-        class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+        class="w-6 h-6 flex items-center justify-center rounded-full transition-colors"
+        style="color: var(--sdf-text-secondary);"
         title="Shrink to Window"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -916,7 +924,8 @@
       </button>
       <button
         onclick={() => (zoomScale = Math.min(400, zoomScale + 10))}
-        class="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-full text-xs font-bold transition-colors"
+        class="w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold transition-colors"
+        style="color: var(--sdf-text-secondary);"
         >+</button
       >
     </div>
@@ -949,11 +958,11 @@
     background: transparent;
   }
   .workspace-scroll-container::-webkit-scrollbar-thumb {
-    background: rgba(30, 41, 59, 0.8);
+    background: var(--sdf-scrollbar-thumb);
     border-radius: 9999px;
   }
   .workspace-scroll-container::-webkit-scrollbar-thumb:hover {
-    background: rgba(51, 65, 85, 1);
+    background: var(--sdf-scrollbar-hover);
   }
 
   input[type="number"]::-webkit-inner-spin-button,

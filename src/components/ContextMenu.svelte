@@ -65,10 +65,10 @@
   }
 
   const iconBtn =
-    "w-8 h-8 flex items-center justify-center rounded transition-all text-slate-400 hover:bg-slate-800/50 hover:text-white bg-transparent border-0 cursor-pointer";
+    "ctx-icon-btn w-8 h-8 flex items-center justify-center rounded transition-all bg-transparent border-0 cursor-pointer";
 
   const rowBtn =
-    "w-full text-left px-4 py-1.5 hover:bg-zinc-800 transition flex justify-between items-center bg-transparent border-0 cursor-pointer text-inherit text-[13px]";
+    "ctx-row-btn w-full text-left px-4 py-1.5 transition flex justify-between items-center bg-transparent border-0 cursor-pointer text-inherit text-[13px]";
 
   const searchLabel = $derived.by(() => {
     const t = (selectionPreview || "").trim();
@@ -80,31 +80,31 @@
 
 {#if show}
   <div
-    class="fixed bg-zinc-900 border border-zinc-700 text-zinc-200 py-1.5 rounded-lg shadow-xl min-w-[220px] max-w-[280px] z-[99999] select-none text-sm font-sans"
-    style="top: {y}px; left: {x}px;"
+    class="fixed py-1.5 rounded-lg shadow-xl min-w-[220px] max-w-[280px] z-[99999] select-none text-sm font-sans border"
+    style="top: {y}px; left: {x}px; background: var(--sdf-bg-chrome); border-color: var(--sdf-border); color: var(--sdf-text-primary);"
     role="menu"
   >
     {#if hasTextSelection}
       <!-- Selection-aware menu -->
       <button type="button" onclick={() => runAction(onCopy)} class={rowBtn} role="menuitem">
         <span>Copy</span>
-        <span class="text-xs text-zinc-500 font-mono">Ctrl+C</span>
+        <span class="text-xs font-mono" style="color: var(--sdf-text-muted);">Ctrl+C</span>
       </button>
       <button type="button" onclick={() => runAction(onCut)} class={rowBtn} role="menuitem">
         <span>Cut</span>
-        <span class="text-xs text-zinc-500 font-mono">Ctrl+X</span>
+        <span class="text-xs font-mono" style="color: var(--sdf-text-muted);">Ctrl+X</span>
       </button>
       <button type="button" onclick={() => runAction(onPaste)} class={rowBtn} role="menuitem">
         <span>Paste</span>
-        <span class="text-xs text-zinc-500 font-mono">Ctrl+V</span>
+        <span class="text-xs font-mono" style="color: var(--sdf-text-muted);">Ctrl+V</span>
       </button>
       <button type="button" onclick={() => runAction(onSelectAll)} class={rowBtn} role="menuitem">
         <span>Select All</span>
-        <span class="text-xs text-zinc-500 font-mono">Ctrl+A</span>
+        <span class="text-xs font-mono" style="color: var(--sdf-text-muted);">Ctrl+A</span>
       </button>
 
       {#if canAnnotateSelection}
-        <div class="border-t border-zinc-800 my-1" role="separator"></div>
+        <div class="border-t my-1" role="separator" style="border-color: var(--sdf-border-subtle);"></div>
 
         <button
           type="button"
@@ -168,7 +168,8 @@
         <button
           type="button"
           onclick={() => runAction(onAddComment)}
-          class="{rowBtn} border-b border-zinc-800 pb-2 mb-1"
+          class="{rowBtn} border-b pb-2 mb-1"
+          style="border-color: var(--sdf-border-subtle);"
           role="menuitem"
         >
           <span class="flex items-center gap-2">
@@ -180,19 +181,20 @@
 
       <button type="button" onclick={() => runAction(onCopy)} class={rowBtn} role="menuitem">
         <span>Copy</span>
-        <span class="text-xs text-zinc-500 font-mono">Ctrl+C</span>
+        <span class="text-xs font-mono" style="color: var(--sdf-text-muted);">Ctrl+C</span>
       </button>
       <button type="button" onclick={() => runAction(onPaste)} class={rowBtn} role="menuitem">
         <span>Paste</span>
-        <span class="text-xs text-zinc-500 font-mono">Ctrl+V</span>
+        <span class="text-xs font-mono" style="color: var(--sdf-text-muted);">Ctrl+V</span>
       </button>
     {/if}
 
     <!-- Quick tools row (both states) — respects Settings tool toggles -->
     <div
-      class="flex items-center justify-center gap-1.5 px-3 pt-2 pb-1 mt-1 border-t border-zinc-800"
+      class="flex items-center justify-center gap-1.5 px-3 pt-2 pb-1 mt-1 border-t"
       role="group"
       aria-label="Quick tools"
+      style="border-color: var(--sdf-border-subtle);"
     >
       {#if isToolEnabled("calculator")}
         <button
@@ -242,3 +244,19 @@
     </div>
   </div>
 {/if}
+
+<style>
+  .ctx-row-btn {
+    color: var(--sdf-text-primary);
+  }
+  .ctx-row-btn:hover {
+    background: var(--sdf-hover-bg);
+  }
+  .ctx-icon-btn {
+    color: var(--sdf-text-secondary);
+  }
+  .ctx-icon-btn:hover {
+    background: var(--sdf-hover-bg);
+    color: var(--sdf-text-primary);
+  }
+</style>
