@@ -132,13 +132,15 @@ Also, without single-instance handling, opening a file while the app was already
 **Warm open — single-instance plugin (must be first registered plugin):**
 
 1. `tauri-plugin-single-instance` intercepts the second process.
-2. Focuses the existing `main` window (unminimize / show / focus).
-3. Loads any supported file path from argv and emits **`open-file-request`** with a `FilePayload`.
-4. Frontend listens for `open-file-request` **without** startup dedupe → `loadDocument` opens a new tab (or focuses an existing path match).
+2. Focuses the existing **`main`** window only (unminimize / show / focus) — not secondary `doc-*` windows.
+3. Loads any supported file path from argv and emits **`open-file-request`** with a `FilePayload` (app-wide emit).
+4. **Main window only** listens for `open-file-request` **without** startup dedupe → `loadDocument` opens a new tab (or focuses an existing path match). Secondary `doc-*` windows must not register this listener (would open the OS file in every open window).
 
 `check_startup_file` remains as a fallback only. Do not make double-click / Open with depend on it again.
 
 **Supported extensions:** `.pdf`, `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.webp`, `.bmp`, `.heic`, `.heif`
+
+**Related:** In-app **Open in new window** (tab context menu) is a separate path — see **Section W**. It creates an in-process `WebviewWindow`; it does not spawn a second OS process and is not blocked by single-instance.
 
 ---
 
@@ -381,7 +383,9 @@ If a box-tool gesture is effectively a click (&lt; 2×2 CSS px drag):
 
 ### Multi-select
 
-`hasModifier = e.ctrlKey || e.metaKey` on shape move and text select paths. Grouping is Ctrl/Cmd only (Shift is not a multi-select modifier).
+- **Ctrl/Cmd+click** toggles shapes into `selectedShapes` (grouping modifier on move/select paths).
+- **Shift+drag marquee** (select tool only) selects intersecting shapes on the current page (`dragHandler` + marquee overlay in `AnnotationLayer`).
+- With **2+** selected shapes on a page, `AnnotationLayer` shows a floating **align bar**; pure align/distribute math lives in `lib/annotation/alignShapes.ts` + `shapeBounds.ts`.
 
 ---
 
@@ -599,4 +603,155 @@ The `heic` crate is **AGPL-3.0-only OR Imazen Commercial** dual-licensed. To kee
 
 ---
 
-**Last Updated:** July 2026 (page-move bookmarks/comments, Esc→select, empty-click deselect, snapshot overlay zoom, HEIC/HEIF feature-gated support, form CropBox/rotate, Ctrl+F marks, merge thumbs, zoom-to-pointer, bookmark compose, calculator memory, line tool, hyperlinks, form/text value memory, workspaceId / Save As)
+## Section U: Light Mode Design System & FOUC Prevention
+
+### The Problem
+
+Hardcoded slate/cyan hex codes (`bg-[#090d16]`, `bg-slate-900`, `text-slate-100`, `bg-[#020617]`) caused washed-out text, invisible borders, and dark popups when switching to light mode. Additionally, applying the light theme only after SvelteKit hydration caused a Flash of Unstyled Content (FOUC).
+
+### The Solution
+
+1. **CSS Custom Properties (`global.css`)**  
+   All component backgrounds, chrome borders, text tiers (`primary`, `secondary`, `muted`, `faint`), overlays, and active tool states are bound to `--sdf-*` CSS custom properties. Overrides are scoped to `[data-theme="light"]`.
+
+2. **Synchronous Head Script (`app.html`)**  
+   To prevent FOUC, an inline `<script>` in `<head>` inspects `localStorage.getItem("speeddf_app_settings")` synchronously before first paint:
+   ```html
+   <script>
+     (() => {
+       try {
+         const raw = localStorage.getItem('speeddf_app_settings');
+         if (raw) {
+           const parsed = JSON.parse(raw);
+           if (parsed && parsed.theme === 'light') {
+             document.documentElement.dataset.theme = 'light';
+           }
+         }
+       } catch {}
+     })();
+   </script>
+   ```
+
+3. **Dual Hero Icon Specificity (`RecentDashboard.svelte`)**  
+   Both light and dark SVG hero icons exist in the DOM for the empty state. `global.css` defines rules with `!important` to ensure theme switching overrides Svelte component inline style specificity:
+   ```css
+   [data-theme="light"] .hero-icon-dark { display: none !important; }
+   [data-theme="light"] .hero-icon-light { display: block !important; }
+   :root:not([data-theme="light"]) .hero-icon-light { display: none !important; }
+   :root:not([data-theme="light"]) .hero-icon-dark { display: block !important; }
+   ```
+
+4. **Floating Overlays & Context Menus**  
+   Toast notifications (`showToast`, `showUpdateToast`, `isDownloadingUpdate`), thumbnail options popovers ("Add/Merge...", "Insert Blank"), and tool flyouts use `var(--sdf-overlay-bg)`, `var(--sdf-overlay-border)`, and high z-index layers so popovers remain legible against both document pages and app chrome.
+
+---
+
+## Section V: Scratch Pad HTML Paste Sanitization
+
+### The Problem
+
+Pasting text from external formatted sources (web pages, Word documents, IDEs) into the `contenteditable` Scratch Pad carried inline `style="..."` attributes (`font-family`, `font-size`, `color`, `background-color`) and `<font>` tags. This locked pasted text into hardcoded colors or typefaces that broke in light mode.
+
+### The Solution
+
+1. **HTML Sanitizer Helper (`src/lib/tools/scratchPad.ts`)**  
+   `stripFontStylesFromHtml(html: string): string` parses pasted HTML using `DOMParser` and recursively strips `style`, `color`, `face`, `size`, and `bgcolor` attributes from element nodes, and unwraps `<font>` tags into their parent container.
+   ```ts
+   export function stripFontStylesFromHtml(html: string): string {
+     if (!html || !html.trim()) return html;
+     if (typeof DOMParser !== "undefined") {
+       const parser = new DOMParser();
+       const doc = parser.parseFromString(html, "text/html");
+       // Recursively removes font attributes & style tags while preserving <b>, <i>, <u>, <ul>, <ol>, <li>, <p>, <br>
+       // ...
+       return doc.body.innerHTML;
+     }
+     return html.replace(/\s*style="[^"]*"/gi, "").replace(/<\/?font[^>]*>/gi, "");
+   }
+   ```
+
+2. **Paste Handler (`src/routes/tools/+page.svelte`)**  
+   The Scratch Pad element binds `onpaste={onPadPaste}`, which prevents default insertion, extracts `text/html` (or `text/plain`), cleans it via `stripFontStylesFromHtml`, and inserts clean HTML via `document.execCommand("insertHTML", false, cleanHtml)`.
+
+---
+
+## Section W: Secondary Document Windows (Open in new window)
+
+### The Problem
+
+Users want a second full workspace on another monitor without closing the original tab. Spawning a second **process** is wrong: `tauri-plugin-single-instance` hands argv back to `main` as a new tab. A true multi-window UI must stay **in-process**.
+
+### The Solution
+
+1. **Tab context menu** (`DocumentTabs.svelte`): right-click tab → **Open in new window**.
+2. **`openDocumentInNewWindow(path, name?)`** (`src/lib/window/openDocumentWindow.ts`):
+   - Requires a saved absolute `filePath` (no-path / untitled → toast, return `"no-path"`).
+   - Creates `new WebviewWindow("doc-<12hex>", { url: "/?open=…", decorations: false, visible: false, … })`.
+   - Label is unique each time (same file may open in multiple windows).
+   - **Leaves the original tab open** — new window reloads **from disk** via `read_file_bytes` (unsaved markup in the source tab is not cloned).
+3. **Bootstrap:** `+page.svelte` reads `URLSearchParams` `open`, strips the query with `history.replaceState`, then `promptAndLoadFile` / `loadDocument`.
+4. **Main vs secondary:**
+   - Secondary (`label.startsWith("doc-")`): skip updater check; **do not** listen for `startup-file-loaded` / `open-file-request`.
+   - Main: cold start + single-instance open-file path unchanged.
+5. **Reveal:** `+layout.svelte` shows any non-`tools-*` window after paint; focuses `doc-*`.
+6. **Capabilities:** `default.json` windows = `["main", "doc-*"]` so plugin/core permissions apply to secondary windows. Tools stay on `tools.json` (`tools-*`).
+
+### Rules
+
+- Do not bypass single-instance by launching a second executable for “new window”.
+- Do not let secondary windows handle app-wide open-file events (multi-window double-load).
+- Do not transfer in-memory dirty state across windows unless explicitly designed (current design is disk-only).
+- Window labels: alphanumeric + hyphens only (`doc-` prefix reserved for document windows).
+
+---
+
+## Section X: Floating Centre Toolbars & Page-1 Clearance
+
+### The Problem
+
+Image resize and text-style toolbars use **`position: fixed`** relative to the viewport. TitleBar (`h-9`) + document tab strip consume ~70px at the top. If strips sit too high they collide with chrome; if page content keeps a small fixed `pt-*`, strips cover the top of page 1 and block editing. When **both** strips show (image doc + text tool), they also stacked with **no gap**.
+
+### The Solution
+
+| Strip | Component | Fixed top |
+|--------|-----------|-----------|
+| Image resize | `ImageResizeStrip.svelte` | `top-20` |
+| Text style | floating menu in `Workspace.svelte` | `top-20`, or **`top-36`** when image strip is visible (breathing room between bars) |
+
+**Dynamic workspace padding** (`Workspace.svelte` → `workspacePadTop`):
+
+```ts
+const bands = (imageStrip ? 1 : 0) + (textMenu ? 1 : 0);
+const rem = bands === 0 ? 2 : 1.25 + bands * 3.25;
+// applied as style padding-top on the scroll container
+```
+
+Page 1 therefore drops below the fixed strips whenever they appear; empty chrome keeps modest `2rem` air under the tab strip.
+
+### Rules
+
+- Keep image strip **above** text strip when both are visible; preserve a few px / rem of gap (`top-20` then `top-36`).
+- Never rely on viewport-fixed toolbars alone without increasing scroll-area top padding.
+- Padding is per-band (~3.25rem) so one vs two strips stay consistent.
+
+---
+
+## Section Y: Image Document Resize Strip
+
+### Behaviour
+
+For `fileType === "image"` only, a centre-top strip edits **Width (px)**, **Height (px)**, and **Scale (%)** with aspect lock (on by default).
+
+- Pure math: `src/lib/annotation/imageResize.ts` (`computeLinkedResize`, `clampScale` 1–99, presets 75/50/25).
+- Apply: `applyImageResizeAction(w, h)` resamples pixels on the active workspace; **`imageNativeWidth` / `imageNativeHeight`** remain the Scale % baseline (multi-doc safe).
+- After HEIC conversion the workspace is a normal image — resize applies to the PNG bytes like any other image.
+
+### Rules
+
+- Do not treat Scale % as a zoom UI (viewport zoom is separate `zoomScale`).
+- Do not apply the strip to multi-page PDF/TIFF page geometry.
+- Commit on Enter / blur / preset pick; keep history snapshot on apply.
+
+---
+
+**Last Updated:** July 2026 (Secondary doc windows Open-in-new-window, floating toolbar stack + dynamic pad, image resize strip, Shift+marquee multi-select + align, light mode FOUC, Scratch Pad paste sanitize, page-move bookmarks/comments, Esc→select, snapshot overlay zoom, HEIC feature-gate, form CropBox/rotate, Ctrl+F marks, merge thumbs, zoom-to-pointer, bookmark compose, calculator memory, line tool, hyperlinks, form/text value memory, workspaceId / Save As)

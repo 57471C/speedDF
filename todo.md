@@ -133,7 +133,7 @@ git push
 ```bash
 # 1. Stage and commit all your changes and version bumps
 git add .
-git commit -m "chore: release v1.0.6"
+git commit -m "chore: release v1.2.0"
 
 # 2. Create the annotated tag locally
 git tag -a v1.2.0 -m "Release v1.2.0"
@@ -141,7 +141,7 @@ git tag -a v1.2.0 -m "Release v1.2.0"
 # 3. Push your active branch code to GitHub
 git push origin main
 
-# 4. Push the v1.0.6 tag to trigger the GitHub release action
+# 4. Push the tag to trigger the GitHub release action
 git push origin v1.2.0
 ```
 
