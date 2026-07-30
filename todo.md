@@ -3,7 +3,7 @@
 ## Features to add ##
 1. ~~Images only: resize by %, H:V px apect ratio locked (like power toys)~~
 2. ~~Obeject alignment~~
-3. Light mode
+3. ~~Light mode~~
 4. R/click tab - "Open in new window" 
 5. Forms creation (NOT XFA Forms!) + hyperlinks
 6. ~~Tools: scratch pad/clip board (persistant across all docs)~~
