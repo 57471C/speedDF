@@ -4,7 +4,7 @@
 1. ~~Images only: resize by %, H:V px apect ratio locked (like power toys)~~
 2. ~~Obeject alignment~~
 3. ~~Light mode~~
-4. R/click tab - "Open in new window" 
+4. ~~R/click tab - "Open in new window"~~ 
 5. Forms creation (NOT XFA Forms!) + hyperlinks
 6. ~~Tools: scratch pad/clip board (persistant across all docs)~~
 
@@ -22,7 +22,7 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 4. Switch to Bun - could be a big win for speed and bundle size.
 
 ## Fixes ##
-- [ ] Text annotations center top toolbar Sits too high. When an Image is open the image resize bar is also too high (text annotation toolbar should sit under it when activated) 
+- [x] Text annotations center top toolbar Sits too high. When an Image is open the image resize bar is also too high (text annotation toolbar should sit under it when activated) 
 - [x] moving pages should move the bookmarks and comments with the page.
 - [x] feat: Esc key unselects any selected object and always reverts to the select tool
 - [x] clicking anywhere on the page (unles ctrl is currently pressed down) should unslect any objects.

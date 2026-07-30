@@ -1,279 +1,137 @@
+# speedDF
+
 ![Total Downloads](https://img.shields.io/github/downloads/57471C/speedDF/total?style=flat-square&color=indigo)
+![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square)
 
-# speedDF <svg width="22" height="22" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" style="display: inline-block; vertical-align: middle;">
-  <defs>
-    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0f172a" />
-      <stop offset="100%" stop-color="#1a2744" />
-    </linearGradient>
-    <linearGradient id="bolt-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8" />
-      <stop offset="100%" stop-color="#06b6d4" />
-    </linearGradient>
-    <filter id="bolt-glow" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="8" result="blur" />
-      <feMerge>
-        <feMergeNode in="blur" />
-        <feMergeNode in="SourceGraphic" />
-      </feMerge>
-    </filter>
-    <filter id="glow-soft" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="18" result="blur" />
-      <feMerge>
-        <feMergeNode in="blur" />
-      </feMerge>
-    </filter>
-  </defs>
-  <rect x="0" y="0" width="512" height="512" rx="108" ry="108" fill="url(#bg-grad)" />
-  <g opacity="0.28">
-    <line x1="52" y1="218" x2="128" y2="218" stroke="#06b6d4" stroke-width="6" stroke-linecap="round" />
-    <line x1="38" y1="244" x2="118" y2="244" stroke="#06b6d4" stroke-width="5" stroke-linecap="round" />
-    <line x1="52" y1="270" x2="108" y2="270" stroke="#06b6d4" stroke-width="4" stroke-linecap="round" />
-  </g>
-  <g transform="translate(256, 264) rotate(-4) translate(-256, -264)">
-    <polygon points="168,118 338,118 338,128 348,138 348,420 168,420" fill="#0a1628" opacity="0.5" transform="translate(8, 8)" />
-    <polygon points="162,112 322,112 362,152 362,414 162,414" fill="#1e293b" />
-    <polygon points="322,112 362,112 362,152" fill="#0f172a" />
-    <polygon points="322,112 362,152 322,152" fill="#334155" />
-    <line x1="190" y1="195" x2="330" y2="195" stroke="#334155" stroke-width="7" stroke-linecap="round" />
-    <line x1="190" y1="218" x2="300" y2="218" stroke="#334155" stroke-width="7" stroke-linecap="round" />
-    <line x1="190" y1="241" x2="315" y2="241" stroke="#334155" stroke-width="7" stroke-linecap="round" />
-    <line x1="190" y1="315" x2="330" y2="315" stroke="#334155" stroke-width="6" stroke-linecap="round" />
-    <line x1="190" y1="336" x2="280" y2="336" stroke="#334155" stroke-width="6" stroke-linecap="round" />
-    <line x1="190" y1="357" x2="305" y2="357" stroke="#334155" stroke-width="6" stroke-linecap="round" />
-  </g>
-  <ellipse cx="278" cy="264" rx="68" ry="110" fill="#06b6d4" opacity="0.12" filter="url(#glow-soft)" />
-  <g filter="url(#bolt-glow)">
-    <polygon points="306,138 248,276 284,276 206,396 174,396 236,262 200,262 256,138" fill="url(#bolt-grad)" />
-  </g>
-  <polygon points="296,155 254,264 278,264 220,368 246,368 290,264 266,264 302,168" fill="#bae6fd" opacity="0.35" />
-</svg>
+**A fast, local PDF editor and annotation app.**  
+No cloud. No accounts. No ads. Open a file, mark it up, save — done.
 
-A high-performance, light-weight desktop PDF editor and annotation engine. Built using Tauri v2, SvelteKit, TypeScript, and Rust, speedDF provides a fully localised workflow to sign, mark up, audit, and restructure PDF files with zero cloud latency and absolute data privacy.
+Built with Tauri 2, SvelteKit, TypeScript, and Rust. Install size stays small; work stays on your machine.
 
-![speedDF Application Workspace](./src/assets/screenshot.png)
+![speedDF workspace](./src/assets/screenshot.png)
 
 ---
 
-## Key Features
+## Why speedDF?
 
-### 1. Client-Side Vector Flattening Engine (pdf-lib)
-Unlike standard web editors that merely slide floating HTML elements over a canvas view, speedDF features a built-in client compilation compiler. When exporting via Save As.., your text modifications, bounding rectangles, straight lines (with optional arrow ends), audit stamps, digital signatures, and freehand highlights are mathematically translated and baked permanently into the document's native binary vector tree. The pipeline automatically calculates coordinate transformations, flipping your front-end actions from top-left web space to the true bottom-left point origins required by the PDF specification.
+Most PDF tools are either bloated, subscription-gated, or send your documents somewhere else. speedDF is the opposite:
 
-### 2. Digital Ink Signature & Initial Profiles
-* **Dual-Canvas Drafting Wizard:** Sketch custom signature and initial sets directly inside the tool window. Canvas paths utilise a high-fidelity, segment-by-segment interpolation matrix to perfectly track your pointer tip regardless of display size or layout scale.
-* **Persistent Disk Memory:** Committed sign-offs are packed into Base64 PNG data URLs and securely mirrored into local disk storage memory, keeping your configurations safely cached across system reboots.
-* **Sleek Template Management:** Activate stamps on click or clear them cleanly. Features an inline, custom Tailwind confirmation overlay allowing you to drop obsolete profiles out of memory permanently.
+- **Fully local** — files never leave your PC
+- **Fast to open** — designed for quick load and a responsive workspace
+- **Lightweight** — small install; optional OCR models download only when you need them
+- **Real exports** — annotations and form fills bake into the PDF, not a fragile overlay
+- **Open source (MIT)** — free to use, inspect, and extend
 
-### 3. Transparent Ghost Previews & Alignment HUD
-When selecting a signature or initial profile to drop onto a sheet, a 45% semi-transparent ghost replica of that specific stroke path instantly binds directly to your cursor crosshairs. This removes all positioning guesswork, letting you align signatures exactly to visual rule blocks before clicking to print a solid commit onto the canvas layer.
-
-### 4. Smart Sizing Memory Caches (localStorage)
-When dragging vector corner handles to resize structural stamps like Ticks (✓) or Dashes (—), their percentage dimensions are instantly captured to local disk memory. The tool automatically remembers your exact sizing choices, allowing you to establish the exact layout proportions for a form blueprint once, and stamp duplicate rows endlessly without resizing each time.
-
-### 5. Resolution-Independent Freehand Highlighter
-Draw a fluid, translucent yellow wash over any data text rows. Highlighter strokes are tracked as an array of raw mathematical percentage nodes ([{x, y}]) rather than heavy raster assets. They are rendered live via an isolated front-end SVG overlay utilising viewBox="0 0 100 100" and preserveAspectRatio="none", ensuring your markups stay crisp, vector-sharp, and un-blurred even when scaling document views.
-
-### 6. Keyed Page Excision & Route Mapping
-Page restructuring utilises strict immutable list reconciliation tracking loops ((pageNumber) keys) to handle structural operations. When you drop a page via the right sidebar trashcan icon, its specific index path is instantly filtered out of the global state tracking array. Svelte completely target-destroys the explicit DOM element, cleanly erasing it from the thumbnail track, the main scroll container view, and completely skipping its byte segments during final export packaging.
-
-### 7. Native OS Shell Integration
-* **Draggable Window Header:** Sleek custom border frame layout allowing smooth app window movements across the OS environment.
-* **Centered Filename Tracking:** Passes packed payload structures across the asynchronous Tauri bridge on file loads to display your true physical filename string centered in the titlebar.
-* **Unified Scroll Bar Aesthetics:** Standard browser scroll bars are globally overridden with a dark slate matching color path to match the high-contrast editor interface style.
-* **Zoom HUD Controls:** Viewport zoom from ~10%–500% with a bottom HUD. **Ctrl/Cmd+scroll** zooms toward the pointer (content under the cursor stays put — including when centered pages expand past the viewport).
-
-### 8. Dynamic Document Outlines & Bookmark Navigation
-* **Zero-Gap Gutter Ribbons:** Flags are pinned out in the right-hand gutter space via precise `left-[calc(100%+8px)]` bounds to eliminate white sheet bleeding.
-* **Click-to-name (empty pages):** Click the outline bookmark icon to open a compose popout with the title field focused — nothing is saved until you press **Add** / **Enter**. Escape cancels. There is no hover “Add” trap on empty pages.
-* **Hover when bookmarked:** Existing flags show title + rename + delete on hover (rename reuses the focused input flow).
-* **Adaptive Sidebar Geometry:** Toggling the text-heavy Bookmarks tab triggers a smooth width transition resizing the sidebar container from `w-36` to `w-56`, preventing layout truncation while preserving vertical grid space for traditional thumbnail cards.
-* **Low-Level Catalog Serialization:** High-fidelity persistence layer that reads native outline chains on ingestion and programmatically maps new instances straight into the document's binary `/Outlines` directory structure, rendering your custom bookmarks cross-compatible with external engines like Adobe Acrobat.
-
-### 9. Image support ###
-* **Image Editing:** speedDF also opens common image formats (PNG, JPG, TIFF, WebP, BMP) for annotation and export, not only PDFs.
-
-### 10. Real text annotations ###
-* **Real text annotations:** Text annotations in speedDF are stored as real PDF text objects (not flattened drawings), so they remain selectable and editable after export.
-* **Live colour & type:** The editing textarea uses the active toolbar colour (`activeColor` / `textColor`) and the selected font (Standard Sans maps to **Helvetica**). Default text-box height is a single line scaled to the current font size; the box auto-grows vertically when you press Enter for new lines.
-* **Text tool defaults:** Font / size / style / alignment persist across sessions (`speeddf_text_settings`). On document open or tab switch, the text font resets to Helvetica for a clean start.
-
-### 11. Form & text value memory ###
-* **Remember common values:** While typing in a free text annotation or an AcroForm text field, type at least two characters to open a lightweight autocomplete of saved values (case-insensitive **starts-with** match).
-* **★ Remember this value** stores the current string in `localStorage` (`speeddf_form_memory`) — global list plus per field-type / field-name lists.
-* Each suggestion has an **×** to forget that entry; **Clear all** wipes the memory store.
-* **Keyboard:** ↓ / ↑ highlight a row; **Enter** applies the highlighted value (plain Enter still inserts a newline when nothing is highlighted).
-* Memory is **personal and cross-document** (not per file), so multi-tab work stays fast without leaking values into the PDF binary.
-
-### 12. Shape drop & multi-select polish ###
-* **Click-to-drop shapes:** A short click (no drag) places a default square sized at **1.5× zoom level** in CSS pixels (100% zoom → 150×150). The pointer sits on the **top-right** corner; the shape extends left and down.
-* **Drag-to-size** still works for freeform boxes (rect / oval / filled variants).
-* **Multi-select:** **Ctrl/Cmd+Click** toggles shapes and text into a group for batch move / property edits.
-
-### 13. Dedicated Line tool ###
-* **Two-click draw:** Click start point → live rubber-band preview → click end point. Lines are stored as true vector shapes (`points: [start, end]`) and bake on export like other annotations.
-* **Endpoint handles:** With the Select tool, drag compact handles at each end to resize, or drag the line body to move both ends together.
-* **Ends style:** The thickness menu includes an **Ends** section — Plain, End arrow, or Start + End arrows. Lines respect active colour, thickness, and dash style; stroke width matches box shapes (non-scaling CSS-pixel stroke).
-
-### 14. Clickable PDF hyperlinks ###
-* **Detect on open:** Existing URI Link annotations in the PDF are extracted into a per-document overlay (multi-tab safe).
-* **Underline & hover:** Links render with a subtle underline and highlight on hover when the Select tool is active.
-* **Safe open:** Click shows a confirmation dialog, then opens only **http**, **https**, or **mailto** URLs in the system browser. Dangerous schemes (`javascript:`, `data:`, `file:`, etc.) are blocked. Internal page destinations are not activated in v1.
-
-### 15. AcroForm fill (non-XFA) ###
-* **Detect & overlay:** Text, checkbox, dropdown, and signature stamp fields are detected on open and drawn in page-relative coordinates that stay aligned through zoom (CropBox + page rotation aware).
-* **Signature fields:** Click a Sig widget → pick a saved signature/initials stamp set (no extra drawing required). Values bake into the PDF on Save.
-
-### 16. Find in document (Ctrl+F) ###
-* **Full-document search** across all pages (not only the visible text layer). Match counter + previous/next (Enter / Shift+Enter).
-* **Soft highlights:** Matches use a translucent yellow wash (~20% opacity); the focused match is stronger (~50%) with a thin outline so keywords stay legible. The active mark is scrolled into view when cycling.
-
-### 17. Tools window ###
-* Separate always-on-top widget: **Calculator**, **Timer**, **Stopwatch**, and **Magic 8 Ball**.
-* **Calculator expression memory:** Dim secondary line shows the pending operation or last equation (Windows 11 style), e.g. `12 +` then `12 + 3 =`.
-
-### 18. Recent Documents thumbnails ###
-* Sidebar pages use static JPEG thumbs generated in the background after open.
-* After the fill finishes, **page 1 is re-rendered at higher resolution** so the Recent Documents card stays sharp (not the tiny sidebar scale).
-* **Merge / insert pages** remaps surviving thumbs and generates new ones for inserted pages automatically.
+If you just need to rotate a page, sign a form, highlight a clause, or merge a few PDFs without paying a monthly fee, this is for you.
 
 ---
 
-## Core Capabilities & Advanced Engineering Architecture
+## Features
 
+### Annotate & mark up
+- Text, freehand, highlighter, shapes, lines (with optional arrows)
+- Signatures and initials (draw once, reuse)
+- Stamps and common marks (tick, cross, etc.) with remembered sizes
+- Multi-select, align, and batch style changes
+- Real PDF text objects on export (selectable after save)
 
+### Forms & links
+- Fill existing AcroForm fields (text, checkbox, dropdown, signature)
+- Clickable URI hyperlinks with a safe confirm-before-open flow
+- Personal value memory (autocomplete for repeated form / text values — stays on your machine)
 
-The following 13 systems were shipped during the v1.0.0 stabilization sprint passes, representing the full production-ready feature matrix:
+### Document structure
+- Multi-tab workspace
+- Rotate, reorder, delete, insert blank, and merge PDFs
+- Bookmarks that write into the PDF outline catalog
+- Comments / notes on pages
+- Full-document find (`Ctrl+F` / `Cmd+F`)
 
-### 1. Recent Documents Performance Dashboard
-High-contrast layout matrices featuring custom alpha-opacity channel parameters and native document action docking layouts. Structural layout metadata is cached to localStorage on successful renders, enabling instant skeleton hydration of page containers in <5ms on subsequent opens — before IPC bytes even arrive from the Rust backend. Page-1 thumbs are upgraded to a higher-resolution JPEG after the background thumbnail pass so dashboard cards stay crisp.
+### Images too
+- Open PNG, JPG, TIFF, WebP, BMP
+- Annotate and export
+- Image resize (%, px, aspect locked)
 
-### 2. Selectable Canvas Vector Layers
-Advanced implementation of native `pdf.js` text layout overlay frames rendering selectable text blocks over canvas contexts. The `TextLayer` API is mapped directly onto absolute-positioned overlay `div` elements, enabling native browser text selection and copy operations over rendered PDF canvases.
-
-### 3. GPU-Accelerated Workspace Manipulation
-High-performance viewport transformations using CSS `translate3d` bound with `requestAnimationFrame` render loops. All shape drag operations are processed through non-reactive caching layers (`rawCurrentX`, `rawCurrentY`) to prevent Svelte reactivity overhead during high-frequency mouse events.
-
-### 4. ONNX Machine Learning Model Caching
-Thread-safe background execution pipelines leveraging `OnceCell`-backed `OcrModelState` heaps for instant localized text classification. Detection (DBNet) and recognition (CRNN) models are fetched from Cloudflare CDN with real-time progress streaming, then cached in memory for zero-latency subsequent page scans.
-
-### 5. Resolution-Independent Annotations
-Custom layout scaling maps built on explicit SVG `viewBox="0 0 100 100"` bounds with `preserveAspectRatio="none"` configuration settings. All annotation coordinates are stored as percentage-based values, ensuring pixel-perfect rendering at any zoom level from 50% to 200%.
-
-### 6. Embedded Font Asset Flattening Cache
-Native compilation maps keeping structural caches of fetched TrueType files inside `TitleBar.svelte` to prevent redundant document footprint inflation. Inter and JetBrains Mono font families are fetched once per export session and reused across all pages via a `Map<string, Promise<PDFFont>>` cache.
-
-### 7. Asynchronous Progress Stream Indicators
-Visual background downloader streams tracking remote binary models fetching updates in real time. The Tauri v2 event channel system pipes granular progress percentages from Rust `reqwest` download loops directly to the frontend progress bar components.
-
-### 8. OS-Aware Native Theme Pickers
-Custom color-scheme inputs automatically tracking desktop configuration switches to map dark popover pickers natively. The color picker and toolbar controls inherit the system dark mode preference and render consistently across Windows and macOS webview engines.
-
-### 9. Visual Grouping Overrides
-High-efficiency temporary multi-select operations via **Ctrl/Cmd+Click**. Selected shape groups (including text boxes) can be batch-modified for color, thickness, and line style through the toolbar, with all mutations tracked through the undo/redo history stack.
-
-### 10. Parallelized Core TIFF Decoding
-Vectorized background decoding pipelines utilizing optimized multi-page system conversions. The Rust `tiff` crate processes packed 1-bit, 8-bit grayscale, RGB, and RGBA TIFF images through a compile-time lookup table (`TIFF_1BIT_LUT`) for maximum throughput, with results streamed as PNG byte vectors.
-
-### 11. OCR Row Collision Optimizations
-Layout grouping matrices checking bounding boxes to maintain reading orders across multi-column texts cleanly. Detected text regions are sorted by vertical position and merged into logical reading lines based on Y-coordinate overlap thresholds.
+### Extra tools
+- Always-on-top Tools window: calculator, timer, stopwatch, scratch pad, Magic 8 Ball
+- Dark and light themes
+- Recent documents with thumbnails
+- Optional offline OCR (models download on demand)
 
 ---
 
-## Architecture Blueprint
+## Platforms
 
-The editor splits system duties cleanly between low-level system memory commands and real-time reactive layout rendering updates:
+| Platform | Notes |
+|----------|--------|
+| **Windows** | Primary target; MSI / NSIS installers via GitHub Releases |
+| **macOS** | Apple Silicon builds; Intel may need a local build on older machines |
+| **Linux** | AppImage / deb via releases where CI provides them |
 
-[Backend Interface (lib.rs)] <--- IPC (Invoke) ---> [Frontend SvelteKit & PDF Pipeline]
-
-* **rfd:** Asynchronous OS File Picker Dialog Windows
-* **serde:** Serialisation Data Payload Mapping Bridges
-* **pdf.js:** Renders high-res localised canvases for display layout and resolves background web worker threads locally to match primary API versions precisely.
-* **pdf-lib:** Calculates geometric point transformations, builds raw catalog reference linked lists, and writes outline elements directly to binary dictionaries.
-* **lopdf (v0.41):** Automated Object Stream Decryption and background container stream evaluation
-* **$state:** Svelte 5 Runes managing reactive tools, pageOrder routes, and global bookmark state tracking records.
+Download the latest release from the [Releases](https://github.com/57471C/speedDF/releases) page.
 
 ---
 
-## Installation & Build Guide
+## Quick start (users)
 
-### Prerequisites
-Ensure your local system toolchains are updated and properly installed:
-1. Node.js (v18+ recommended)
-2. Rust Compiler & Cargo Toolchain (via rustup)
-3. C++ Build Tools for Windows (via Visual Studio workloads)
+1. Grab the installer for your OS from [Releases](https://github.com/57471C/speedDF/releases)
+2. Install and open a PDF or image
+3. Annotate, fill forms, reorder pages as needed
+4. **Save** or **Save As…** — changes are written into the file
 
-### Dependency Installation
-Clone your development branch workspace repository, change into the root folder directory path, and fetch your package allocations:
+File associations can be set so double-click opens documents in speedDF.
+
+---
+
+## Build from source (developers)
+
+**Prerequisites**
+- Node.js 18+
+- Rust (rustup)
+- Platform build tools (e.g. Visual Studio C++ workload on Windows)
+
+```bash
+git clone https://github.com/57471C/speedDF.git
+cd speedDF
 npm install
+npm run tauri dev          # development
+npm run build:exe          # production binary (see src-tauri/target/release)
+```
+---
 
-### Run Hot-Reload Dev Server
-Launch your desktop interface container cycle live with hot-swapping module assets active:
-npm run tauri dev
+## Architecture (short)
 
-### Compiling Production Standalone Executables
-To pack your completely optimised, self-contained desktop system binary executable package (speeddf.exe), run the build script:
-npm run build:exe
+| Layer | Role |
+|-------|------|
+| **SvelteKit UI** | Workspace, tools, multi-tab state, annotations |
+| **pdf.js** | Page rendering and text layer |
+| **pdf-lib** | Flatten annotations, forms, outlines into the PDF |
+| **Tauri + Rust** | File I/O, dialogs, OCR pipeline, native shell |
 
-The packed asset drops straight inside your project generation release target subdirectory:
-src-tauri\target\release\speeddf.exe
+Everything runs locally. Optional OCR models are fetched only when you use Extract Text, then cached.
+
+For deeper module maps and edge-case notes, see `AGENT_MAP.md` and `ARCHITECTURE_NUANCES.md` in the repo.
 
 ---
 
-## Unlocking Debugging DevTools inside Production
+## Privacy
 
-Because tracking component behaviors inside compiled shells is blind work, you can force Tauri to unlock Chrome DevTools inspect tools directly inside your standalone production releases.
-
-1. Open src-tauri/Cargo.toml
-2. Locate your tauri package dependency reference block under [dependencies]
-3. Simply append the "devtools" flag directly into its active features array:
-tauri = { version = "2.0.0", features = [ "codec", "image", "devtools" ] }
-
-4. Recompile your build (npm run build:exe). You can now press F12 or right-click anywhere on the running app workspace to bring up the Web Console inspect screens live!
-
-Alternatively, you can compile an unlocked diagnostic executable without editing text configuration sheets:
-npx tauri build --debug
+- No telemetry by default
+- No cloud accounts
+- Documents are not uploaded
+- Form/value memory and settings live in local storage / app data only
 
 ---
 
-## Keyboard Shortcut Matrix
+## Contributing
 
-* **? / F1** : Toggles the operational system help control panel and licensing modal layout
-* **Ctrl+F** / **Cmd+F** : Find in document (cycle matches with Enter / Shift+Enter)
-* **Ctrl+Scroll** / **Cmd+Scroll** : Zoom toward the pointer
-* **Delete / Backspace** : Drops selected items (Select Mode only — ignored while typing in a text box or form field)
-* **Ctrl+Click** / **Cmd+Click** : Toggle multi-select on shapes and text annotations
-* **↓ / ↑** then **Enter** : Navigate and apply a remembered value in the text/form autocomplete popdown
-* **Enter** (text edit) : Insert newline (box auto-grows); **Ctrl/Cmd/Shift+Enter** commits the text box
-* **Ctrl + Right Arrow** : Shifts active page orientation 90° Clockwise
-* **Ctrl + Left Arrow** : Shifts active page orientation 90° Counter-Clockwise
-* **F12** : Toggles Chrome DevTools Window (Unlocked Only)
+Issues and PRs are welcome. Prefer small, focused changes and keep `npm run check` clean.
 
----
-
-## Development Roadmap
-- [x] Persistent custom tool sizing caches.
-- [x] Smooth freehand highlighting with translucent matrix bakes.
-- [x] Clean Tailwind-styled delete prompt overlays.
-- [x] Center-aligned native filename header regions.
-- [x] Standard operational system shortcut layouts mapped directly to the F1 dashboard block.
-- [x] Native Protected Stream Decryption core layer mapping using upgraded lopdf.
-- [x] Implement multi-file backend stitching loops via + indicator commands (PDF Merge).
-- [x] Asynchronous PDF Catalog /Outlines binary serialization bridge for persistent bookmarks.
-- [x] High-performance offline full-page OCR pipeline (Pure-Rust DBNet + CRNN) with Tauri v2 progress streaming channels and Cloudflare Pages CDN asset streaming.
-- [x] Selectable bounding text overlay layer for rendered PDF canvases.
-- [x] Text annotation font-family variance sizing options (Inter, JetBrains Mono, Helvetica, Times-Roman, Courier).
-- [x] Path traversal security hardening audit pass across all native filesystem commands.
-- [x] Text annotation input sanitization (length bounds, control character stripping).
-- [x] Telemetry timer relocation to true UI click boundary for accurate perceived-latency metrics.
-- [x] Svelte 5 reactivity feedback loop prevention via `untrack()` guards.
-- [x] Recent Document structural layout caching for instant skeleton hydration.
-- [x] Form & text value memory (localStorage autocomplete for annotations + AcroForm text).
-- [x] Text/shape polish: colour-matched editing, zoom-scaled shape drop, Ctrl/Cmd multi-select, auto-growing text boxes.
-- [x] Dedicated Line tool (click–click rubber-band, endpoint handles, arrow ends, vector export).
-- [x] Clickable PDF hyperlinks (URI Link annotations, scheme allow-list, confirm-before-open).
+If speedDF saves you time or money, a coffee via the project site is appreciated — it helps keep the lights on for a solo-maintained tool.
 
 ---
 
 ## License
-This project is open-source software and licensed under the terms of the MIT License.
+
+MIT — see [LICENSE](./LICENSE).

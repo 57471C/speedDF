@@ -1,8 +1,8 @@
 <script lang="ts">
   /**
-   * Thin control strip under the title bar for image documents only.
+   * Thin control strip under title bar + tab strip for image documents only.
    * Width / Height / Scale (%) with aspect-ratio lock (on by default).
-   * Pattern matches the floating text-style toolbar in Workspace.svelte.
+   * Stacks above the floating text-style toolbar (Workspace.svelte) when both show.
    */
   import { onMount } from "svelte";
   import { activeDoc, applyImageResizeAction } from "../pdfStore.svelte";
@@ -179,7 +179,7 @@
 
 {#if isImageDoc && (nativeW > 0 || currentW > 0)}
   <div
-    class="image-resize-strip fixed top-14 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl flex items-center gap-3 select-none pointer-events-auto transition-all duration-200"
+    class="image-resize-strip fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl flex items-center gap-3 select-none pointer-events-auto transition-all duration-200"
     role="toolbar"
     aria-label="Image resize"
   >

@@ -15,6 +15,7 @@
     documentKey,
     type DocumentWorkspace,
   } from "../pdfStore.svelte";
+  import { openDocumentInNewWindow } from "../lib/window/openDocumentWindow";
 
   type RecentItem = {
     name: string;
@@ -29,6 +30,7 @@
     recentFiles = [],
     fileStatusMap = {},
     onOpenRecent,
+    onNotify,
   }: {
     onRequestClose: (docId: string) => void;
     onRequestCloseAll: () => void;
@@ -36,6 +38,8 @@
     /** path → exists on disk; missing keys treated as available */
     fileStatusMap?: Record<string, boolean>;
     onOpenRecent?: (name: string, path: string) => void;
+    /** Optional toast / status callback for open-in-window results */
+    onNotify?: (message: string) => void;
   } = $props();
 
   let tabStrip = $state<HTMLDivElement | null>(null);
@@ -46,6 +50,24 @@
   let showRecentMenu = $state(false);
   let showOverflowMenu = $state(false);
   let recentMenuEl = $state<HTMLDivElement | null>(null);
+
+  /** Right-click tab context menu */
+  let tabCtx = $state<{
+    show: boolean;
+    x: number;
+    y: number;
+    docId: string;
+    filePath: string | null;
+    fileName: string;
+  }>({
+    show: false,
+    x: 0,
+    y: 0,
+    docId: "",
+    filePath: null,
+    fileName: "",
+  });
+  let tabCtxMenuEl = $state<HTMLDivElement | null>(null);
 
   function docId(doc: DocumentWorkspace): string {
     return documentKey(doc);
@@ -156,11 +178,53 @@
   }
 
   function handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape" && tabCtx.show) {
+      closeTabContextMenu();
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === "Tab") {
       if (activeDoc.openDocuments.length < 2) return;
       e.preventDefault();
       e.stopPropagation();
       cycleActiveDocument(e.shiftKey ? -1 : 1);
+    }
+  }
+
+  function closeTabContextMenu() {
+    tabCtx = { ...tabCtx, show: false };
+  }
+
+  function onTabContextMenu(e: MouseEvent, doc: DocumentWorkspace) {
+    e.preventDefault();
+    e.stopPropagation();
+    showRecentMenu = false;
+    showOverflowMenu = false;
+    const id = docId(doc);
+    // Keep menu inside the viewport
+    const menuW = 200;
+    const menuH = 48;
+    const x = Math.min(e.clientX, window.innerWidth - menuW - 8);
+    const y = Math.min(e.clientY, window.innerHeight - menuH - 8);
+    tabCtx = {
+      show: true,
+      x: Math.max(8, x),
+      y: Math.max(8, y),
+      docId: id,
+      filePath: doc.filePath || null,
+      fileName: doc.fileName || "Document",
+    };
+  }
+
+  async function handleOpenInNewWindow() {
+    const { filePath, fileName } = tabCtx;
+    closeTabContextMenu();
+    const result = await openDocumentInNewWindow(filePath, fileName);
+    if (result === "no-path") {
+      onNotify?.(
+        "Save the document first to open it in a new window",
+      );
+    } else if (result === "error") {
+      onNotify?.("Could not open a new window");
     }
   }
 
@@ -175,6 +239,9 @@
       if (menu && !menu.contains(t) && btn && !btn.contains(t)) {
         showOverflowMenu = false;
       }
+    }
+    if (tabCtx.show && tabCtxMenuEl && !tabCtxMenuEl.contains(t)) {
+      closeTabContextMenu();
     }
   }
 
@@ -306,6 +373,7 @@
           onpointermove={onTabPointerMove}
           onpointerup={(e) => onTabPointerUp(e, index)}
           onpointercancel={(e) => onTabPointerUp(e, index)}
+          oncontextmenu={(e) => onTabContextMenu(e, doc)}
           onkeydown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
@@ -314,7 +382,7 @@
           }}
           title={doc.fileName +
             (doc.isDirty ? " (unsaved)" : "") +
-            " — drag to reorder"}
+            " — drag to reorder · right-click for more"}
         >
           {#if isActive}
             <span
@@ -398,9 +466,38 @@
       {/if}
     </div>
   </div>
+
+  {#if tabCtx.show}
+    <div
+      bind:this={tabCtxMenuEl}
+      class="fixed z-[90] min-w-[180px] rounded-lg border shadow-2xl py-1 select-none"
+      style="top: {tabCtx.y}px; left: {tabCtx.x}px; background: var(--sdf-bg-chrome); border-color: var(--sdf-border); color: var(--sdf-text-primary);"
+      role="menu"
+      aria-label="Tab options"
+    >
+      <button
+        type="button"
+        class="tab-ctx-btn w-full text-left px-3 py-2 text-[12px] transition-colors bg-transparent border-0 cursor-pointer"
+        role="menuitem"
+        onclick={() => void handleOpenInNewWindow()}
+        title={tabCtx.filePath
+          ? "Open this document in a new speedDF window"
+          : "Save the document first to open it in a new window"}
+      >
+        Open in new window
+      </button>
+    </div>
+  {/if}
 {/if}
 
 <style>
+  .tab-ctx-btn {
+    color: var(--sdf-text-primary);
+  }
+  .tab-ctx-btn:hover {
+    background: var(--sdf-hover-bg);
+  }
+
   .doc-tab-strip {
     scrollbar-width: thin;
     scrollbar-color: var(--sdf-scrollbar-thumb) transparent;

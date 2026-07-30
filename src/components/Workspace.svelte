@@ -196,6 +196,23 @@
     return false;
   });
 
+  /** Image docs always show the resize strip (fixed under chrome). */
+  const showImageResizeStrip = $derived(activeDoc.fileType === "image");
+
+  /**
+   * Scroll-area top padding so page 1 clears floating centre toolbars.
+   * Toolbars are viewport-fixed; without this they cover the top of the page
+   * and block editing. One band ≈ strip height + gap (~3.25rem).
+   */
+  const workspacePadTop = $derived.by(() => {
+    const bands =
+      (showImageResizeStrip ? 1 : 0) + (showFloatingMenu ? 1 : 0);
+    // No floating strips: modest air under tabs (legacy pt-8).
+    // With strips: clear each band so p1 stays editable.
+    const rem = bands === 0 ? 2 : 1.25 + bands * 3.25;
+    return `${rem}rem`;
+  });
+
   let selectedFont = $state("Helvetica");
   let selectedSize = $state(12);
   let selectedStyle = $state("Normal");
@@ -706,12 +723,12 @@
   onpointerup={handlePointerUp}
   onpointerleave={handlePointerLeave}
   onwheel={() => settleLoadBurnIn()}
-  class="flex-1 min-w-0 h-full overflow-auto flex flex-col pt-8 px-4 relative workspace-scroll-container transition-colors duration-200
+  class="flex-1 min-w-0 h-full overflow-auto flex flex-col px-4 relative workspace-scroll-container transition-colors duration-200
     {isDragging ? '' : 'scroll-smooth'}
     [&::-webkit-scrollbar]:w-2 
     [&::-webkit-scrollbar-track]:bg-transparent 
     [&::-webkit-scrollbar-thumb]:rounded-full"
-  style="background-color: var(--sdf-canvas-bg); {isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : ''} touch-action: pan-x pan-y;"
+  style="padding-top: {workspacePadTop}; background-color: var(--sdf-canvas-bg); {isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : ''} touch-action: pan-x pan-y;"
 >
   {#if showLoadBurnIn && openDurationMs != null}
     <!-- Viewport-fixed background layer: stays under document pages (z-0 vs pages z-10) -->
@@ -777,13 +794,13 @@
     </div>
   {/if}
 
-  <!-- Image docs: resize strip under title bar (same capsule pattern as text toolbar) -->
+  <!-- Image docs: resize strip under chrome (same capsule pattern as text toolbar) -->
   <ImageResizeStrip />
 
   {#if showFloatingMenu}
-    <!-- Drop below the image resize strip when both are visible -->
+    <!-- Under image resize strip when both visible; otherwise just under tab chrome -->
     <div
-      class="fixed left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl flex items-center gap-3 backdrop-blur-md select-none pointer-events-auto transition-all duration-200 border {activeDoc.fileType === 'image' ? 'top-28' : 'top-14'}"
+      class="fixed left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-xl flex items-center gap-3 backdrop-blur-md select-none pointer-events-auto transition-all duration-200 border {showImageResizeStrip ? 'top-36' : 'top-20'}"
       style="background: color-mix(in srgb, var(--sdf-bg-app) 95%, transparent); border-color: var(--sdf-border); box-shadow: 0 12px 40px rgba(0,0,0,0.5);"
     >
       <div class="flex items-center gap-1.5 text-[10px] font-bold tracking-wider uppercase pr-3" style="color: var(--sdf-text-secondary); border-right: 1px solid var(--sdf-border);">
