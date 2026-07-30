@@ -2150,7 +2150,8 @@
 
 <div
   oncontextmenu={handleRightClick}
-  class="flex flex-col h-screen w-screen overflow-hidden select-none bg-[#070a12] text-slate-100 font-sans antialiased"
+  class="flex flex-col h-screen w-screen overflow-hidden select-none font-sans antialiased"
+  style="background: var(--sdf-bg-app); color: var(--sdf-text-primary);"
 >
   {#if isApplyingDeferredUpdate}
     <div class="fixed inset-0 z-[9999] bg-[#070a12]/95 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
@@ -2212,10 +2213,10 @@
         {#if showSearchPopup}
           <!-- Floating search popup UI panel -->
           <div class="absolute top-4 right-6 z-50 animate-fade-in pointer-events-auto">
-            <div class="bg-[#0B0B0F]/95 border border-slate-800/80 shadow-[0_12px_40px_rgba(0,0,0,0.6)] rounded-xl p-3 flex items-center gap-2.5 backdrop-blur-md text-white select-none">
+            <div class="shadow-[0_12px_40px_rgba(0,0,0,0.4)] rounded-xl p-3 flex items-center gap-2.5 backdrop-blur-md select-none" style="background: var(--sdf-overlay-bg); border: 1px solid var(--sdf-overlay-border); color: var(--sdf-text-primary);">
               <!-- Input Area -->
-              <div class="relative flex items-center bg-slate-950 rounded-lg border border-slate-800 px-2.5 py-1.5 focus-within:border-cyan-500/80 transition-colors w-60">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="text-slate-500 mr-2">
+              <div class="relative flex items-center rounded-lg px-2.5 py-1.5 focus-within:border-cyan-500/80 transition-colors w-60" style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border);">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="mr-2" style="color: var(--sdf-text-muted);">
                   <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
                 <input
@@ -2234,12 +2235,14 @@
                     }
                   }}
                   placeholder="Find in document..."
-                  class="bg-transparent text-slate-100 placeholder-slate-500 text-xs outline-none w-full font-medium border-none p-0 focus:ring-0 focus:outline-none"
+                  class="bg-transparent text-xs outline-none w-full font-medium border-none p-0 focus:ring-0 focus:outline-none"
+                  style="color: var(--sdf-text-primary);"
                 />
                 {#if searchQuery}
                   <button
                     onclick={() => { searchQuery = ""; void performTextSearch(); }}
-                    class="text-slate-500 hover:text-slate-300 ml-1.5 p-0.5 rounded-full hover:bg-slate-800 transition-colors cursor-pointer border-none bg-transparent"
+                    class="ml-1.5 p-0.5 rounded-full transition-colors cursor-pointer border-none bg-transparent"
+                    style="color: var(--sdf-text-muted);"
                     title="Clear text"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -2253,14 +2256,15 @@
                 class="h-8 px-2.5 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all duration-150 cursor-pointer flex items-center justify-center bg-transparent
                   {caseSensitive 
                     ? 'bg-cyan-950/40 border-cyan-500/80 text-cyan-400' 
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'}"
+                    : 'hover:border-slate-700'}"
+                style={caseSensitive ? '' : 'background: var(--sdf-overlay-input-bg); border-color: var(--sdf-overlay-input-border); color: var(--sdf-text-secondary);'}
                 title="Match Case"
               >
                 Aa
               </button>
 
               <!-- Match Counter Indicator -->
-              <div class="text-[11px] font-mono text-slate-400 min-w-[50px] text-center select-none font-semibold border-l border-r border-slate-800 px-2 h-5 flex items-center justify-center">
+              <div class="text-[11px] font-mono min-w-[50px] text-center select-none font-semibold px-2 h-5 flex items-center justify-center" style="border-left: 1px solid var(--sdf-border); border-right: 1px solid var(--sdf-border); color: var(--sdf-text-secondary);">
                 {#if isSearchRunning}
                   …
                 {:else if totalMatches > 0}
@@ -2277,7 +2281,8 @@
                 <button
                   onclick={goToPrevMatch}
                   disabled={totalMatches === 0}
-                  class="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+                  class="p-1.5 rounded-lg disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+                  style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-secondary);"
                   title="Previous Match (Shift+Enter)"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
@@ -2285,7 +2290,8 @@
                 <button
                   onclick={goToNextMatch}
                   disabled={totalMatches === 0}
-                  class="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+                  class="p-1.5 rounded-lg disabled:opacity-30 disabled:pointer-events-none transition-all cursor-pointer"
+                  style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-secondary);"
                   title="Next Match (Enter)"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
@@ -2295,7 +2301,8 @@
               <!-- Close Button -->
               <button
                 onclick={closeSearch}
-                class="p-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-red-400 hover:border-red-900/50 transition-all cursor-pointer"
+                class="p-1.5 rounded-lg transition-all cursor-pointer"
+                style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-secondary);"
                 title="Close Search (Esc)"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -2314,7 +2321,8 @@
       <!-- Blocks tools + workspace + sidebar while the active document is saving -->
       {#if activeDoc.isSaving}
         <div
-          class="absolute inset-0 z-[4000] bg-[#070a12]/55 backdrop-blur-[2px] flex items-center justify-center select-none cursor-wait"
+          class="absolute inset-0 z-[4000] backdrop-blur-[2px] flex items-center justify-center select-none cursor-wait"
+          style="background: rgba(0,0,0,0.55);"
           role="status"
           aria-live="polite"
           aria-busy="true"
@@ -2328,7 +2336,8 @@
           }}
         >
           <div
-            class="flex flex-col items-center gap-3 px-6 py-5 rounded-xl bg-[#0b101c]/95 border border-cyan-500/25 shadow-[0_12px_40px_rgba(0,0,0,0.55)]"
+            class="flex flex-col items-center gap-3 px-6 py-5 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
+            style="background: var(--sdf-overlay-bg); border: 1px solid var(--sdf-overlay-border);"
           >
             <div
               class="w-9 h-9 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin"
@@ -2336,7 +2345,7 @@
             <p class="text-[11px] font-bold uppercase tracking-widest text-cyan-300">
               Saving…
             </p>
-            <p class="text-[10px] text-slate-500 font-medium max-w-[200px] text-center leading-relaxed">
+            <p class="text-[10px] font-medium max-w-[200px] text-center leading-relaxed" style="color: var(--sdf-text-muted);">
               Compiling annotations. Editing is paused until the file is written.
             </p>
           </div>
@@ -2366,29 +2375,34 @@
     class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[1000] flex items-center justify-center p-6 font-sans select-none"
   >
     <div
-      class="bg-[#0b101c] border border-red-500/30 w-full max-w-md rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-300 animate-fade-in animate-duration-150"
+      class="border border-red-500/30 w-full max-w-md rounded-xl shadow-2xl flex flex-col overflow-hidden animate-fade-in animate-duration-150"
+      style="background: var(--sdf-bg-chrome); color: var(--sdf-text-primary);"
     >
       <div
-        class="p-4 border-b border-slate-900/60 flex items-center gap-2 bg-[#120b0e]"
+        class="p-4 border-b flex items-center gap-2"
+        style="border-color: var(--sdf-border-subtle); background: var(--sdf-bg-elevated);"
       >
         <span class="text-xs font-bold uppercase tracking-widest text-red-400"
           >⚠️ Unsaved Layout Modifications</span
         >
       </div>
       <div
-        class="p-5 text-xs text-slate-300 leading-relaxed font-sans font-medium"
+        class="p-5 text-xs leading-relaxed font-sans font-medium"
+        style="color: var(--sdf-text-secondary);"
       >
         {unsavedModalMessage}
       </div>
       <div
-        class="p-3 border-t border-slate-900/60 bg-[#0e1524]/40 flex justify-end gap-2.5"
+        class="p-3 border-t flex justify-end gap-2.5"
+        style="border-color: var(--sdf-border-subtle); background: var(--sdf-bg-surface);"
       >
         <button
           onclick={() => {
             showUnsavedModal = false;
             pendingNavigationAction = null;
           }}
-          class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[11px] font-bold transition-colors"
+          class="px-4 py-1.5 rounded-lg text-[11px] font-bold transition-colors"
+          style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary);"
         >
           Cancel
         </button>
@@ -2437,19 +2451,21 @@
     class="fixed top-16 left-16 z-[5000] pointer-events-none speeddf-toast-animate"
   >
     <div
-      class="bg-[#0e1629]/95 border border-cyan-500/30 shadow-[0_4px_20px_rgba(6,182,212,0.15)] rounded-xl px-4 py-3 flex flex-col gap-1.5 backdrop-blur-md max-w-sm relative overflow-hidden"
+      class="shadow-xl rounded-xl px-4 py-3 flex flex-col gap-1.5 backdrop-blur-md max-w-sm relative overflow-hidden"
+      style="background: var(--sdf-overlay-bg); border: 1px solid var(--sdf-overlay-border); color: var(--sdf-text-primary);"
     >
       <div class="flex items-center gap-3">
         <div
-          class="flex h-6 w-6 shrink-0 bg-cyan-500/10 rounded-lg items-center justify-center text-cyan-400 font-bold text-sm"
+          class="flex h-6 w-6 shrink-0 rounded-lg items-center justify-center font-bold text-sm"
+          style="background: var(--sdf-accent-bg); color: var(--sdf-accent);"
         >
           ✓
         </div>
         <div class="flex flex-col">
-          <p class="text-[12px] font-semibold text-slate-100 tracking-wide">
+          <p class="text-[12px] font-semibold tracking-wide" style="color: var(--sdf-text-primary);">
             {toastMessage}
           </p>
-          <p class="text-[10px] text-slate-400 font-medium mt-0.5">
+          <p class="text-[10px] font-medium mt-0.5" style="color: var(--sdf-text-muted);">
             Local document processed
           </p>
         </div>
@@ -2469,19 +2485,21 @@
     class="fixed bottom-6 right-6 z-[5000] speeddf-toast-animate"
   >
     <div
-      class="bg-slate-900 border border-slate-800 shadow-[0_8px_32px_rgba(0,0,0,0.5)] rounded-xl p-4 flex flex-col gap-3 backdrop-blur-md max-w-sm relative overflow-hidden"
+      class="shadow-2xl rounded-xl p-4 flex flex-col gap-3 backdrop-blur-md max-w-sm relative overflow-hidden"
+      style="background: var(--sdf-overlay-bg); border: 1px solid var(--sdf-overlay-border); color: var(--sdf-text-primary);"
     >
       <div class="flex items-start gap-3">
         <div
-          class="flex h-8 w-8 shrink-0 bg-cyan-500/10 rounded-lg items-center justify-center text-cyan-400 font-bold text-sm animate-pulse"
+          class="flex h-8 w-8 shrink-0 rounded-lg items-center justify-center font-bold text-sm animate-pulse"
+          style="background: var(--sdf-accent-bg); color: var(--sdf-accent);"
         >
           ⚡
         </div>
         <div class="flex flex-col">
-          <p class="text-[12px] font-bold text-slate-100 uppercase tracking-wider">
+          <p class="text-[12px] font-bold uppercase tracking-wider" style="color: var(--sdf-text-primary);">
             Update Available
           </p>
-          <p class="text-[10px] text-slate-400 font-medium mt-1 leading-normal">
+          <p class="text-[10px] font-medium mt-1 leading-normal" style="color: var(--sdf-text-secondary);">
             Optimization patch v{availableUpdate.version} is ready for installation.
           </p>
         </div>
@@ -2492,7 +2510,8 @@
           onclick={() => {
             showUpdateToast = false;
           }}
-          class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-150 border border-slate-700/50 cursor-pointer"
+          class="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all duration-150 cursor-pointer"
+          style="background: var(--sdf-bg-surface); border: 1px solid var(--sdf-border); color: var(--sdf-text-secondary);"
         >
           Cancel
         </button>
@@ -2518,8 +2537,6 @@
             const up = availableUpdate;
             showUpdateToast = false;
             downloadOnClose = true;
-            // Silently pre-download the update binary immediately so the close handler
-            // only needs to run install() — no download wait at shutdown time.
             try {
               showNotification("Downloading update in background...");
               isDownloadingUpdate = true;
@@ -2548,7 +2565,6 @@
             } catch (dlErr) {
               console.error("Background update pre-download failed:", dlErr);
               isDownloadingUpdate = false;
-              // Fallback: keep availableUpdate set so close handler can still attempt downloadAndInstall
               pendingUpdateRef = null;
               isUpdateReadyToInstall = false;
             }
@@ -2567,25 +2583,27 @@
     class="fixed bottom-6 right-6 z-[5000] speeddf-toast-animate"
   >
     <div
-      class="bg-slate-900 border border-slate-800 shadow-[0_8px_32px_rgba(0,0,0,0.5)] rounded-xl p-4 flex flex-col gap-3 backdrop-blur-md w-64 relative overflow-hidden"
+      class="shadow-2xl rounded-xl p-4 flex flex-col gap-3 backdrop-blur-md w-64 relative overflow-hidden"
+      style="background: var(--sdf-overlay-bg); border: 1px solid var(--sdf-overlay-border); color: var(--sdf-text-primary);"
     >
       <div class="flex items-start gap-3">
         <div
-          class="flex h-8 w-8 shrink-0 bg-cyan-500/10 rounded-lg items-center justify-center text-cyan-400 font-bold text-sm animate-pulse"
+          class="flex h-8 w-8 shrink-0 rounded-lg items-center justify-center font-bold text-sm animate-pulse"
+          style="background: var(--sdf-accent-bg); color: var(--sdf-accent);"
         >
           ⬇️
         </div>
         <div class="flex flex-col w-full">
-          <p class="text-[12px] font-bold text-slate-100 uppercase tracking-wider">
+          <p class="text-[12px] font-bold uppercase tracking-wider" style="color: var(--sdf-text-primary);">
             Downloading Update
           </p>
-          <div class="mt-2 h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+          <div class="mt-2 h-1.5 w-full rounded-full overflow-hidden" style="background: var(--sdf-bg-surface);">
             <div
               class="h-full bg-cyan-500 transition-all duration-300 ease-out"
               style="width: {updateDownloadProgress}%"
             ></div>
           </div>
-          <p class="text-[10px] text-slate-400 font-medium mt-1.5 text-right">
+          <p class="text-[10px] font-medium mt-1.5 text-right" style="color: var(--sdf-text-muted);">
             {updateDownloadProgress}%
           </p>
         </div>

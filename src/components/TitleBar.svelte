@@ -340,7 +340,8 @@
 </script>
 
 <div
-  class="h-9 w-full bg-[#0b101c] border-b border-slate-900 select-none relative z-50 font-sans"
+  class="h-9 w-full border-b select-none relative z-50 font-sans"
+  style="background: var(--sdf-bg-chrome); border-color: var(--sdf-border-subtle);"
 >
   <div data-tauri-drag-region class="absolute inset-0 z-0 bg-transparent pointer-events-auto"></div>
 
@@ -372,7 +373,7 @@
             data-fg-d3bl91="0.8:1.18514:/src/app/App.tsx:223:7:7691:102:e:polygon"
           ></polygon>
         </svg>
-        <h1 class="text-lg font-bold tracking-tight text-slate-100" style="font-family: 'Space Grotesk', sans-serif;">speed<span class="text-cyan-400">DF</span></h1>
+        <h1 class="text-lg font-bold tracking-tight" style="font-family: 'Space Grotesk', sans-serif; color: var(--sdf-text-primary);">speed<span style="color: var(--sdf-accent-text);">DF</span></h1>
       </div>
 
       <div class="flex items-center gap-0.5 ml-4">
@@ -424,7 +425,7 @@
           </svg>
         </button>
 
-        <div class="w-px h-4 bg-slate-700 mx-1.5"></div>
+        <div class="w-px h-4 mx-1.5" style="background: var(--sdf-border);"></div>
 
         <button 
           disabled={activeDoc.isSaving || !activeDoc.rawBytes || undoStack.length === 0}
@@ -457,8 +458,7 @@
           class="toolbar-btn"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M17 3a4 4 0 0 1 4 4"/><path d="M21 17a4 4 0 0 1-4 4"/><path d="M7 21a4 4 0 0 1-4-4"/><path d="M3 7a4 4 0 0 1 4-4"/>
-            <path d="M12 7l3 9"/><path d="M9 16h6"/><path d="M12 7L9 16"/>
+            <path d="M14 21h1"/><path d="M14 3h1"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 14v1"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M3 9v1"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M5 3a2 2 0 0 0-2 2"/><path d="M7 12h10"/><path d="M7 16h6"/><path d="M7 8h8"/><path d="M9 21h1"/><path d="M9 3h1"/>
           </svg>
         </button>
       </div>
@@ -466,10 +466,12 @@
 
     <div
       class="flex-1 h-full flex items-center justify-center cursor-move"
+      style="color: var(--sdf-text-secondary);"
     >
       <div class="flex items-center gap-1.5 pointer-events-auto cursor-default">
         <span
-          class="titlebar-btn text-[11px] font-semibold text-slate-400 tracking-wide truncate max-w-xs hover:!text-white transition-colors"
+          class="titlebar-btn text-[11px] font-semibold tracking-wide truncate max-w-xs transition-colors"
+          style="color: var(--sdf-text-secondary);"
         >
           {activeDoc.fileName ?
             activeDoc.fileName : "No Document Active"}
@@ -548,7 +550,7 @@
         </button>
       </div>
 
-      <div class="flex items-center h-full border-l border-slate-900/60 pl-2">
+      <div class="flex items-center h-full border-l pl-2" style="border-color: var(--sdf-border-subtle);">
         <button
           onclick={onMinimize}
           class="titlebar-btn w-7 h-7 flex items-center justify-center rounded text-slate-400 hover:!text-white transition-colors"
@@ -615,15 +617,15 @@
     align-items: center;
     justify-content: center;
     border-radius: 0.25rem;
-    color: #94a3b8;
+    color: var(--sdf-text-secondary);
     cursor: pointer;
     pointer-events: auto;
     transition: color 0.15s ease, background-color 0.15s ease;
   }
   
   .toolbar-btn:hover {
-    background-color: #1e293b;
-    color: #f1f5f9;
+    background-color: var(--sdf-hover-bg);
+    color: var(--sdf-text-primary);
   }
 
   .toolbar-btn:disabled {
@@ -632,22 +634,20 @@
   }
 
   .titlebar-btn {
-    color: #94a3b8 !important;
-    /* text-slate-400 fallback */
+    color: var(--sdf-text-secondary) !important;
     transition: color 0.15s ease, background-color 0.15s ease !important;
     pointer-events: auto !important;
   }
   .titlebar-btn:hover {
-    color: #ffffff !important;
+    color: var(--sdf-text-primary) !important;
   }
   .titlebar-close-btn {
-    color: #94a3b8 !important;
+    color: var(--sdf-text-secondary) !important;
     pointer-events: auto !important;
     transition: all 0.15s ease !important;
   }
   .titlebar-close-btn:hover {
     background-color: #dc2626 !important;
-    /* bg-red-600 fallback */
     color: #ffffff !important;
   }
 </style>

@@ -338,33 +338,36 @@
       onclick={closeSignaturePicker}
     ></button>
     <div
-      class="relative w-80 max-w-[90vw] bg-[#090d16] border border-slate-800 rounded-lg shadow-2xl p-3 flex flex-col gap-2 text-left"
+      class="relative w-80 max-w-[90vw] rounded-lg shadow-2xl p-3 flex flex-col gap-2 text-left"
+      style="background: var(--sdf-bg-chrome); border: 1px solid var(--sdf-border);"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => e.stopPropagation()}
       role="document"
     >
-      <div class="flex items-center justify-between border-b border-slate-900/60 pb-1.5">
-        <span class="text-[9px] font-bold tracking-widest uppercase text-slate-500">
+      <div class="flex items-center justify-between pb-1.5" style="border-bottom: 1px solid var(--sdf-border-subtle);">
+        <span class="text-[9px] font-bold tracking-widest uppercase" style="color: var(--sdf-text-muted);">
           Choose Stamp
         </span>
         <button
           type="button"
-          class="text-slate-500 hover:text-white text-sm leading-none px-1"
+          class="text-sm leading-none px-1"
+          style="color: var(--sdf-text-muted);"
           onclick={closeSignaturePicker}
           title="Close"
         >×</button>
       </div>
-      <p class="text-[10px] text-slate-500 truncate" title={pickingField.name}>
+      <p class="text-[10px] truncate" style="color: var(--sdf-text-muted);" title={pickingField.name}>
         Field: {pickingField.name}
       </p>
       <div class="max-h-56 overflow-y-auto space-y-2 pr-1">
         {#each savedSets as set (set.id)}
           <div
-            class="flex flex-col gap-1 bg-[#141b2b]/60 border border-slate-900 rounded p-1.5"
+            class="flex flex-col gap-1 rounded p-1.5"
+            style="background: var(--sdf-bg-surface); border: 1px solid var(--sdf-border-subtle);"
           >
             {#if set.label || set.firstName || set.lastName}
               <div class="flex items-center justify-between gap-1 px-0.5">
-                <span class="text-[9px] font-semibold text-slate-300 truncate">
+                <span class="text-[9px] font-semibold truncate" style="color: var(--sdf-text-secondary);">
                   {set.label ||
                     signatureSetLabel(set.firstName || "", set.lastName || "")}
                 </span>
@@ -403,14 +406,15 @@
             </div>
           </div>
         {:else}
-          <div class="text-[10px] text-slate-600 font-medium italic text-center py-6">
+          <div class="text-[10px] font-medium italic text-center py-6" style="color: var(--sdf-text-faint);">
             No saved stamp sets. Create one from the Signatures tool in the sidebar.
           </div>
         {/each}
       </div>
       <button
         type="button"
-        class="w-full mt-0.5 py-1.5 text-[10px] font-bold text-slate-400 hover:text-white border border-slate-800 rounded"
+        class="w-full mt-0.5 py-1.5 text-[10px] font-bold rounded"
+        style="color: var(--sdf-text-secondary); border: 1px solid var(--sdf-border);"
         onclick={closeSignaturePicker}
       >
         Cancel

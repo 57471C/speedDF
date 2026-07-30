@@ -341,7 +341,8 @@
             fill="none"
             stroke-linecap="round"
             stroke-linejoin="round"
-            class="cursor-pointer pointer-events-auto hover:stroke-cyan-400 transition-colors {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke-cyan-400' : ''}"
+            class="cursor-pointer pointer-events-auto transition-colors {activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? '' : ''}"
+            style={activeDoc.selectedShape?.pageNumber === pageNumber && activeDoc.selectedShape?.index === idx ? 'stroke: var(--sdf-accent);' : ''}
           />
         {:else if shape && shape.type === "line" && shape.points && shape.points.length >= 2}
           {@const pts = getDisplayPoints(shape.points)}
@@ -379,8 +380,8 @@
             stroke-linecap="round"
             vector-effect="non-scaling-stroke"
             fill="none"
-            class="pointer-events-none {isLineSelected ? 'stroke-cyan-400' : ''}"
-            style={isLineSelected ? "filter: drop-shadow(0 0 1.5px rgba(0,210,255,0.7));" : ""}
+            class="pointer-events-none"
+            style={isLineSelected ? 'stroke: var(--sdf-accent); filter: drop-shadow(0 0 1.5px var(--sdf-selection-glow));' : ''}
           />
           {#if shape.lineEnds === "end" || shape.lineEnds === "both"}
             {@const head = arrowHeadVertices(p0, p1, arrowSize)}
@@ -482,9 +483,8 @@
             onmousedown={(e) => initShapeMove(e, idx)}
             class="absolute cursor-move z-20 transition-shadow duration-100
               {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
-              ? 'shadow-[0_0_12px_rgba(0,210,255,0.35)] ring-1 ring-[#00d2ff]/40'
-              : ''}"
-            style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; overflow: visible;"
+              ? '' : ''}"
+            style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; overflow: visible; {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx) ? 'box-shadow: 0 0 12px var(--sdf-selection-glow); outline: 1px solid var(--sdf-selection-ring);' : ''}"
           >
             <svg
               viewBox="0 0 100 100"
@@ -531,11 +531,8 @@
             data-shape-idx={idx}
             onmousedown={(e) => initShapeMove(e, idx)}
             class="absolute cursor-move z-20 transition-shadow duration-100
-              {shape.type.includes('round') ? 'rounded-lg' : 'rounded-none'}
-              {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
-              ? 'shadow-[0_0_12px_rgba(0,210,255,0.35)] ring-1 ring-[#00d2ff]/40'
-              : ''}"
-            style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; overflow: visible;"
+              {shape.type.includes('round') ? 'rounded-lg' : 'rounded-none'}"
+            style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; overflow: visible; {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx) ? 'box-shadow: 0 0 12px var(--sdf-selection-glow); outline: 1px solid var(--sdf-selection-ring);' : ''}"
           >
             <svg
               viewBox="0 0 100 100"
@@ -591,11 +588,11 @@
         <!-- Top-left anchored box: outline + BR handle share this element; only BR resizes -->
         <div
           data-shape-idx={idx}
-          class="absolute pointer-events-auto z-40 box-border
+          class="absolute pointer-events-auto z-40 box-border border rounded-sm
             {textActive
-              ? 'border border-[#00d2ff] bg-cyan-500/5 rounded-sm shadow-sm'
-              : 'border border-transparent hover:border-slate-400/30 rounded-sm'}"
-          style="left: {display.x}%; top: {display.y}%; width: {textW}%; height: {textH}%; color: {textColor};"
+              ? 'shadow-sm'
+              : ''}"
+          style="left: {display.x}%; top: {display.y}%; width: {textW}%; height: {textH}%; color: {textColor}; {textActive ? 'border-color: var(--sdf-accent); background-color: rgba(6,182,212,0.05);' : 'border-color: transparent;'}"
         >
           {#if textEditing && activeDoc.shapes[pageNumber]?.[idx]}
             {@const editFont = `calc(${shape.size || 12}px * ${Math.max(0.1, Math.abs(zoomScale / 100))})`}
@@ -668,7 +665,8 @@
           {#if textActive}
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "br")}
-              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 border-[#00d2ff] -bottom-1.5 -right-1.5 cursor-nwse-resize rounded-full shadow-md z-50"
+              class="resize-handle-node absolute w-2.5 h-2.5 bg-white border-2 -bottom-1.5 -right-1.5 cursor-nwse-resize rounded-full shadow-md z-50"
+              style="border-color: var(--sdf-accent);"
               title="Resize text box"
             ></div>
           {/if}
@@ -679,9 +677,9 @@
           onmousedown={(e) => initShapeMove(e, idx)}
           class="absolute pointer-events-auto z-[45] flex items-center justify-center p-0.5 border rounded-sm cursor-move transition-[border-color,background-color] duration-100"
           style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; border-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
-            ? '#00d2ff'
+            ? 'var(--sdf-accent)'
             : 'transparent'}; background-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
-            ? '#00d2ff1a'
+            ? 'var(--sdf-accent-bg)'
             : 'transparent'};"
         >
           <svg
@@ -718,9 +716,9 @@
           onmousedown={(e) => initShapeMove(e, idx)}
           class="absolute pointer-events-auto z-[45] flex items-center justify-center p-0.5 border rounded-sm cursor-move transition-[border-color,background-color] duration-100"
           style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; border-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
-            ? '#00d2ff'
+            ? 'var(--sdf-accent)'
             : 'transparent'}; background-color: {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
-            ? '#00d2ff1a'
+            ? 'var(--sdf-accent-bg)'
             : 'transparent'};"
         >
           <svg
@@ -761,10 +759,10 @@
         <div
           data-shape-idx={idx}
           onmousedown={(e) => initShapeMove(e, idx)}
-          class="absolute pointer-events-auto z-[45] flex items-center justify-center border rounded-sm cursor-move p-0.5 overflow-hidden mix-blend-multiply bg-transparent transition-[border-color,box-shadow] duration-100 {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
-            ? 'border-[#00d2ff] shadow-[0_0_12px_rgba(0,210,255,0.35)]'
-            : 'border-transparent hover:border-slate-400/30'}"
-          style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%;"
+          class="absolute pointer-events-auto z-[45] flex items-center justify-center border rounded-sm cursor-move p-0.5 overflow-hidden mix-blend-multiply bg-transparent transition-[border-color,box-shadow] duration-100"
+          style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
+            ? 'border-color: var(--sdf-accent); box-shadow: 0 0 12px var(--sdf-selection-glow);'
+            : 'border-color: transparent;'}"
         >
           <img
             src={shape.dataUrl}
@@ -774,19 +772,23 @@
           {#if activeDoc.activeTool === "select" && activeDoc.selectedShapes.length === 1 && activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)}
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "tl")}
-              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -top-1 -left-1 cursor-nwse-resize rounded-full"
+              class="resize-handle-node absolute w-2 h-2 bg-white border -top-1 -left-1 cursor-nwse-resize rounded-full"
+              style="border-color: var(--sdf-accent);"
             ></div>
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "tr")}
-              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -top-1 -right-1 cursor-nesw-resize rounded-full"
+              class="resize-handle-node absolute w-2 h-2 bg-white border -top-1 -right-1 cursor-nesw-resize rounded-full"
+              style="border-color: var(--sdf-accent);"
             ></div>
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "bl")}
-              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -bottom-1 -left-1 cursor-nesw-resize rounded-full"
+              class="resize-handle-node absolute w-2 h-2 bg-white border -bottom-1 -left-1 cursor-nesw-resize rounded-full"
+              style="border-color: var(--sdf-accent);"
             ></div>
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "br")}
-              class="resize-handle-node absolute w-2 h-2 bg-white border border-[#00d2ff] -bottom-1 -right-1 cursor-nwse-resize rounded-full"
+              class="resize-handle-node absolute w-2 h-2 bg-white border -bottom-1 -right-1 cursor-nwse-resize rounded-full"
+              style="border-color: var(--sdf-accent);"
             ></div>
           {/if}
         </div>
@@ -798,14 +800,14 @@
           <!-- Compact endpoint handles (smaller than box corners — sit on a thin stroke) -->
           <div
             onmousedown={(e) => initHandleDrag(e, idx, "line-start")}
-            class="resize-handle-node absolute w-1.5 h-1.5 bg-white border border-[#00d2ff] rounded-full shadow-sm z-50 cursor-move -translate-x-1/2 -translate-y-1/2"
-            style="left: {lp0.x}%; top: {lp0.y}%;"
+            class="resize-handle-node absolute w-1.5 h-1.5 bg-white border rounded-full shadow-sm z-50 cursor-move -translate-x-1/2 -translate-y-1/2"
+            style="left: {lp0.x}%; top: {lp0.y}%; border-color: var(--sdf-accent);"
             title="Start point"
           ></div>
           <div
             onmousedown={(e) => initHandleDrag(e, idx, "line-end")}
-            class="resize-handle-node absolute w-1.5 h-1.5 bg-white border border-[#00d2ff] rounded-full shadow-sm z-50 cursor-move -translate-x-1/2 -translate-y-1/2"
-            style="left: {lp1.x}%; top: {lp1.y}%;"
+            class="resize-handle-node absolute w-1.5 h-1.5 bg-white border rounded-full shadow-sm z-50 cursor-move -translate-x-1/2 -translate-y-1/2"
+            style="left: {lp1.x}%; top: {lp1.y}%; border-color: var(--sdf-accent);"
             title="End point"
           ></div>
         {/if}
@@ -967,8 +969,8 @@
     <!-- Object alignment bar: 2+ selected, near top-right of selection bounds -->
     {#if showAlignBar && selectionDisplayBounds}
       <div
-        class="absolute z-[60] pointer-events-auto flex items-center gap-0.5 bg-[#090d16]/95 border border-slate-800/80 rounded-lg px-1 py-0.5 shadow-[0_8px_24px_rgba(0,0,0,0.45)] backdrop-blur-md"
-        style="left: {selectionDisplayBounds.x + selectionDisplayBounds.width}%; top: {selectionDisplayBounds.y}%; transform: translate(-100%, calc(-100% - 6px));"
+        class="absolute z-[60] pointer-events-auto flex items-center gap-0.5 rounded-lg px-1 py-0.5 backdrop-blur-md"
+        style="background: var(--sdf-overlay-bg); border: 1px solid var(--sdf-overlay-border); box-shadow: 0 8px 24px rgba(0,0,0,0.25); left: {selectionDisplayBounds.x + selectionDisplayBounds.width}%; top: {selectionDisplayBounds.y}%; transform: translate(-100%, calc(-100% - 6px));"
         role="toolbar"
         aria-label="Align objects"
         onpointerdown={(e) => e.stopPropagation()}
@@ -1001,7 +1003,7 @@
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 4v16M6 8h10M8 12h8M6 16h10"/></svg>
         </button>
-        <span class="w-px h-4 bg-slate-700 mx-0.5" aria-hidden="true"></span>
+        <span class="w-px h-4 mx-0.5" style="background: var(--sdf-border);" aria-hidden="true"></span>
         <button
           type="button"
           class="align-btn"
@@ -1029,7 +1031,7 @@
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20h16M8 6v10M12 10v6M16 6v10"/></svg>
         </button>
-        <span class="w-px h-4 bg-slate-700 mx-0.5" aria-hidden="true"></span>
+        <span class="w-px h-4 mx-0.5" style="background: var(--sdf-border);" aria-hidden="true"></span>
         <button
           type="button"
           class="align-btn"
@@ -1062,12 +1064,12 @@
     width: 1.5rem;
     height: 1.5rem;
     border-radius: 0.25rem;
-    color: rgb(148 163 184);
+    color: var(--sdf-text-secondary);
     transition: color 0.15s, background-color 0.15s;
   }
   .align-btn:hover:not(:disabled) {
-    color: white;
-    background-color: rgb(30 41 59);
+    color: var(--sdf-text-primary);
+    background-color: var(--sdf-hover-bg);
   }
   .align-btn:disabled {
     opacity: 0.35;

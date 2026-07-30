@@ -102,7 +102,8 @@
     onclick={closeWithoutSave}
   >
     <div
-      class="bg-[#0b101c] border border-slate-800 w-full max-w-lg max-h-[85vh] rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-300"
+      class="border w-full max-w-lg max-h-[85vh] rounded-xl shadow-2xl flex flex-col overflow-hidden"
+      style="background: var(--sdf-bg-chrome); border-color: var(--sdf-border); color: var(--sdf-text-secondary);"
       role="dialog"
       aria-modal="true"
       aria-label="Settings"
@@ -111,26 +112,28 @@
     >
       <!-- Header -->
       <div
-        class="p-4 border-b border-slate-900/60 flex items-center justify-between bg-[#0e1524]/60 shrink-0"
+        class="p-4 border-b flex items-center justify-between shrink-0"
+        style="border-color: var(--sdf-border-subtle); background: color-mix(in srgb, var(--sdf-bg-surface) 60%, transparent);"
       >
         <div class="flex items-center gap-2">
           {#if view === "saved"}
             <button
               type="button"
-              class="text-slate-500 hover:text-white text-xs font-bold uppercase tracking-wider mr-1"
+              class="text-xs font-bold uppercase tracking-wider mr-1 transition-colors"
+              style="color: var(--sdf-text-muted);"
               onclick={() => (view = "main")}
             >
               ← Back
             </button>
           {/if}
-          <span class="text-xs font-bold uppercase tracking-widest text-slate-400">
+          <span class="text-xs font-bold uppercase tracking-widest" style="color: var(--sdf-text-secondary);">
             {view === "saved" ? "Saved Values" : "Settings"}
           </span>
         </div>
         <button
           type="button"
           onclick={closeWithoutSave}
-          class="text-slate-500 hover:text-white text-sm transition-colors"
+          class="text-sm transition-colors" style="color: var(--sdf-text-muted);"
           title="Close without saving"
           aria-label="Close without saving"
         >✕</button>
@@ -140,26 +143,23 @@
         {#if view === "main"}
           <!-- Theme -->
           <section>
-            <h4 class="text-[11px] font-bold uppercase tracking-widest text-slate-100 mb-2.5">
+            <h4 class="text-[11px] font-bold uppercase tracking-widest mb-2.5" style="color: var(--sdf-text-primary);">
               Theme
             </h4>
             <div class="flex gap-2">
               <button
                 type="button"
-                class="flex-1 py-2 rounded-lg border text-[11px] font-semibold transition-colors
-                  {draft.theme === 'dark'
-                    ? 'border-cyan-500/60 bg-cyan-950/30 text-cyan-300'
-                    : 'border-slate-800 bg-slate-950/40 text-slate-400'}"
+                class="settings-theme-btn flex-1 py-2 rounded-lg border text-[11px] font-semibold transition-colors"
+                class:settings-theme-active={draft.theme === 'dark'}
                 onclick={() => (draft = { ...draft, theme: "dark" })}
               >
                 Dark
               </button>
               <button
                 type="button"
-                class="settings-coming-soon flex-1 py-2 rounded-lg border border-slate-800/80 bg-slate-950/20 text-slate-600 text-[11px] font-semibold opacity-60"
-                title="Coming soon"
-                aria-disabled="true"
-                tabindex="-1"
+                class="settings-theme-btn flex-1 py-2 rounded-lg border text-[11px] font-semibold transition-colors"
+                class:settings-theme-active={draft.theme === 'light'}
+                onclick={() => (draft = { ...draft, theme: "light" })}
               >
                 Light
               </button>
@@ -168,18 +168,18 @@
 
           <!-- Tools -->
           <section>
-            <h4 class="text-[11px] font-bold uppercase tracking-widest text-slate-100 mb-2.5">
+            <h4 class="text-[11px] font-bold uppercase tracking-widest mb-2.5" style="color: var(--sdf-text-primary);">
               Tools
             </h4>
             <p class="text-[10px] text-slate-500 mb-2">
-              Turn tools off to hide them from the right-click menu.
+              <span style="color: var(--sdf-text-muted);">Turn tools off to hide them from the right-click menu.</span>
             </p>
             <div class="space-y-1.5">
               {#each TOOL_IDS as id}
                 <label
-                  class="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-slate-900 bg-slate-950/40 cursor-pointer hover:border-slate-800"
+                  class="settings-row flex items-center justify-between gap-3 px-3 py-2 rounded-lg border cursor-pointer"
                 >
-                  <span class="text-[12px] text-slate-200 font-medium">
+                  <span class="text-[12px] font-medium" style="color: var(--sdf-text-primary);">
                     {TOOL_LABELS[id]}
                   </span>
                   <input
@@ -195,7 +195,7 @@
 
           <!-- Network features -->
           <section>
-            <h4 class="text-[11px] font-bold uppercase tracking-widest text-slate-100 mb-1">
+            <h4 class="text-[11px] font-bold uppercase tracking-widest mb-1" style="color: var(--sdf-text-primary);">
               Network features
             </h4>
             <p class="text-[10px] text-slate-500 mb-2">
@@ -203,11 +203,11 @@
             </p>
             <div class="space-y-1.5">
               <label
-                class="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-slate-900 bg-slate-950/40 cursor-pointer hover:border-slate-800"
+                class="settings-row flex items-center justify-between gap-3 px-3 py-2 rounded-lg border cursor-pointer"
               >
                 <div>
-                  <div class="text-[12px] text-slate-200 font-medium">OCR</div>
-                  <div class="text-[10px] text-slate-500">Downloads models on first use</div>
+                  <div class="text-[12px] font-medium" style="color: var(--sdf-text-primary);">OCR</div>
+                  <div class="text-[10px]" style="color: var(--sdf-text-muted);">Downloads models on first use</div>
                 </div>
                 <input
                   type="checkbox"
@@ -217,7 +217,7 @@
                 />
               </label>
               <div
-                class="settings-coming-soon flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-slate-900 bg-slate-950/30 opacity-55"
+                class="settings-coming-soon settings-row flex items-center justify-between gap-3 px-3 py-2 rounded-lg border opacity-55"
                 title="Coming soon"
                 aria-disabled="true"
               >
@@ -233,13 +233,13 @@
                 ></span>
               </div>
               <label
-                class="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-slate-900 bg-slate-950/40 cursor-pointer hover:border-slate-800"
+                class="settings-row flex items-center justify-between gap-3 px-3 py-2 rounded-lg border cursor-pointer"
               >
                 <div>
-                  <div class="text-[12px] text-slate-200 font-medium">
+                  <div class="text-[12px] font-medium" style="color: var(--sdf-text-primary);">
                     Check for updates on launch
                   </div>
-                  <div class="text-[10px] text-slate-500">Silent background update check</div>
+                  <div class="text-[10px]" style="color: var(--sdf-text-muted);">Silent background update check</div>
                 </div>
                 <input
                   type="checkbox"
@@ -257,12 +257,13 @@
 
           <!-- Saved values -->
           <section>
-            <h4 class="text-[11px] font-bold uppercase tracking-widest text-slate-100 mb-2.5">
+            <h4 class="text-[11px] font-bold uppercase tracking-widest mb-2.5" style="color: var(--sdf-text-primary);">
               Saved Values
             </h4>
             <button
               type="button"
-              class="w-full py-2 px-3 rounded-lg border border-slate-800 bg-slate-950/50 text-[11px] font-semibold text-slate-200 hover:border-cyan-500/40 hover:text-cyan-300 transition-colors"
+              class="settings-row w-full py-2 px-3 rounded-lg border text-[11px] font-semibold transition-colors"
+              style="color: var(--sdf-text-primary);"
               onclick={() => (view = "saved")}
             >
               Show saved values
@@ -359,11 +360,13 @@
 
       <!-- Footer -->
       <div
-        class="p-3 border-t border-slate-900/60 flex items-center justify-end gap-2 bg-[#0e1524]/40 shrink-0"
+        class="p-3 border-t flex items-center justify-end gap-2 shrink-0"
+        style="border-color: var(--sdf-border-subtle); background: color-mix(in srgb, var(--sdf-bg-surface) 40%, transparent);"
       >
         <button
           type="button"
-          class="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white border border-slate-800 hover:border-slate-600 transition-colors"
+          class="px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors"
+          style="color: var(--sdf-text-secondary); border-color: var(--sdf-border);"
           onclick={closeWithoutSave}
         >
           Close without saving
@@ -386,8 +389,8 @@
     width: 2.25rem;
     height: 1.2rem;
     border-radius: 999px;
-    background: #1e293b;
-    border: 1px solid #334155;
+    background: var(--sdf-hover-bg);
+    border: 1px solid var(--sdf-active-bg);
     position: relative;
     cursor: pointer;
     transition: background 0.15s ease, border-color 0.15s ease;
@@ -402,28 +405,47 @@
     width: 0.85rem;
     height: 0.85rem;
     border-radius: 999px;
-    background: #94a3b8;
+    background: var(--sdf-text-secondary);
     transition: transform 0.15s ease, background 0.15s ease;
   }
   .settings-toggle:checked {
     background: rgba(8, 145, 178, 0.35);
-    border-color: #06b6d4;
+    border-color: var(--sdf-accent);
   }
   .settings-toggle:checked::after {
     transform: translateX(1rem);
-    background: #22d3ee;
+    background: var(--sdf-accent-text);
   }
   /* Static off state for coming-soon toggles (not an input) */
   .settings-toggle--off {
     cursor: default;
     pointer-events: none;
   }
-  /* Greyed-out “coming soon” — no forbidden cursor */
+  /* Greyed-out "coming soon" — no forbidden cursor */
   .settings-coming-soon {
     cursor: default;
   }
   .settings-coming-soon:disabled,
   .settings-coming-soon[aria-disabled="true"] {
     cursor: default;
+  }
+  /* Settings row items — theme-aware */
+  .settings-row {
+    border-color: var(--sdf-border-subtle);
+    background: color-mix(in srgb, var(--sdf-bg-input) 40%, transparent);
+  }
+  .settings-row:hover {
+    border-color: var(--sdf-border);
+  }
+  /* Theme toggle buttons */
+  .settings-theme-btn {
+    border-color: var(--sdf-border);
+    background: color-mix(in srgb, var(--sdf-bg-input) 40%, transparent);
+    color: var(--sdf-text-secondary);
+  }
+  .settings-theme-active {
+    border-color: rgba(6, 182, 212, 0.6);
+    background: rgba(8, 145, 178, 0.15);
+    color: var(--sdf-accent-text);
   }
 </style>

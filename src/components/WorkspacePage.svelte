@@ -565,7 +565,8 @@
 
           {#if bookmarkHovered || bookmarkComposing}
             <div
-              class="absolute left-full top-0 ml-1.5 flex items-center gap-2 bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1 shadow-2xl backdrop-blur-sm z-50 whitespace-nowrap pointer-events-auto"
+              class="absolute left-full top-0 ml-1.5 flex items-center gap-2 rounded-lg px-2 py-1 shadow-2xl backdrop-blur-sm z-50 whitespace-nowrap pointer-events-auto"
+              style="background: var(--sdf-overlay-bg); border: 1px solid var(--sdf-overlay-border);"
               onmousedown={(e) => e.stopPropagation()}
             >
               {#if bookmarkComposing}
@@ -583,7 +584,8 @@
                       cancelBookmarkCompose();
                     }
                   }}
-                  class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-cyan-500 max-w-[130px] font-sans"
+                  class="rounded px-1.5 py-0.5 text-[10px] focus:outline-none focus:border-cyan-500 max-w-[130px] font-sans"
+                style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
                 />
                 <button
                   type="button"
@@ -594,13 +596,14 @@
                   <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </button>
               {:else}
-                <span class="text-[10px] font-medium text-slate-300 max-w-[130px] truncate font-sans">
+                <span class="text-[10px] font-medium max-w-[130px] truncate font-sans" style="color: var(--sdf-text-secondary);">
                   {pageBookmark.name || "Untitled reference"}
                 </span>
                 <button
                   type="button"
                   onclick={() => void openBookmarkCompose(pageBookmark.name || "")}
-                  class="p-0.5 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"
+                  class="p-0.5 rounded hover:text-amber-400"
+                  style="color: var(--sdf-text-muted);"
                   aria-label="Rename bookmark"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -615,7 +618,8 @@
                   bookmarkHovered = false;
                   bookmarkDraft = "";
                 }}
-                class="p-0.5 rounded text-slate-500 hover:text-red-400 hover:bg-slate-800"
+                class="p-0.5 rounded hover:text-red-400"
+                style="color: var(--sdf-text-muted);"
                 aria-label="Remove bookmark"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -641,7 +645,8 @@
           </button>
           {#if bookmarkComposing}
             <div
-              class="absolute left-full top-0 ml-1.5 flex items-center gap-2 bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1 shadow-2xl backdrop-blur-sm z-50 whitespace-nowrap pointer-events-auto"
+              class="absolute left-full top-0 ml-1.5 flex items-center gap-2 rounded-lg px-2 py-1 shadow-2xl backdrop-blur-sm z-50 whitespace-nowrap pointer-events-auto"
+              style="background: var(--sdf-overlay-bg); border: 1px solid var(--sdf-overlay-border);"
               onmousedown={(e) => e.stopPropagation()}
             >
               <input
@@ -658,7 +663,8 @@
                     cancelBookmarkCompose();
                   }
                 }}
-                class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-cyan-500 max-w-[130px] font-sans"
+                class="rounded px-1.5 py-0.5 text-[10px] focus:outline-none focus:border-cyan-500 max-w-[130px] font-sans"
+                style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
               />
               <button
                 type="button"
@@ -670,7 +676,8 @@
               <button
                 type="button"
                 onclick={cancelBookmarkCompose}
-                class="p-0.5 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-800"
+                class="p-0.5 rounded"
+                style="color: var(--sdf-text-muted);"
                 aria-label="Cancel bookmark"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -725,12 +732,13 @@
 
         {#if commentHovered || commentComposing}
           <div
-            class="absolute left-full top-0 ml-1.5 flex flex-col gap-1.5 bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1.5 shadow-2xl backdrop-blur-sm z-50 min-w-[180px] max-w-[240px] pointer-events-auto"
+            class="absolute left-full top-0 ml-1.5 flex flex-col gap-1.5 rounded-lg px-2 py-1.5 shadow-2xl backdrop-blur-sm z-50 min-w-[180px] max-w-[240px] pointer-events-auto"
+            style="background: var(--sdf-overlay-bg); border: 1px solid var(--sdf-overlay-border);"
             onmousedown={(e) => e.stopPropagation()}
           >
             {#if pageHasCommentThreads}
               <div class="flex items-center justify-between gap-1.5">
-                <span class="text-[8px] font-bold uppercase tracking-widest text-slate-500">
+                <span class="text-[8px] font-bold uppercase tracking-widest" style="color: var(--sdf-text-muted);">
                   Page notes
                   <span class="ml-1 font-mono text-amber-500/80 normal-case tracking-normal">{pageCommentCount}</span>
                 </span>
@@ -741,7 +749,8 @@
                     commentComposing = false;
                     commentHovered = false;
                   }}
-                  class="p-0.5 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800 shrink-0"
+                  class="p-0.5 rounded hover:text-amber-400 shrink-0"
+                  style="color: var(--sdf-text-muted);"
                   aria-label="Open comments panel"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -753,26 +762,28 @@
                   <div class="min-w-0">
                     <div class="flex items-center gap-1.5">
                       <span
-                        class="text-[9px] font-semibold text-slate-300 truncate"
+                        class="text-[9px] font-semibold truncate"
+                      style="color: var(--sdf-text-secondary);"
                         title={thread.authorFullName || thread.author}
                       >{thread.author}</span>
-                      <span class="text-[8px] text-slate-600 font-mono shrink-0">{formatCommentTime(thread.createdAt)}</span>
+                      <span class="text-[8px] font-mono shrink-0" style="color: var(--sdf-text-faint);">{formatCommentTime(thread.createdAt)}</span>
                     </div>
-                    <span class="text-[10px] font-medium text-slate-400 block whitespace-pre-wrap break-words font-sans mt-0.5 leading-snug">
+                    <span class="text-[10px] font-medium block whitespace-pre-wrap break-words font-sans mt-0.5 leading-snug" style="color: var(--sdf-text-secondary);">
                       {thread.text || "Untitled note"}
                     </span>
                     {#if (thread.replies || []).length > 0}
-                      <div class="mt-1 ml-1.5 pl-1.5 border-l border-slate-800 space-y-1">
+                      <div class="mt-1 ml-1.5 pl-1.5 space-y-1" style="border-left: 1px solid var(--sdf-border);">
                         {#each thread.replies || [] as reply (reply.id)}
                           <div class="min-w-0">
                             <div class="flex items-center gap-1.5">
                               <span
-                                class="text-[8px] font-semibold text-slate-500 truncate"
+                                class="text-[8px] font-semibold truncate"
+                              style="color: var(--sdf-text-muted);"
                                 title={reply.authorFullName || reply.author}
                               >{reply.author}</span>
-                              <span class="text-[7px] text-slate-600 font-mono shrink-0">{formatCommentTime(reply.createdAt)}</span>
+                              <span class="text-[7px] font-mono shrink-0" style="color: var(--sdf-text-faint);">{formatCommentTime(reply.createdAt)}</span>
                             </div>
-                            <span class="text-[9px] text-slate-500 block whitespace-pre-wrap break-words font-sans leading-snug">
+                            <span class="text-[9px] block whitespace-pre-wrap break-words font-sans leading-snug" style="color: var(--sdf-text-muted);">
                               {reply.text}
                             </span>
                           </div>
@@ -782,7 +793,7 @@
                   </div>
                 {/each}
               </div>
-              <div class="border-t border-slate-800/80"></div>
+              <div style="border-top: 1px solid var(--sdf-border);"></div>
             {/if}
 
             <div class="flex items-start gap-1.5">
@@ -802,7 +813,8 @@
                     commentHovered = false;
                   }
                 }}
-                class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/50 flex-1 min-w-0 font-sans resize-none leading-relaxed overflow-hidden"
+                class="rounded px-1.5 py-0.5 text-[10px] placeholder-slate-600 focus:outline-none focus:border-amber-500/50 flex-1 min-w-0 font-sans resize-none leading-relaxed overflow-hidden"
+              style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
               ></textarea>
               <button
                 onclick={(e) => {

@@ -374,17 +374,18 @@
 </script>
 
 <div
-  class="w-12 h-full bg-[#090d16] border-r border-slate-900 flex flex-col items-center py-4 gap-2 select-none relative z-40"
+  class="w-12 h-full border-r flex flex-col items-center py-4 gap-2 select-none relative z-40"
+  style="background: var(--sdf-bg-app); border-color: var(--sdf-border-subtle);"
 >
   <button
     onclick={() => {
       doc.activeTool = "select";
       doc.activeStampDataUrl = null;
     }}
-    class="w-8 h-8 flex items-center justify-center rounded transition-all {doc.activeTool ===
-    'select'
-      ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]'
-      : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+    class="w-8 h-8 flex items-center justify-center rounded transition-all"
+    style={doc.activeTool === 'select'
+      ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent); border: 1px solid var(--sdf-accent-border);'
+      : 'color: var(--sdf-text-secondary);'}
     title="Select Pointer"
   >
     <svg
@@ -417,9 +418,10 @@
         isTextMenuOpen = false;
         doc.activeTool = "text";
       }}
-      class="w-8 h-8 flex items-center justify-center rounded transition-all {doc.activeTool === 'text'
-        ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]'
-        : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+      class="w-8 h-8 flex items-center justify-center rounded transition-all"
+      style={doc.activeTool === 'text'
+        ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent); border: 1px solid var(--sdf-accent-border);'
+        : 'color: var(--sdf-text-secondary);'}
       title="Text Annotation"
     >
       <svg
@@ -442,13 +444,14 @@
     </button>
   </div>
 
-  <div class="h-px w-6 bg-slate-800/60 mx-auto my-1 pointer-events-auto"></div>
+  <div class="h-px w-6 mx-auto my-1 pointer-events-auto" style="background: var(--sdf-border);"></div>
 
   <button
     onclick={() => (doc.activeTool = "pen")}
-    class="w-8 h-8 flex items-center justify-center rounded transition-all {doc.activeTool === 'pen'
-      ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]'
-      : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+    class="w-8 h-8 flex items-center justify-center rounded transition-all"
+    style={doc.activeTool === 'pen'
+      ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent); border: 1px solid var(--sdf-accent-border);'
+      : 'color: var(--sdf-text-secondary);'}
     title="Pen"
   >
     <svg viewBox="0 0 24 24" class="w-[14px] h-[14px] fill-none stroke-current" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -468,15 +471,10 @@
         isThicknessMenuOpen = false;
         isShapeMenuOpen = !isShapeMenuOpen;
       }}
-      class="w-8 h-8 flex items-center justify-center rounded transition-all
-        {[
-        'rect',
-        'oval',
-        'rect-fill',
-        'oval-fill',
-      ].includes(doc.activeTool || '') || isShapeMenuOpen
-        ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]'
-        : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+      class="w-8 h-8 flex items-center justify-center rounded transition-all"
+      style={['rect', 'oval', 'rect-fill', 'oval-fill'].includes(doc.activeTool || '') || isShapeMenuOpen
+        ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent); border: 1px solid var(--sdf-accent-border);'
+        : 'color: var(--sdf-text-secondary);'}
       title="Vector Shape Matrix"
     >
       <svg
@@ -506,10 +504,12 @@
       ></div>
       <div
         onclick={(e) => e.stopPropagation()}
-        class="absolute left-14 top-0 w-44 bg-slate-950 border border-slate-800 rounded-lg shadow-2xl p-2 flex flex-col gap-1 z-50 text-left backdrop-blur-md"
+        class="absolute left-14 top-0 w-44 rounded-lg shadow-2xl p-2 flex flex-col gap-1 z-50 text-left backdrop-blur-md"
+        style="background: var(--sdf-bg-chrome); border: 1px solid var(--sdf-border);"
       >
         <span
-          class="text-[8px] font-bold tracking-widest uppercase text-slate-400 block border-b border-slate-800 pb-1.5 px-1"
+          class="text-[8px] font-bold tracking-widest uppercase block pb-1.5 px-1"
+          style="color: var(--sdf-text-muted); border-bottom: 1px solid var(--sdf-border-subtle);"
           >Shape Tools</span
         >
         {#each shapeVariants as shape}
@@ -518,10 +518,10 @@
               doc.activeTool = shape.id;
               isShapeMenuOpen = false;
             }}
-            class="w-full px-2 py-1.5 rounded flex items-center gap-2.5 text-[10px] font-bold font-sans tracking-wide transition-colors text-left
-              {doc.activeTool === shape.id
-              ? 'bg-[#00d2ff]/10 text-[#00d2ff]'
-              : 'text-slate-400 hover:bg-slate-800/40 hover:text-white'}"
+            class="w-full px-2 py-1.5 rounded flex items-center gap-2.5 text-[10px] font-bold font-sans tracking-wide transition-colors text-left"
+            style={doc.activeTool === shape.id
+              ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent);'
+              : 'color: var(--sdf-text-secondary);'}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -550,9 +550,10 @@
 
   <button
     onclick={() => (doc.activeTool = "line")}
-    class="w-8 h-8 flex items-center justify-center rounded transition-all {doc.activeTool === 'line'
-      ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]'
-      : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+    class="w-8 h-8 flex items-center justify-center rounded transition-all"
+    style={doc.activeTool === 'line'
+      ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent); border: 1px solid var(--sdf-accent-border);'
+      : 'color: var(--sdf-text-secondary);'}
     title="Line (click start, click end)"
   >
     <svg
@@ -572,10 +573,10 @@
 
   <button
     onclick={() => (doc.activeTool = "highlight")}
-    class="w-8 h-8 flex items-center justify-center rounded transition-all {doc.activeTool ===
-    'highlight'
-      ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]'
-      : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+    class="w-8 h-8 flex items-center justify-center rounded transition-all"
+    style={doc.activeTool === 'highlight'
+      ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent); border: 1px solid var(--sdf-accent-border);'
+      : 'color: var(--sdf-text-secondary);'}
     title="Highlighter (Yellow)"
   >
     <svg
@@ -585,37 +586,36 @@
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      stroke-width="2.5"
+      stroke-width="2.2"
       stroke-linecap="round"
       stroke-linejoin="round"
-      ><path
-        d="m12 3-1.912 5.813a2 2 0 0 0-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21"
-        opacity="0.4"
-      /><path d="M14 10l5-5 2 2-5 5z" fill="currentColor" /></svg
     >
+      <path d="m9 11-6 6v3h9l3-3"/>
+      <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>
+    </svg>
   </button>
 
-  <div class="w-6 h-[1px] bg-slate-800 my-1"></div>
+  <div class="w-6 h-[1px] my-1" style="background: var(--sdf-border);"></div>
 
   <button
     onclick={() => (doc.activeTool = "tick")}
-    class="w-8 h-8 flex items-center justify-center rounded transition-all font-sans font-bold text-sm {doc.activeTool ===
-    'tick'
-      ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30'
-      : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+    class="w-8 h-8 flex items-center justify-center rounded transition-all font-sans font-bold text-sm"
+    style={doc.activeTool === 'tick'
+      ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent); border: 1px solid var(--sdf-accent-border);'
+      : 'color: var(--sdf-text-secondary);'}
     title="Tick Stamp">✓</button
   >
 
   <button
     onclick={() => (doc.activeTool = "dash")}
-    class="w-8 h-8 flex items-center justify-center rounded transition-all font-sans font-bold text-sm {doc.activeTool ===
-    'dash'
-      ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30'
-      : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+    class="w-8 h-8 flex items-center justify-center rounded transition-all font-sans font-bold text-sm"
+    style={doc.activeTool === 'dash'
+      ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent); border: 1px solid var(--sdf-accent-border);'
+      : 'color: var(--sdf-text-secondary);'}
     title="Dash Stamp">—</button
   >
 
-  <div class="w-6 h-[1px] bg-slate-800 my-1"></div>
+  <div class="w-6 h-[1px] my-1" style="background: var(--sdf-border);"></div>
 
   <div class="relative flex flex-col items-center">
     <button
@@ -626,12 +626,10 @@
         isThicknessMenuOpen = false;
         isMenuOpen = !isMenuOpen;
       }}
-      class="w-8 h-8 flex items-center justify-center rounded transition-all relative {[
-        'signature',
-        'initial',
-      ].includes(doc.activeTool || '') || isMenuOpen
-        ? 'bg-cyan-500/10 text-[#00d2ff] border border-cyan-500/30'
-        : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+      class="w-8 h-8 flex items-center justify-center rounded transition-all relative"
+      style={['signature', 'initial'].includes(doc.activeTool || '') || isMenuOpen
+        ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent); border: 1px solid var(--sdf-accent-border);'
+        : 'color: var(--sdf-text-secondary);'}
       title="Signatures & Initials"
     >
       <svg
@@ -644,14 +642,10 @@
         stroke-width="2.2"
         stroke-linecap="round"
         stroke-linejoin="round"
-        ><path d="M12 3v7" /><path d="M16 10H8l2 5h4z" /><path
-          d="m14 15-2 6-2-6z"
-        /><path
-          d="M3 20c3-3 5-1 8-3s4-4 8-1"
-          stroke-width="1.8"
-          opacity="0.9"
-        /></svg
       >
+        <path d="m21 17-2.156-1.868A.5.5 0 0 0 18 15.5v.5a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1c0-2.545-3.991-3.97-8.5-4a1 1 0 0 0 0 5c4.153 0 4.745-11.295 5.708-13.5a2.5 2.5 0 1 1 3.31 3.284"/>
+        <path d="M3 21h18"/>
+      </svg>
     </button>
     {#if isMenuOpen}
       <div
@@ -660,21 +654,25 @@
       ></div>
       <div
         onclick={(e) => e.stopPropagation()}
-        class="absolute left-14 top-0 w-72 bg-[#090d16] border border-slate-900 rounded-lg shadow-2xl p-3 flex flex-col gap-2 z-50 text-left"
+        class="absolute left-14 top-0 w-72 border rounded-lg shadow-2xl p-3 flex flex-col gap-2 z-50 text-left"
+        style="background: var(--sdf-bg-app); border-color: var(--sdf-border-subtle);"
       >
         <span
-          class="text-[9px] font-bold tracking-widest uppercase text-slate-500 block border-b border-slate-900/40 pb-1.5"
+          class="text-[9px] font-bold tracking-widest uppercase block pb-1.5"
+          style="color: var(--sdf-text-muted); border-bottom: 1px solid var(--sdf-border-subtle);"
           >Saved Stamp Sets</span
         >
         <div class="max-h-48 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
           {#each doc.savedSignatureSets || [] as set}
             <div
-              class="flex flex-col gap-1 bg-[#141b2b]/60 border border-slate-900 rounded p-1.5 hover:border-slate-800 transition-all"
+              class="flex flex-col gap-1 rounded p-1.5 transition-all"
+              style="background: var(--sdf-bg-surface); border: 1px solid var(--sdf-border-subtle);"
             >
               {#if set.label || set.firstName || set.lastName}
                 <div class="flex items-center justify-between gap-1 px-0.5">
                   <span
-                    class="text-[9px] font-semibold text-slate-300 truncate"
+                    class="text-[9px] font-semibold truncate"
+                    style="color: var(--sdf-text-secondary);"
                     title={set.email || set.label || ""}
                   >
                     {set.label ||
@@ -746,7 +744,8 @@
             </div>
           {:else}
             <div
-              class="text-[10px] text-slate-600 font-medium italic text-center py-4"
+              class="text-[10px] font-medium italic text-center py-4"
+              style="color: var(--sdf-text-faint);"
             >
               No signature profiles mapped
             </div>
@@ -754,7 +753,8 @@
         </div>
         <button
           onclick={openSignatureModal}
-          class="w-full mt-1 py-2 bg-slate-800/40 border border-slate-800 text-slate-300 rounded text-[10px] font-bold flex items-center justify-center gap-1.5 hover:text-white"
+          class="w-full mt-1 py-2 rounded text-[10px] font-bold flex items-center justify-center gap-1.5 transition-colors"
+          style="background: var(--sdf-bg-surface); border: 1px solid var(--sdf-border); color: var(--sdf-text-secondary);"
           ><svg
             xmlns="http://www.w3.org/2000/svg"
             width="10"
@@ -775,7 +775,7 @@
     {/if}
   </div>
 
-  <div class="w-6 h-[1px] bg-slate-800 my-1"></div>
+  <div class="w-6 h-[1px] my-1" style="background: var(--sdf-border);"></div>
 
   <div class="relative mt-1 flex flex-col items-center">
     <button
@@ -804,11 +804,12 @@
       ></div>
       <div
         onclick={(e) => e.stopPropagation()}
-        class="absolute z-[100] mt-2 p-3 bg-slate-950 border border-slate-800 rounded-lg shadow-2xl text-slate-200 w-72 backdrop-blur-md left-10 top-0 text-left pointer-events-auto select-none"
-        style="color-scheme: dark;"
+        class="absolute z-[100] mt-2 p-3 rounded-lg shadow-2xl w-72 backdrop-blur-md left-10 top-0 text-left pointer-events-auto select-none"
+        style="background: var(--sdf-bg-chrome); border: 1px solid var(--sdf-border); color: var(--sdf-text-primary);"
       >
         <span
-          class="text-[8px] font-bold tracking-widest uppercase text-slate-400 block border-b border-slate-800 pb-1.5 px-1 whitespace-nowrap mb-2"
+          class="text-[8px] font-bold tracking-widest uppercase block pb-1.5 px-1 whitespace-nowrap mb-2"
+          style="color: var(--sdf-text-muted); border-bottom: 1px solid var(--sdf-border-subtle);"
           >Ink Color</span
         >
         <div class="flex items-center gap-1.5 px-1">
@@ -821,20 +822,21 @@
               class="w-4 h-4 rounded-full border transition-all duration-150 cursor-pointer relative shadow-inner {(doc.activeColor || '').substring(0, 7) ===
               color.hex
                 ? 'ring-2 ring-slate-400 scale-110 border-white'
-                : 'border-slate-900/80 hover:scale-110'}"
-              style="background-color: {color.hex};"
+                : 'hover:scale-110'}"
+              style="background-color: {color.hex}; border-color: var(--sdf-border);"
               title={color.name}
             >
               {#if color.hex === "#000000"}<div
-                  class="absolute inset-0 rounded-full border border-slate-800 pointer-events-none"
+                  class="absolute inset-0 rounded-full border pointer-events-none"
+                  style="border-color: var(--sdf-border);"
                 ></div>{/if}
             </button>
           {/each}
 
-          <div class="flex items-center gap-3 pl-2 border-l border-slate-800 ml-1">
+          <div class="flex items-center gap-3 pl-2 ml-1" style="border-left: 1px solid var(--sdf-border);">
             <div 
-              class="relative w-6 h-6 rounded-full border border-slate-700 shadow-md group hover:scale-105 transition-transform cursor-pointer"
-              style="background-color: {customColor};"
+              class="relative w-6 h-6 rounded-full border shadow-md group hover:scale-105 transition-transform cursor-pointer"
+              style="background-color: {customColor}; border-color: var(--sdf-border);"
               title="Choose Custom Color"
             >
               <input 
@@ -847,14 +849,13 @@
                   doc.activeColor = `${colorHex}${alphaHex}`.toLowerCase();
                 }}
                 class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                style="color-scheme: dark;"
               />
             </div>
 
             <div class="flex flex-col gap-0.5 w-24">
-              <div class="flex justify-between items-center text-[10px] text-slate-500 font-mono select-none">
+              <div class="flex justify-between items-center text-[10px] font-mono select-none" style="color: var(--sdf-text-muted);">
                 <span>Opacity</span>
-                <span class="text-slate-400">{globalOpacity}%</span>
+                <span style="color: var(--sdf-text-secondary);">{globalOpacity}%</span>
               </div>
               <input 
                 type="range" 
@@ -868,7 +869,8 @@
                   const colorHex = customColor.startsWith('#') ? customColor : `#${customColor}`;
                   doc.activeColor = `${colorHex}${alphaHex}`.toLowerCase();
                 }}
-                class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500 transition-all hover:bg-slate-750"
+                class="w-full h-1 rounded-lg appearance-none cursor-pointer accent-cyan-500 transition-all"
+                style="background: var(--sdf-bg-surface);"
               />
             </div>
           </div>
@@ -912,32 +914,33 @@
       ></div>
       <div
         onclick={(e) => e.stopPropagation()}
-        class="absolute left-10 top-0 flex gap-4 p-3 bg-slate-950 border border-slate-800 rounded-lg shadow-2xl z-50 pointer-events-auto backdrop-blur-md select-none"
-        style="color-scheme: dark;"
+        class="absolute left-10 top-0 flex gap-4 p-3 rounded-lg shadow-2xl z-50 pointer-events-auto backdrop-blur-md select-none"
+        style="background: var(--sdf-bg-chrome); border: 1px solid var(--sdf-border); color: var(--sdf-text-primary);"
       >
         <!-- Column 1: Thickness -->
         <div class="flex flex-col gap-2 min-w-[48px]">
-          <span class="text-[8px] font-bold uppercase text-slate-400 tracking-wider text-center border-b border-slate-800 pb-1">Size</span>
+          <span class="text-[8px] font-bold uppercase tracking-wider text-center pb-1" style="color: var(--sdf-text-muted); border-bottom: 1px solid var(--sdf-border-subtle);">Size</span>
           {#each thicknessOptions as thick}
             <button
               onclick={(e) => {
                 e.stopPropagation();
                 doc.activeThickness = thick;
               }}
-              class="w-full flex items-center justify-center py-2 cursor-pointer hover:bg-slate-800/50 rounded transition-colors {doc.activeThickness === thick ? 'bg-slate-850/80 text-cyan-400' : 'text-slate-400'}"
+              class="w-full flex items-center justify-center py-2 cursor-pointer rounded transition-colors"
+              style={doc.activeThickness === thick ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent);' : 'color: var(--sdf-text-secondary);'}
               title="{thick}px"
             >
-              <div class="w-8 rounded-full transition-colors {doc.activeThickness === thick ? 'bg-cyan-400' : 'bg-slate-400'}" style="height: {thick}px;"></div>
+              <div class="w-8 rounded-full transition-colors" style="height: {thick}px; background-color: {doc.activeThickness === thick ? 'var(--sdf-accent)' : 'var(--sdf-text-muted)'};"></div>
             </button>
           {/each}
         </div>
 
         <!-- Vertical Divider -->
-        <div class="w-[1px] bg-slate-800"></div>
+        <div class="w-[1px]" style="background: var(--sdf-border-subtle);"></div>
 
         <!-- Column 2: Line Style -->
         <div class="flex flex-col gap-2 min-w-[80px]">
-          <span class="text-[8px] font-bold uppercase text-slate-400 tracking-wider text-center border-b border-slate-800 pb-1">Style</span>
+          <span class="text-[8px] font-bold uppercase tracking-wider text-center pb-1" style="color: var(--sdf-text-muted); border-bottom: 1px solid var(--sdf-border-subtle);">Style</span>
           {#each [
             { id: "solid", name: "Solid", dash: "none" },
             { id: "dashed", name: "Dashed", dash: "6,6" },
@@ -949,7 +952,8 @@
                 e.stopPropagation();
                 doc.activeLineStyle = style.id;
               }}
-              class="w-full flex flex-col items-center justify-center py-1.5 px-2 cursor-pointer hover:bg-slate-800/50 rounded transition-colors {doc.activeLineStyle === style.id ? 'bg-slate-850/80 text-cyan-400' : 'text-slate-400'}"
+              class="w-full flex flex-col items-center justify-center py-1.5 px-2 cursor-pointer rounded transition-colors"
+              style={doc.activeLineStyle === style.id ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent);' : 'color: var(--sdf-text-secondary);'}
               title={style.name}
             >
               <span class="text-[8px] font-medium tracking-wide mb-1 font-sans">{style.name}</span>
@@ -959,7 +963,7 @@
                   y1="3" 
                   x2="48" 
                   y2="3" 
-                  stroke={doc.activeLineStyle === style.id ? '#22d3ee' : '#64748b'} 
+                  stroke={doc.activeLineStyle === style.id ? 'var(--sdf-accent)' : 'currentColor'} 
                   stroke-width="2.5" 
                   stroke-linecap="round"
                   stroke-dasharray={style.dash} 
@@ -970,11 +974,11 @@
         </div>
 
         <!-- Vertical Divider -->
-        <div class="w-[1px] bg-slate-800"></div>
+        <div class="w-[1px]" style="background: var(--sdf-border-subtle);"></div>
 
         <!-- Column 3: Line ends (arrows) -->
         <div class="flex flex-col gap-2 min-w-[80px]">
-          <span class="text-[8px] font-bold uppercase text-slate-400 tracking-wider text-center border-b border-slate-800 pb-1">Ends</span>
+          <span class="text-[8px] font-bold uppercase tracking-wider text-center pb-1" style="color: var(--sdf-text-muted); border-bottom: 1px solid var(--sdf-border-subtle);">Ends</span>
           {#each [
             { id: "plain", name: "Plain" },
             { id: "end", name: "End arrow" },
@@ -985,7 +989,8 @@
                 e.stopPropagation();
                 doc.activeLineEnds = ends.id;
               }}
-              class="w-full flex flex-col items-center justify-center py-1.5 px-2 cursor-pointer hover:bg-slate-800/50 rounded transition-colors {doc.activeLineEnds === ends.id ? 'bg-slate-850/80 text-cyan-400' : 'text-slate-400'}"
+              class="w-full flex flex-col items-center justify-center py-1.5 px-2 cursor-pointer rounded transition-colors"
+              style={doc.activeLineEnds === ends.id ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent);' : 'color: var(--sdf-text-secondary);'}
               title={ends.name}
             >
               <span class="text-[8px] font-medium tracking-wide mb-1 font-sans">{ends.name}</span>
@@ -995,20 +1000,20 @@
                   y1="6"
                   x2={ends.id === "plain" ? 44 : 38}
                   y2="6"
-                  stroke={doc.activeLineEnds === ends.id ? '#22d3ee' : '#64748b'}
+                  stroke={doc.activeLineEnds === ends.id ? 'var(--sdf-accent)' : 'currentColor'}
                   stroke-width="2.5"
                   stroke-linecap="round"
                 />
                 {#if ends.id === "end" || ends.id === "both"}
                   <polygon
                     points="44,6 36,2.5 36,9.5"
-                    fill={doc.activeLineEnds === ends.id ? '#22d3ee' : '#64748b'}
+                    fill={doc.activeLineEnds === ends.id ? 'var(--sdf-accent)' : 'currentColor'}
                   />
                 {/if}
                 {#if ends.id === "both"}
                   <polygon
                     points="4,6 12,2.5 12,9.5"
-                    fill={doc.activeLineEnds === ends.id ? '#22d3ee' : '#64748b'}
+                    fill={doc.activeLineEnds === ends.id ? 'var(--sdf-accent)' : 'currentColor'}
                   />
                 {/if}
               </svg>
@@ -1019,13 +1024,14 @@
     {/if}
   </div>
 
-  <div class="w-6 h-[1px] bg-slate-800 my-1"></div>
+  <div class="w-6 h-[1px] my-1" style="background: var(--sdf-border);"></div>
 
   <button
     type="button"
-    class="w-8 h-8 flex items-center justify-center rounded transition-all {doc.activeTool === 'snapshot'
-      ? 'bg-[#00d2ff]/10 text-[#00d2ff] border border-[#00d2ff]/30 shadow-[0_0_8px_rgba(0,210,255,0.1)]'
-      : 'text-slate-400 hover:bg-slate-800/50 hover:text-white'}"
+    class="w-8 h-8 flex items-center justify-center rounded transition-all"
+    style={doc.activeTool === 'snapshot'
+      ? 'background: var(--sdf-accent-bg); color: var(--sdf-accent); border: 1px solid var(--sdf-accent-border);'
+      : 'color: var(--sdf-text-secondary);'}
     onclick={() => doc.activeTool = doc.activeTool === 'snapshot' ? 'select' : 'snapshot'}
     title="Take Selection Snapshot (Copy region to clipboard)"
   >
@@ -1053,13 +1059,15 @@
     onclick={(e) => e.stopPropagation()}
   >
     <div
-      class="bg-[#090d16] border border-slate-900 rounded-xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col"
+      class="border rounded-xl max-w-2xl w-full shadow-2xl overflow-hidden flex flex-col"
+      style="background: var(--sdf-bg-app); border-color: var(--sdf-border-subtle);"
       onclick={(e) => e.stopPropagation()}
     >
       <div
-        class="p-4 border-b border-slate-900/50 flex items-center justify-between bg-[#0b101c]"
+        class="p-4 border-b flex items-center justify-between"
+        style="border-color: var(--sdf-border-subtle); background: var(--sdf-bg-chrome);"
       >
-        <span class="text-xs font-bold tracking-wider text-slate-200 uppercase"
+        <span class="text-xs font-bold tracking-wider uppercase" style="color: var(--sdf-text-primary);"
           >{editingSetId ? "Edit Ink Profile Signoff Set" : "Draw Ink Profile Signoff Set"}</span
         >
         <button
@@ -1067,11 +1075,12 @@
             resetProfileForm();
             isModalOpen = false;
           }}
-          class="text-slate-500 hover:text-white transition-colors text-xs font-bold"
+          class="transition-colors text-xs font-bold"
+          style="color: var(--sdf-text-muted);"
           >✕</button
         >
       </div>
-      <div class="p-6 grid grid-cols-3 gap-5 bg-[#080b12]">
+      <div class="p-6 grid grid-cols-3 gap-5" style="background: var(--sdf-bg-surface);">
         <div class="col-span-2 flex flex-col gap-1.5">
           <div class="flex items-center justify-between px-1">
             <span
@@ -1121,16 +1130,16 @@
       </div>
 
       <!-- Profile identity fields -->
-      <div class="px-6 pb-5 bg-[#080b12] flex flex-col gap-3">
+      <div class="px-6 pb-5 flex flex-col gap-3" style="background: var(--sdf-bg-surface);">
         <div class="flex items-center justify-between px-0.5">
-          <span class="text-[9px] font-bold text-slate-500 uppercase tracking-widest"
+          <span class="text-[9px] font-bold uppercase tracking-widest" style="color: var(--sdf-text-muted);"
             >Profile identity</span
           >
-          <span class="text-[9px] font-mono text-slate-500">
+          <span class="text-[9px] font-mono" style="color: var(--sdf-text-muted);">
             {#if profileFirstName.trim() || profileLastName.trim()}
-              <span class="text-cyan-500/90 font-bold">{previewInitials}</span>
-              <span class="mx-1 text-slate-700">·</span>
-              <span class="text-slate-400">{previewLabel}</span>
+              <span class="font-bold" style="color: var(--sdf-accent);">{previewInitials}</span>
+              <span class="mx-1" style="color: var(--sdf-border);">·</span>
+              <span style="color: var(--sdf-text-secondary);">{previewLabel}</span>
             {:else}
               Initials auto from name
             {/if}
@@ -1138,7 +1147,7 @@
         </div>
         <div class="grid grid-cols-2 gap-3">
           <label class="flex flex-col gap-1">
-            <span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider px-0.5"
+            <span class="text-[9px] font-bold uppercase tracking-wider px-0.5" style="color: var(--sdf-text-muted);"
               >First name <span class="text-red-400/80">*</span></span
             >
             <input
@@ -1146,11 +1155,12 @@
               bind:value={profileFirstName}
               autocomplete="given-name"
               placeholder="First name"
-              class="bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1.5 text-[11px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 font-sans"
+              class="rounded-md px-2.5 py-1.5 text-[11px] placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 font-sans"
+              style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
             />
           </label>
           <label class="flex flex-col gap-1">
-            <span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider px-0.5"
+            <span class="text-[9px] font-bold uppercase tracking-wider px-0.5" style="color: var(--sdf-text-muted);"
               >Last name <span class="text-red-400/80">*</span></span
             >
             <input
@@ -1158,20 +1168,22 @@
               bind:value={profileLastName}
               autocomplete="family-name"
               placeholder="Last name"
-              class="bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1.5 text-[11px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 font-sans"
+              class="rounded-md px-2.5 py-1.5 text-[11px] placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 font-sans"
+              style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
             />
           </label>
         </div>
         <label class="flex flex-col gap-1">
-          <span class="text-[9px] font-bold text-slate-500 uppercase tracking-wider px-0.5"
-            >Email <span class="text-slate-600 normal-case tracking-normal font-medium">(optional)</span></span
+          <span class="text-[9px] font-bold uppercase tracking-wider px-0.5" style="color: var(--sdf-text-muted);"
+            >Email <span class="normal-case tracking-normal font-medium" style="color: var(--sdf-text-faint);">(optional)</span></span
           >
           <input
             type="email"
             bind:value={profileEmail}
             autocomplete="email"
             placeholder="email@example.com"
-            class="bg-slate-950 border border-slate-800 rounded-md px-2.5 py-1.5 text-[11px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 font-sans"
+            class="rounded-md px-2.5 py-1.5 text-[11px] placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 font-sans"
+            style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
           />
         </label>
         {#if profileFormError}
@@ -1180,19 +1192,22 @@
       </div>
 
       <div
-        class="p-4 border-t border-slate-900/60 flex items-center justify-end gap-2 bg-[#0b101c]"
+        class="p-4 border-t flex items-center justify-end gap-2"
+        style="border-color: var(--sdf-border-subtle); background: var(--sdf-bg-chrome);"
       >
         <button
           onclick={() => {
             resetProfileForm();
             isModalOpen = false;
           }}
-          class="px-4 py-2 bg-slate-900 text-slate-400 font-bold text-[10px] rounded-md transition-colors uppercase"
+          class="px-4 py-2 font-bold text-[10px] rounded-md transition-colors uppercase"
+          style="background: var(--sdf-bg-surface); color: var(--sdf-text-secondary);"
           >Cancel</button
         >
         <button
           onclick={commitSignatureSet}
-          class="px-5 py-2 bg-[#00d2ff] text-slate-950 font-bold text-[10px] rounded-md hover:bg-cyan-400 transition-colors uppercase"
+          class="px-5 py-2 font-bold text-[10px] rounded-md transition-colors uppercase"
+          style="background: var(--sdf-accent); color: var(--sdf-bg-app);"
           >{editingSetId ? "Update Profile Combo" : "Save Profile Combo"}</button
         >
       </div>
@@ -1205,7 +1220,8 @@
     class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
   >
     <div
-      class="bg-[#0d1321] border border-slate-900 max-w-sm w-full rounded-xl shadow-2xl p-5 flex flex-col gap-4 border-t-2 border-t-red-500"
+      class="border max-w-sm w-full rounded-xl shadow-2xl p-5 flex flex-col gap-4 border-t-2 border-t-red-500"
+      style="background: var(--sdf-bg-chrome); border-color: var(--sdf-border-subtle);"
     >
       <div class="flex items-start gap-3">
         <div
@@ -1230,10 +1246,10 @@
           >
         </div>
         <div class="flex flex-col gap-1">
-          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-200">
+          <h3 class="text-xs font-bold uppercase tracking-wider" style="color: var(--sdf-text-primary);">
             Delete Profile Set?
           </h3>
-          <p class="text-[11px] text-slate-400 leading-relaxed">
+          <p class="text-[11px] leading-relaxed" style="color: var(--sdf-text-secondary);">
             This template will be permanently removed from disk.
           </p>
         </div>
@@ -1243,7 +1259,8 @@
       >
         <button
           onclick={() => (setPendingDeletion = null)}
-          class="px-3 py-1.5 bg-slate-900 text-slate-400 rounded-md"
+          class="px-3 py-1.5 rounded-md"
+          style="background: var(--sdf-bg-surface); color: var(--sdf-text-secondary);"
           >Cancel</button
         >
         <button

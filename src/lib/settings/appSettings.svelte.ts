@@ -11,6 +11,7 @@ import {
 	loadAppSettings,
 	persistAppSettings,
 } from "./appSettings";
+import { applyTheme } from "./theme";
 
 let settings = $state<AppSettings>(loadAppSettings());
 let revision = $state(0);
@@ -47,10 +48,9 @@ export function isCheckUpdatesOnLaunch(): boolean {
 /** Commit full settings object (after Save in the modal). */
 export function saveAppSettings(next: AppSettings): void {
 	const normalized = cloneAppSettings(next);
-	// Light theme not available yet
-	normalized.theme = "dark";
 	settings = normalized;
 	persistAppSettings(normalized);
+	applyTheme(normalized.theme);
 	touch();
 }
 

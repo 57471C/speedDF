@@ -201,24 +201,27 @@
   {#if hoverPreview && !isOpen && thread}
     <div
       class="absolute left-2 top-0 z-50 max-w-[220px] min-w-[120px]
-        bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1.5 shadow-2xl backdrop-blur-sm
+        rounded-lg px-2 py-1.5 shadow-2xl backdrop-blur-sm
         pointer-events-none"
+      style="background: var(--sdf-overlay-bg); border: 1px solid var(--sdf-overlay-border);"
       role="tooltip"
     >
       <p
-        class="text-[10px] text-slate-200 leading-snug whitespace-pre-wrap break-words font-sans"
+        class="text-[10px] leading-snug whitespace-pre-wrap break-words font-sans"
+        style="color: var(--sdf-text-primary);"
       >
-        <strong class="text-slate-100 font-semibold"
+        <strong style="color: var(--sdf-text-primary); font-weight: 600;"
           >{thread.author || "You"}:</strong
         >
         {" "}{thread.text || "Untitled note"}
       </p>
       {#each thread.replies || [] as reply (reply.id)}
-        <hr class="my-1.5 border-0 border-t border-slate-700/50" />
+        <hr class="my-1.5 border-0 border-t" style="border-color: var(--sdf-border);" />
         <p
-          class="text-[10px] text-slate-300 leading-snug whitespace-pre-wrap break-words font-sans"
+          class="text-[10px] leading-snug whitespace-pre-wrap break-words font-sans"
+          style="color: var(--sdf-text-secondary);"
         >
-          <strong class="text-slate-200 font-semibold"
+          <strong style="color: var(--sdf-text-primary); font-weight: 600;"
             >{reply.author || "You"}:</strong
           >
           {" "}{reply.text}
@@ -231,13 +234,15 @@
   {#if isOpen}
     <div
       class="absolute left-2 top-0 z-50 flex flex-col gap-1.5
-        bg-slate-950/95 border border-slate-800 rounded-lg px-2 py-1.5 shadow-2xl backdrop-blur-sm
+        rounded-lg px-2 py-1.5 shadow-2xl backdrop-blur-sm
         min-w-[200px] max-w-[260px]"
+      style="background: var(--sdf-overlay-bg); border: 1px solid var(--sdf-overlay-border);"
       onmouseenter={() => (hoverPreview = false)}
     >
       {#if isDraft}
         <span
-          class="text-[8px] font-bold uppercase tracking-widest text-slate-500"
+          class="text-[8px] font-bold uppercase tracking-widest"
+          style="color: var(--sdf-text-muted);"
         >
           New comment
         </span>
@@ -257,7 +262,8 @@
                 cancelCompose();
               }
             }}
-            class="bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/50 flex-1 min-w-0 font-sans resize-none leading-relaxed overflow-hidden"
+            class="rounded px-1.5 py-0.5 text-[10px] placeholder-slate-600 focus:outline-none focus:border-amber-500/50 flex-1 min-w-0 font-sans resize-none leading-relaxed overflow-hidden"
+            style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
           ></textarea>
           <button
             type="button"
@@ -265,8 +271,9 @@
             disabled={!composeDraft.trim()}
             class="p-0.5 rounded shrink-0 transition-colors mt-0.5
               {composeDraft.trim()
-                ? 'text-emerald-400 hover:bg-slate-800'
-                : 'text-slate-600 cursor-not-allowed'}"
+                ? 'text-emerald-400'
+                : 'cursor-not-allowed'}"
+            style={composeDraft.trim() ? '' : 'color: var(--sdf-text-muted);'}
             title="Post comment (Ctrl+Enter)"
           >
             <svg
@@ -286,7 +293,8 @@
         <button
           type="button"
           onclick={cancelCompose}
-          class="self-end text-[9px] font-bold uppercase text-slate-500 hover:text-slate-300"
+          class="self-end text-[9px] font-bold uppercase hover:text-slate-300"
+          style="color: var(--sdf-text-muted);"
         >
           Cancel
         </button>
@@ -296,11 +304,13 @@
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-1.5 flex-wrap">
               <span
-                class="text-[10px] font-semibold text-slate-200 truncate"
+                class="text-[10px] font-semibold truncate"
+                style="color: var(--sdf-text-primary);"
                 title={thread.authorFullName || thread.author}
                 >{thread.author}</span
               >
-              <span class="text-[8px] text-slate-600 font-mono"
+              <span class="text-[8px] font-mono"
+                style="color: var(--sdf-text-faint);"
                 >{formatCommentTime(thread.createdAt)}</span
               >
             </div>
@@ -309,7 +319,8 @@
             <button
               type="button"
               onclick={startEdit}
-              class="p-0.5 rounded text-slate-500 hover:text-amber-400 hover:bg-slate-800"
+              class="p-0.5 rounded hover:text-amber-400"
+              style="color: var(--sdf-text-muted);"
               title="Edit comment"
             >
               <svg
@@ -330,7 +341,8 @@
             <button
               type="button"
               onclick={removeThread}
-              class="p-0.5 rounded text-slate-500 hover:text-red-400 hover:bg-slate-800"
+              class="p-0.5 rounded hover:text-red-400"
+              style="color: var(--sdf-text-muted);"
               title="Delete thread"
             >
               <svg
@@ -351,7 +363,8 @@
             <button
               type="button"
               onclick={() => setOpenCommentPinId(null)}
-              class="p-0.5 rounded text-slate-600 hover:text-slate-300 hover:bg-slate-800"
+              class="p-0.5 rounded"
+              style="color: var(--sdf-text-faint);"
               title="Close"
             >
               <svg
@@ -391,13 +404,15 @@
                   cancelEdit();
                 }
               }}
-              class="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-amber-500/50 font-sans resize-none leading-relaxed overflow-hidden"
+              class="w-full rounded px-1.5 py-0.5 text-[10px] focus:outline-none focus:border-amber-500/50 font-sans resize-none leading-relaxed overflow-hidden"
+              style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
             ></textarea>
             <div class="flex justify-end gap-1.5">
               <button
                 type="button"
                 onclick={cancelEdit}
-                class="px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-500 hover:text-slate-300"
+                class="px-1.5 py-0.5 text-[9px] font-bold uppercase"
+                style="color: var(--sdf-text-muted);"
                 >Cancel</button
               >
               <button
@@ -414,7 +429,8 @@
           </div>
         {:else}
           <p
-            class="text-[11px] text-slate-300 leading-relaxed whitespace-pre-wrap break-words font-sans"
+            class="text-[11px] leading-relaxed whitespace-pre-wrap break-words font-sans"
+            style="color: var(--sdf-text-secondary);"
           >
             {thread.text}
           </p>
@@ -422,18 +438,21 @@
 
         {#if (thread.replies || []).length > 0}
           <div
-            class="border-t border-slate-900/60 pt-1.5 space-y-1.5 max-h-[120px] overflow-y-auto"
+            class="pt-1.5 space-y-1.5 max-h-[120px] overflow-y-auto"
+            style="border-top: 1px solid var(--sdf-border-subtle);"
           >
             {#each thread.replies || [] as reply (reply.id)}
-              <div class="pl-1.5 border-l-2 border-slate-800">
+              <div class="pl-1.5" style="border-left: 2px solid var(--sdf-border);">
                 <div class="flex items-start justify-between gap-1">
                   <div class="flex items-center gap-1.5 min-w-0">
                     <span
-                      class="text-[9px] font-semibold text-slate-400 truncate"
+                      class="text-[9px] font-semibold truncate"
+                      style="color: var(--sdf-text-secondary);"
                       title={reply.authorFullName || reply.author}
                       >{reply.author}</span
                     >
-                    <span class="text-[8px] text-slate-600 font-mono"
+                    <span class="text-[8px] font-mono"
+                      style="color: var(--sdf-text-faint);"
                       >{formatCommentTime(reply.createdAt)}</span
                     >
                   </div>
@@ -441,7 +460,8 @@
                     <button
                       type="button"
                       onclick={() => startEditReply(reply.id, reply.text)}
-                      class="p-0.5 rounded text-slate-600 hover:text-amber-400 hover:bg-slate-800"
+                      class="p-0.5 rounded hover:text-amber-400"
+                      style="color: var(--sdf-text-faint);"
                       title="Edit reply"
                     >
                       <svg
@@ -462,7 +482,8 @@
                     <button
                       type="button"
                       onclick={() => deleteReplyAction(thread.id, reply.id)}
-                      class="p-0.5 rounded text-slate-700 hover:text-red-400 shrink-0"
+                      class="p-0.5 rounded hover:text-red-400 shrink-0"
+                      style="color: var(--sdf-text-faint);"
                       title="Delete reply"
                     >
                       <svg
@@ -498,13 +519,15 @@
                           cancelEditReply();
                         }
                       }}
-                      class="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-amber-500/50 font-sans resize-none leading-relaxed overflow-hidden"
+                      class="w-full rounded px-1.5 py-0.5 text-[10px] focus:outline-none focus:border-amber-500/50 font-sans resize-none leading-relaxed overflow-hidden"
+                      style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
                     ></textarea>
                     <div class="flex justify-end gap-1.5">
                       <button
                         type="button"
                         onclick={cancelEditReply}
-                        class="px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-500 hover:text-slate-300"
+                        class="px-1.5 py-0.5 text-[9px] font-bold uppercase"
+                        style="color: var(--sdf-text-muted);"
                         >Cancel</button
                       >
                       <button
@@ -521,7 +544,8 @@
                   </div>
                 {:else}
                   <p
-                    class="text-[10px] text-slate-400 leading-relaxed whitespace-pre-wrap break-words mt-0.5 font-sans"
+                    class="text-[10px] leading-relaxed whitespace-pre-wrap break-words mt-0.5 font-sans"
+                    style="color: var(--sdf-text-secondary);"
                   >
                     {reply.text}
                   </p>
@@ -532,7 +556,7 @@
         {/if}
 
         <!-- Reply box -->
-        <div class="border-t border-slate-900/60 pt-1.5 flex flex-col gap-1">
+        <div class="pt-1.5 flex flex-col gap-1" style="border-top: 1px solid var(--sdf-border-subtle);">
           <textarea
             use:autoGrowTextarea={{ minRows: 2, maxRows: 12 }}
             bind:value={replyDraft}
@@ -547,13 +571,15 @@
                 setOpenCommentPinId(null);
               }
             }}
-            class="w-full bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-200 placeholder-slate-600 resize-none focus:outline-none focus:border-cyan-500/50 font-sans overflow-hidden"
+            class="w-full rounded px-2 py-1 text-[10px] placeholder-slate-600 resize-none focus:outline-none focus:border-cyan-500/50 font-sans overflow-hidden"
+            style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
           ></textarea>
           <div class="flex justify-end gap-1.5">
             <button
               type="button"
               onclick={() => setOpenCommentPinId(null)}
-              class="px-2 py-0.5 text-[9px] font-bold uppercase text-slate-500 hover:text-slate-300"
+              class="px-2 py-0.5 text-[9px] font-bold uppercase"
+              style="color: var(--sdf-text-muted);"
             >
               Close
             </button>

@@ -641,14 +641,16 @@
 </script>
 
 <div
-  class="{activeSidebarTab === 'thumbnails' ? 'w-36' : 'w-56'} h-full bg-[#090d16] border-l border-slate-900 flex flex-col relative select-none z-40 transition-all duration-200 ease-in-out"
+  class="{activeSidebarTab === 'thumbnails' ? 'w-36' : 'w-56'} h-full border-l flex flex-col relative select-none z-40 transition-all duration-200 ease-in-out"
+  style="background: var(--sdf-bg-app); border-color: var(--sdf-border-subtle);"
 >
-  <div class="flex flex-col border-b border-slate-900/50 bg-[#0b101c]/40 w-full">
-    <div class="grid grid-cols-4 items-center border-b border-slate-900/20 px-2 py-1.5 text-slate-400">
+  <div class="flex flex-col border-b w-full" style="border-color: var(--sdf-border-subtle); background: color-mix(in srgb, var(--sdf-bg-chrome) 40%, transparent);">
+    <div class="grid grid-cols-4 items-center px-2 py-1.5" style="border-bottom: 1px solid var(--sdf-border-subtle); color: var(--sdf-text-secondary);">
       
       <button 
         onclick={() => activeSidebarTab = 'thumbnails'}
-        class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'thumbnails' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
+        class="flex justify-center p-1.5 rounded transition-all"
+        style={activeSidebarTab === 'thumbnails' ? 'color: var(--sdf-accent); background: var(--sdf-hover-bg);' : 'color: var(--sdf-text-muted);'}
         title="Thumbnails View">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 3h6v18H3z" />
@@ -661,7 +663,8 @@
       {#if activeDoc.fileType !== 'image'}
         <button 
           onclick={toggleGridView}
-          class="flex justify-center p-1.5 rounded transition-all hover:text-white {isGridViewOpen ? 'text-amber-400 bg-slate-800/50' : 'text-slate-500'}"
+          class="flex justify-center p-1.5 rounded transition-all"
+          style={isGridViewOpen ? 'color: #fbbf24; background: var(--sdf-hover-bg);' : 'color: var(--sdf-text-muted);'}
           title="Expand Workspace Grid View">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="4" height="4" rx="0.5" />
@@ -680,7 +683,8 @@
       {#if activeDoc.fileType !== 'image'}
         <button 
           onclick={() => activeSidebarTab = 'bookmarks'}
-          class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'bookmarks' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
+          class="flex justify-center p-1.5 rounded transition-all"
+          style={activeSidebarTab === 'bookmarks' ? 'color: var(--sdf-accent); background: var(--sdf-hover-bg);' : 'color: var(--sdf-text-muted);'}
           title="Document Bookmarks">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
@@ -689,7 +693,8 @@
 
         <button 
           onclick={() => activeSidebarTab = 'comments'}
-          class="flex justify-center p-1.5 rounded transition-all hover:text-white {activeSidebarTab === 'comments' ? 'text-cyan-400 bg-slate-800/50' : 'text-slate-500'}"
+          class="flex justify-center p-1.5 rounded transition-all"
+          style={activeSidebarTab === 'comments' ? 'color: var(--sdf-accent); background: var(--sdf-hover-bg);' : 'color: var(--sdf-text-muted);'}
           title="Annotation Comments">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -698,8 +703,8 @@
       {/if}
     </div>
 
-    <div class="flex items-center justify-center py-1 bg-[#070a12]/30">
-      <span class="text-[9px] font-bold uppercase tracking-widest text-slate-500 font-sans">
+    <div class="flex items-center justify-center py-1" style="background: var(--sdf-bg-surface);">
+      <span class="text-[9px] font-bold uppercase tracking-widest font-sans" style="color: var(--sdf-text-muted);">
         {#if activeSidebarTab === 'thumbnails'}
           Pages ({activeDoc.pageOrder.length})
         {:else if activeSidebarTab === 'bookmarks'}
@@ -733,13 +738,12 @@
           bind:this={thumbnailElements[pageNum]}
           data-sidebar-page={pageNum}
           onclick={() => jumpToTargetPage(pageNum)}
-          class="group flex flex-col items-center bg-[#111827]/40 border rounded-lg p-2 transition-all cursor-pointer select-none {isPageMenuOpen && insertAfterPageNum === pageNum ? 'relative z-[60] isolate' : 'relative z-10'}
-          {activeDoc.currentPage === pageNum
-            ? 'border-slate-600 bg-[#161b22]'
-            : 'border-slate-800 hover:border-slate-700'}"
+          class="group flex flex-col items-center border rounded-lg p-2 transition-all cursor-pointer select-none {isPageMenuOpen && insertAfterPageNum === pageNum ? 'relative z-[60] isolate' : 'relative z-10'}"
+          style="background: {activeDoc.currentPage === pageNum ? 'var(--sdf-bg-elevated)' : 'var(--sdf-bg-surface)'}; border-color: {activeDoc.currentPage === pageNum ? 'var(--sdf-border)' : 'var(--sdf-border-subtle)'};"
         >
           <span
-            class="absolute top-1.5 left-2 text-[9px] font-bold text-slate-500 tracking-wider z-10"
+            class="absolute top-1.5 left-2 text-[9px] font-bold tracking-wider z-10"
+            style="color: var(--sdf-text-muted);"
           >
             #{index + 1}
           </span>
@@ -840,12 +844,13 @@
 
               {#if isPageMenuOpen && insertAfterPageNum === pageNum && activeDoc.fileType !== 'image'}
                 <div 
-                  class="absolute bottom-full left-0 mb-2 z-[100] bg-slate-950 opacity-100 text-slate-200 border border-slate-800 p-1.5 rounded flex flex-col gap-0.5 min-w-[125px] shadow-[0_15px_30px_rgba(0,0,0,0.95)] pointer-events-auto"
-                  style="z-index: 99999 !important; background-color: #020617 !important; opacity: 1 !important;"
+                  class="absolute bottom-full left-0 mb-2 rounded flex flex-col gap-0.5 min-w-[125px] shadow-2xl p-1.5 pointer-events-auto"
+                  style="z-index: 99999 !important; background-color: var(--sdf-overlay-bg) !important; border: 1px solid var(--sdf-overlay-border) !important; opacity: 1 !important; color: var(--sdf-text-primary);"
                   use:clickOutside={() => isPageMenuOpen = false}
                 >
                   <button
-                    class="w-full text-left px-2 py-1 rounded text-[10px] text-slate-300 hover:bg-cyan-950/40 hover:text-cyan-400 font-medium transition-all"
+                    class="w-full text-left px-2 py-1 rounded text-[10px] font-medium transition-all"
+                    style="color: var(--sdf-text-secondary);"
                     onclick={(e) => {
                       e.stopPropagation();
                       e.preventDefault();
@@ -857,7 +862,8 @@
                   </button>
                   
                   <button
-                    class="w-full text-left px-2 py-1 rounded text-[10px] text-slate-300 hover:bg-cyan-950/40 hover:text-cyan-400 font-medium transition-all"
+                    class="w-full text-left px-2 py-1 rounded text-[10px] font-medium transition-all"
+                    style="color: var(--sdf-text-secondary);"
                     onclick={(e) => {
                       e.stopPropagation();
                       e.preventDefault();
@@ -945,12 +951,12 @@
   {#if activeSidebarTab === 'bookmarks'}
     <div class="flex flex-col gap-2 p-2 overflow-y-auto w-full h-[calc(100vh-80px)]">
       {#if sortedBookmarks.length === 0}
-        <div class="text-center text-[10px] text-slate-600 mt-12 px-4 leading-relaxed">
+        <div class="text-center text-[10px] mt-12 px-4 leading-relaxed" style="color: var(--sdf-text-muted);">
           No bookmarked elements staged. Hover near the top right of document pages to register quick reference flags.
         </div>
       {:else}
         {#each sortedBookmarks as b (b.pageNum)}
-          <div class="flex items-center justify-between p-2.5 rounded-lg border border-slate-900/50 bg-[#0e1321]/40 hover:bg-slate-800/30 hover:border-slate-700/30 transition-all group w-full">
+          <div class="flex items-center justify-between p-2.5 rounded-lg transition-all group w-full" style="background: var(--sdf-bg-surface); border: 1px solid var(--sdf-border-subtle);">
             {#if editingBookmarkId === b.pageNum}
               <div class="flex items-center gap-1.5 w-full">
                 <input 
@@ -964,7 +970,8 @@
                       editingBookmarkId = null;
                     }
                   }}
-                  class="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] text-white focus:outline-none focus:border-cyan-500 flex-1 min-w-0 font-sans"
+                  class="rounded px-1.5 py-0.5 text-[10px] focus:outline-none focus:border-cyan-500 flex-1 min-w-0 font-sans"
+                  style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
                   autofocus
                 />
                 <button 
@@ -972,21 +979,21 @@
                     updateBookmarkNameAction(b.pageNum, editingBookmarkName);
                     editingBookmarkId = null;
                   }}
-                  class="text-emerald-400 p-0.5 rounded hover:bg-slate-900">
+                  class="text-emerald-400 p-0.5 rounded">
                   <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </button>
               </div>
             {:else}
               <button 
                 onclick={() => jumpToTargetPage(b.pageNum)}
-                class="flex-1 text-left min-w-0 font-sans group-hover:text-cyan-400 transition-colors">
-                <span class="text-[10px] font-semibold block truncate pr-1 {b.name ? 'text-slate-200' : 'text-slate-500 italic'}">
+                class="flex-1 text-left min-w-0 font-sans transition-colors">
+                <span class="text-[10px] font-semibold block truncate pr-1" style="color: {b.name ? 'var(--sdf-text-primary)' : 'var(--sdf-text-muted)'};">
                   {b.name || 'Untitled bookmark...'}
                 </span>
               </button>
 
               <div class="flex items-center justify-end pl-1 shrink-0">
-                <span class="text-[8px] font-bold px-1.5 py-0.5 rounded bg-slate-900/80 text-slate-500 uppercase tracking-widest group-hover:hidden">
+                <span class="text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-widest group-hover:hidden" style="background: var(--sdf-bg-chrome); color: var(--sdf-text-muted);">
                   p. {displayPagePosition(activeDoc.pageOrder, b.pageNum) || b.pageNum}
                 </span>
 
@@ -1019,29 +1026,31 @@
     </div>
   {:else}
     <!-- Comments panel: all pages, document-wide list -->
-    <div class="flex flex-col gap-2 p-2 overflow-y-auto w-full h-[calc(100vh-80px)]" style="color-scheme: dark;">
+    <div class="flex flex-col gap-2 p-2 overflow-y-auto w-full h-[calc(100vh-80px)]">
       {#if visibleComments.length === 0}
-        <div class="text-center text-[10px] text-slate-600 mt-12 px-3 leading-relaxed">
+        <div class="text-center text-[10px] mt-12 px-3 leading-relaxed" style="color: var(--sdf-text-muted);">
           No comments in this document yet. Use the comment bubble on a page, or right-click the page and choose Add Comment Here.
         </div>
       {:else}
         {#each visibleComments as thread (thread.id)}
           <div
             data-comment-thread={thread.id}
-            class="rounded-lg border bg-[#0e1321]/40 hover:border-slate-700/40 transition-all overflow-hidden
+            class="rounded-lg border transition-all overflow-hidden
               {focusedThreadId === thread.id
                 ? 'border-amber-400/70 ring-1 ring-amber-400/40 shadow-[0_0_12px_rgba(251,191,36,0.15)]'
-                : 'border-slate-900/50'}"
+                : ''}"
+            style="background: var(--sdf-bg-surface); border-color: {focusedThreadId === thread.id ? '#fbbf24' : 'var(--sdf-border-subtle)'};"
           >
             <div class="p-2.5">
               <div class="flex items-start justify-between gap-1 mb-1">
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-1.5 flex-wrap">
                     <span
-                      class="text-[10px] font-semibold text-slate-200 truncate"
+                      class="text-[10px] font-semibold truncate"
+                      style="color: var(--sdf-text-primary);"
                       title={thread.authorFullName || thread.author}
                     >{thread.author}</span>
-                    <span class="text-[8px] text-slate-600 font-mono">{formatCommentTime(thread.createdAt)}</span>
+                    <span class="text-[8px] font-mono" style="color: var(--sdf-text-faint);">{formatCommentTime(thread.createdAt)}</span>
                     {#if typeof thread.x === "number" && typeof thread.y === "number"}
                       <span
                         class="text-[9px] text-amber-400/90"
@@ -1051,7 +1060,8 @@
                     {/if}
                     <button
                       onclick={() => jumpToTargetPage(thread.pageNum)}
-                      class="text-[8px] font-bold px-1 py-0.5 rounded bg-slate-900 text-cyan-500/80 uppercase tracking-wider hover:bg-slate-800"
+                      class="text-[8px] font-bold px-1 py-0.5 rounded uppercase tracking-wider"
+                      style="background: var(--sdf-bg-chrome); color: var(--sdf-accent);"
                       title="Go to page"
                     >
                       p.{displayPagePosition(activeDoc.pageOrder, thread.pageNum) || thread.pageNum}
@@ -1060,13 +1070,14 @@
                 </div>
                 <button
                   onclick={() => deleteCommentAction(thread.id)}
-                  class="p-0.5 rounded text-slate-600 hover:text-red-400 hover:bg-slate-900 shrink-0"
+                  class="p-0.5 rounded hover:text-red-400 shrink-0"
+                  style="color: var(--sdf-text-faint);"
                   title="Delete thread"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                 </button>
               </div>
-              <p class="text-[11px] text-slate-300 leading-relaxed whitespace-pre-wrap break-words font-sans">{thread.text}</p>
+              <p class="text-[11px] leading-relaxed whitespace-pre-wrap break-words font-sans" style="color: var(--sdf-text-secondary);">{thread.text}</p>
 
               <div class="mt-1.5 flex items-center gap-2">
                 <button
@@ -1081,23 +1092,25 @@
             </div>
 
             {#if (thread.replies || []).length > 0}
-              <div class="border-t border-slate-900/60 bg-[#0a0e18]/50 px-2.5 py-1.5 space-y-2">
+              <div class="px-2.5 py-1.5 space-y-2" style="border-top: 1px solid var(--sdf-border-subtle); background: var(--sdf-bg-elevated);">
                 {#each thread.replies || [] as reply (reply.id)}
                   {@const replyEditKey = `${thread.id}:${reply.id}`}
-                  <div class="pl-2 border-l-2 border-slate-800">
+                  <div class="pl-2" style="border-left: 2px solid var(--sdf-border);">
                     <div class="flex items-start justify-between gap-1">
                       <div class="flex items-center gap-1.5 min-w-0">
                         <span
-                          class="text-[9px] font-semibold text-slate-400 truncate"
+                          class="text-[9px] font-semibold truncate"
+                          style="color: var(--sdf-text-secondary);"
                           title={reply.authorFullName || reply.author}
                         >{reply.author}</span>
-                        <span class="text-[8px] text-slate-600 font-mono">{formatCommentTime(reply.createdAt)}</span>
+                        <span class="text-[8px] font-mono" style="color: var(--sdf-text-faint);">{formatCommentTime(reply.createdAt)}</span>
                       </div>
                       <div class="flex items-center gap-0.5 shrink-0">
                         <button
                           type="button"
                           onclick={() => startEditReply(thread.id, reply.id, reply.text)}
-                          class="p-0.5 rounded text-slate-600 hover:text-amber-400 hover:bg-slate-900"
+                          class="p-0.5 rounded hover:text-amber-400"
+                          style="color: var(--sdf-text-faint);"
                           title="Edit reply"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -1105,7 +1118,8 @@
                         <button
                           type="button"
                           onclick={() => deleteReplyAction(thread.id, reply.id)}
-                          class="p-0.5 rounded text-slate-700 hover:text-red-400"
+                          class="p-0.5 rounded hover:text-red-400"
+                          style="color: var(--sdf-text-faint);"
                           title="Delete reply"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -1127,13 +1141,15 @@
                               cancelEditReply();
                             }
                           }}
-                          class="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[10px] text-slate-200 focus:outline-none focus:border-amber-500/50 font-sans resize-none overflow-hidden"
+                          class="w-full rounded px-2 py-1 text-[10px] focus:outline-none focus:border-amber-500/50 font-sans resize-none overflow-hidden"
+                          style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
                         ></textarea>
                         <div class="flex justify-end gap-1.5">
                           <button
                             type="button"
                             onclick={cancelEditReply}
-                            class="px-1.5 py-0.5 text-[9px] font-bold uppercase text-slate-500 hover:text-slate-300"
+                            class="px-1.5 py-0.5 text-[9px] font-bold uppercase"
+                            style="color: var(--sdf-text-muted);"
                           >Cancel</button>
                           <button
                             type="button"
@@ -1142,12 +1158,13 @@
                             class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase
                               {editReplyDraft.trim()
                                 ? 'bg-amber-600/25 text-amber-300 border border-amber-500/40'
-                                : 'bg-slate-900 text-slate-600 border border-slate-800 cursor-not-allowed'}"
+                                : 'cursor-not-allowed'}"
+                            style={editReplyDraft.trim() ? '' : 'color: var(--sdf-text-faint);'}
                           >Save</button>
                         </div>
                       </div>
                     {:else}
-                      <p class="text-[10px] text-slate-400 leading-relaxed whitespace-pre-wrap break-words mt-0.5 font-sans">{reply.text}</p>
+                      <p class="text-[10px] leading-relaxed whitespace-pre-wrap break-words mt-0.5 font-sans" style="color: var(--sdf-text-secondary);">{reply.text}</p>
                     {/if}
                   </div>
                 {/each}
@@ -1155,7 +1172,7 @@
             {/if}
 
             {#if openReplyId === thread.id}
-              <div class="border-t border-slate-900/60 p-2 flex flex-col gap-1.5 bg-[#0a0e18]/40">
+              <div class="p-2 flex flex-col gap-1.5" style="border-top: 1px solid var(--sdf-border-subtle); background: var(--sdf-bg-elevated);">
                 <textarea
                   value={replyDrafts[thread.id] || ""}
                   oninput={(e) => {
@@ -1174,12 +1191,14 @@
                       openReplyId = null;
                     }
                   }}
-                  class="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-200 placeholder-slate-600 resize-none focus:outline-none focus:border-cyan-500/50 font-sans"
+                  class="w-full rounded px-2 py-1 text-[10px] placeholder-slate-600 resize-none focus:outline-none focus:border-cyan-500/50 font-sans"
+                  style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
                 ></textarea>
                 <div class="flex justify-end gap-1.5">
                   <button
                     onclick={() => (openReplyId = null)}
-                    class="px-2 py-0.5 text-[9px] font-bold uppercase text-slate-500 hover:text-slate-300"
+                    class="px-2 py-0.5 text-[9px] font-bold uppercase"
+                    style="color: var(--sdf-text-muted);"
                   >
                     Cancel
                   </button>
@@ -1189,7 +1208,8 @@
                     class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide
                       {(replyDrafts[thread.id] || "").trim()
                         ? 'bg-cyan-600/25 text-cyan-300 border border-cyan-500/40'
-                        : 'bg-slate-900 text-slate-600 border border-slate-800 cursor-not-allowed'}"
+                        : 'cursor-not-allowed'}"
+                    style={(replyDrafts[thread.id] || "").trim() ? '' : 'color: var(--sdf-text-faint);'}
                   >
                     Post reply
                   </button>
@@ -1205,26 +1225,26 @@
 </div>
 
 {#if isGridViewOpen}
-  <div transition:fade={{ duration: 180 }} class="fixed inset-0 bg-[#070a12] z-[50] flex flex-col select-none font-sans text-slate-100">
-    <div class="p-4 bg-[#0b101c] border-b border-slate-900 grid grid-cols-3 items-center shadow-lg w-full">
+  <div transition:fade={{ duration: 180 }} class="fixed inset-0 z-[50] flex flex-col select-none font-sans" style="background: var(--sdf-canvas-bg); color: var(--sdf-text-primary);">
+    <div class="p-4 border-b grid grid-cols-3 items-center shadow-lg w-full" style="background: var(--sdf-bg-chrome); border-color: var(--sdf-border-subtle);">
       <div class="flex items-center gap-3 justify-start">
-        <span class="text-xs font-bold uppercase tracking-widest text-slate-400">Grid Organizer</span>
-        <span class="text-[10px] px-2 py-0.5 bg-slate-800 rounded-md text-cyan-400 font-mono font-bold border border-slate-700/50">Selected: {selectedPages.length}</span>
+        <span class="text-xs font-bold uppercase tracking-widest" style="color: var(--sdf-text-secondary);">Grid Organizer</span>
+        <span class="text-[10px] px-2 py-0.5 rounded-md font-mono font-bold" style="background: var(--sdf-bg-surface); color: var(--sdf-accent); border: 1px solid var(--sdf-border-subtle);">Selected: {selectedPages.length}</span>
       </div>
       
       <div class="flex items-center gap-2 justify-center">
-        <button onclick={() => batchRotate("counter")} class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold transition-colors">Rotate Left</button>
-        <button onclick={() => batchRotate("clockwise")} class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold transition-colors">Rotate Right</button>
+        <button onclick={() => batchRotate("counter")} class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors" style="background: var(--sdf-bg-surface); color: var(--sdf-text-secondary); border: 1px solid var(--sdf-border-subtle);">Rotate Left</button>
+        <button onclick={() => batchRotate("clockwise")} class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors" style="background: var(--sdf-bg-surface); color: var(--sdf-text-secondary); border: 1px solid var(--sdf-border-subtle);">Rotate Right</button>
         <button onclick={triggerBatchInsert} class="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold transition-colors">Insert PDF</button>
         <button onclick={batchDelete} class="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold transition-colors">Delete Selected</button>
       </div>
       
       <div class="flex items-center justify-end">
-        <button onclick={closeGridView} class="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold transition-colors shadow-md">Done</button>
+        <button onclick={closeGridView} class="px-4 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-md" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border: 1px solid var(--sdf-border);">Done</button>
       </div>
     </div>
     
-    <div class="flex-1 overflow-y-auto p-8 bg-[#070a12]" data-sidebar-thumb-scroll>
+    <div class="flex-1 overflow-y-auto p-8" style="background: var(--sdf-canvas-bg);" data-sidebar-thumb-scroll>
     <div 
       use:setupSortableGrid
       class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-6"
@@ -1233,16 +1253,16 @@
         <div 
           data-sidebar-page={pageNum}
           onclick={(e) => handleGridSelect(e, pageNum)}
-          class="group relative flex flex-col items-center border rounded-xl p-4 transition-all cursor-grab active:cursor-grabbing select-none bg-[#0e131f]
-          {selectedPages.includes(pageNum) ? 'border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.1)] bg-[#1a160f]' : 'border-slate-800 hover:border-slate-700'}"
+          class="group relative flex flex-col items-center border rounded-xl p-4 transition-all cursor-grab active:cursor-grabbing select-none"
+          style="background: {selectedPages.includes(pageNum) ? 'rgba(245, 158, 11, 0.12)' : 'var(--sdf-bg-surface)'}; border-color: {selectedPages.includes(pageNum) ? '#f59e0b' : 'var(--sdf-border-subtle)'};"
         >
-            <span class="absolute top-3 left-4 text-[10px] font-mono font-bold pointer-events-none {selectedPages.includes(pageNum) ? 'text-amber-400' : 'text-slate-500'}">#{index + 1}</span>
+            <span class="absolute top-3 left-4 text-[10px] font-mono font-bold pointer-events-none" style="color: {selectedPages.includes(pageNum) ? '#f59e0b' : 'var(--sdf-text-muted)'};">#{index + 1}</span>
             
             {#if selectedPages.includes(pageNum)}
               <span class="absolute top-3 right-4 w-4 h-4 bg-amber-500 rounded-full flex items-center justify-center text-[9px] font-black text-black pointer-events-none">✓</span>
             {/if}
             
-            <div class="w-[100px] min-h-[80px] bg-white/5 rounded-lg border border-slate-900/60 overflow-hidden flex items-center justify-center mt-4 shadow-inner relative pointer-events-none">
+            <div class="w-[100px] min-h-[80px] bg-white/5 rounded-lg border overflow-hidden flex items-center justify-center mt-4 shadow-inner relative pointer-events-none" style="border-color: var(--sdf-border-subtle);">
               {#if (activeDoc.pageThumbnailOverrides || {})[pageNum - 1]}
                 <img
                   src={(activeDoc.pageThumbnailOverrides || {})[pageNum - 1]}
@@ -1253,7 +1273,8 @@
               {:else}
                 <div
                   use:requestStaticThumb={pageNum}
-                  class="w-full min-h-[80px] flex items-center justify-center text-[9px] font-mono text-slate-500 select-none"
+                  class="w-full min-h-[80px] flex items-center justify-center text-[9px] font-mono select-none"
+                  style="color: var(--sdf-text-muted);"
                 >
                   p.{pageNum}
                 </div>
@@ -1275,7 +1296,7 @@
     height: 172px !important;
     opacity: 0.85 !important;
     pointer-events: none !important;
-    background-color: #0e131f !important;
+    background-color: var(--sdf-bg-surface) !important;
     border: 2px solid #38bdf8 !important; /* Glowing cyan tracking graphic border */
     border-radius: 0.75rem !important;
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7) !important;

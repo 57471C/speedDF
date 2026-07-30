@@ -184,7 +184,7 @@
     aria-label="Image resize"
   >
     <div
-      class="flex items-center gap-1.5 text-[10px] font-bold tracking-wider uppercase border-r border-slate-700/80 pr-3 text-slate-400"
+      class="flex items-center gap-1.5 text-[10px] font-bold tracking-wider uppercase pr-3" style="color: var(--sdf-text-secondary); border-right: 1px solid var(--sdf-border);"
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -221,10 +221,10 @@
         title="Width (px)"
         aria-label="Width in pixels"
       />
-      <span class="text-[10px] text-slate-500">px</span>
+      <span class="text-[10px]" style="color: var(--sdf-text-muted);">px</span>
     </div>
 
-    <div class="flex items-center gap-1.5 border-l border-slate-700/80 pl-3">
+    <div class="flex items-center gap-1.5 pl-3" style="border-left: 1px solid var(--sdf-border);">
       <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wide"
         >H</span
       >
@@ -242,11 +242,11 @@
         title="Height (px)"
         aria-label="Height in pixels"
       />
-      <span class="text-[10px] text-slate-500">px</span>
+      <span class="text-[10px]" style="color: var(--sdf-text-muted);">px</span>
     </div>
 
-    <div class="flex items-center gap-1.5 border-l border-slate-700/80 pl-3">
-      <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wide"
+    <div class="flex items-center gap-1.5 pl-3" style="border-left: 1px solid var(--sdf-border);">
+      <span class="text-[10px] font-bold uppercase tracking-wide" style="color: var(--sdf-text-muted);"
         >Scale</span
       >
       <div class="relative flex items-center" bind:this={scaleFieldRef}>
@@ -315,10 +315,10 @@
           </div>
         {/if}
       </div>
-      <span class="text-[10px] text-slate-500">%</span>
+      <span class="text-[10px]" style="color: var(--sdf-text-muted);">%</span>
     </div>
 
-    <div class="flex items-center border-l border-slate-700/80 pl-3">
+    <div class="flex items-center pl-3" style="border-left: 1px solid var(--sdf-border);">
       <button
         type="button"
         onclick={toggleLock}
@@ -363,7 +363,7 @@
     </div>
 
     {#if applying}
-      <span class="text-[10px] text-slate-500 font-mono pl-1">…</span>
+      <span class="text-[10px] font-mono pl-1" style="color: var(--sdf-text-muted);">…</span>
     {/if}
   </div>
 {/if}
@@ -372,8 +372,8 @@
   /* Force dark chrome so OS light-mode form controls never flash white */
   .image-resize-strip {
     color-scheme: dark;
-    background: rgba(9, 13, 22, 0.95);
-    border: 1px solid rgba(30, 41, 59, 0.85);
+    background: color-mix(in srgb, var(--sdf-bg-app) 95%, transparent);
+    border: 1px solid var(--sdf-border);
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -382,9 +382,9 @@
   .resize-px-input,
   .resize-scale-input {
     color-scheme: dark;
-    background-color: #0f172a;
-    color: #e2e8f0;
-    border: 1px solid #1e293b;
+    background-color: var(--sdf-bg-input);
+    color: var(--sdf-text-primary);
+    border: 1px solid var(--sdf-border);
     border-radius: 0.25rem;
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
@@ -394,14 +394,13 @@
     outline: none;
     width: 4rem;
     transition: border-color 0.15s ease;
-    /* No native spinner (text inputs; keep rules if type ever reverts to number) */
     -moz-appearance: textfield;
     appearance: textfield;
   }
 
   .resize-px-input:focus,
   .resize-scale-input:focus {
-    border-color: #06b6d4;
+    border-color: var(--sdf-accent);
   }
 
   .resize-px-input:disabled,
@@ -432,9 +431,9 @@
     height: 100%;
     min-height: 1.75rem;
     padding: 0 0.35rem;
-    background-color: #0f172a;
-    color: #94a3b8;
-    border: 1px solid #1e293b;
+    background-color: var(--sdf-bg-input);
+    color: var(--sdf-text-secondary);
+    border: 1px solid var(--sdf-border);
     border-left: none;
     border-radius: 0 0.25rem 0.25rem 0;
     cursor: pointer;
@@ -442,7 +441,7 @@
   }
 
   .resize-scale-caret:hover:not(:disabled) {
-    color: #f8fafc;
+    color: var(--sdf-text-primary);
   }
 
   .resize-scale-caret:disabled {
@@ -454,8 +453,8 @@
     min-width: 3.5rem;
     max-height: 12rem;
     overflow-y: auto;
-    background-color: #0f172a;
-    border: 1px solid #1e293b;
+    background-color: var(--sdf-bg-input);
+    border: 1px solid var(--sdf-border);
     border-radius: 0.375rem;
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
     color-scheme: dark;
@@ -468,10 +467,10 @@
     font-size: 0.75rem;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     text-align: center;
-    color: #cbd5e1;
+    color: var(--sdf-text-secondary);
     background: transparent;
     border: none;
-    border-bottom: 1px solid rgba(15, 23, 42, 0.8);
+    border-bottom: 1px solid var(--sdf-border-subtle);
     cursor: pointer;
     transition:
       color 0.12s ease,
@@ -484,8 +483,8 @@
 
   .resize-scale-option:hover,
   .resize-scale-option.is-active {
-    color: #f8fafc;
-    background-color: rgba(30, 41, 59, 0.9);
+    color: var(--sdf-text-primary);
+    background-color: var(--sdf-hover-bg);
   }
 
   .resize-lock-btn {
@@ -495,9 +494,9 @@
     align-items: center;
     justify-content: center;
     border-radius: 0.25rem;
-    background-color: #0f172a;
-    color: #64748b;
-    border: 1px solid #1e293b;
+    background-color: var(--sdf-bg-input);
+    color: var(--sdf-text-muted);
+    border: 1px solid var(--sdf-border);
     transition:
       color 0.15s ease,
       background-color 0.15s ease,
@@ -505,7 +504,7 @@
   }
 
   .resize-lock-btn:hover:not(:disabled) {
-    color: #cbd5e1;
+    color: var(--sdf-text-secondary);
   }
 
   .resize-lock-btn.is-locked {

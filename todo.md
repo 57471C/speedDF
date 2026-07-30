@@ -1,11 +1,12 @@
 # Todo List #
 
 ## Features to add ##
-1. Images only: resize by %, H:V px apect ratio locked (like power toys)
-2. Obeject alignment
-3. R/click tab - "Open in new window" 
-3. Forms creation (NOT XFA Forms!) + hyperlinks
-4. ~~Tools: scratch pad/clip board (persistant across all docs)~~
+1. ~~Images only: resize by %, H:V px apect ratio locked (like power toys)~~
+2. ~~Obeject alignment~~
+3. Light mode
+4. R/click tab - "Open in new window" 
+5. Forms creation (NOT XFA Forms!) + hyperlinks
+6. ~~Tools: scratch pad/clip board (persistant across all docs)~~
 
 ## long term goals (may never do)
 1. lopdf + docx-rs export to Word, lopdf + rust_xlsxwriter for Excel
@@ -20,7 +21,8 @@ It places a solid background banner matching the page background color directly 
 It puts a standard HTML input text area right on top of it, lets the user type whatever they want, and bakes the final text down as a fresh independent annotation overlay layer upon export.
 4. Switch to Bun - could be a big win for speed and bundle size.
 
-## Fixes
+## Fixes ##
+- [ ] Text annotations center top toolbar Sits too high. When an Image is open the image resize bar is also too high (text annotation toolbar should sit under it when activated) 
 - [x] moving pages should move the bookmarks and comments with the page.
 - [x] feat: Esc key unselects any selected object and always reverts to the select tool
 - [x] clicking anywhere on the page (unles ctrl is currently pressed down) should unslect any objects.

@@ -17,6 +17,101 @@
   font-display: swap;
 }
 
+/* ═══════════════════════════════════════════════
+   Theme Design Tokens (CSS Custom Properties)
+   Dark = :root default · Light = [data-theme="light"]
+   ═══════════════════════════════════════════════ */
+
+:root {
+  /* Backgrounds */
+  --sdf-bg-app:        #090d16;
+  --sdf-bg-chrome:     #0b101c;
+  --sdf-bg-surface:    #0e1524;
+  --sdf-bg-elevated:   #121a2b;
+  --sdf-bg-input:      #0f172a;
+
+  /* Text */
+  --sdf-text-primary:  #f1f5f9;
+  --sdf-text-secondary:#94a3b8;
+  --sdf-text-muted:    #64748b;
+  --sdf-text-faint:    #475569;
+
+  /* Borders */
+  --sdf-border:        #1e293b;
+  --sdf-border-subtle: #0f172a;
+
+  /* Accent (cyan) */
+  --sdf-accent:        #06b6d4;
+  --sdf-accent-text:   #22d3ee;
+  --sdf-accent-bg:     rgba(8, 145, 178, 0.15);
+
+  /* Hover / active */
+  --sdf-hover-bg:      #1e293b;
+  --sdf-active-bg:     #334155;
+
+  /* Scrollbar */
+  --sdf-scrollbar-track: #090d16;
+  --sdf-scrollbar-thumb: #1e293b;
+  --sdf-scrollbar-hover: #334155;
+
+  /* Overlay popouts (over page content) */
+  --sdf-overlay-bg:          rgba(2, 6, 15, 0.95);
+  --sdf-overlay-border:      rgba(30, 41, 59, 0.8);
+  --sdf-overlay-input-bg:    #0f172a;
+  --sdf-overlay-input-border:#334155;
+
+  /* Workspace canvas / page background */
+  --sdf-canvas-bg:           #070a12;
+
+  /* Annotation selection feedback */
+  --sdf-selection-glow:      rgba(0, 210, 255, 0.35);
+  --sdf-selection-ring:      rgba(0, 210, 255, 0.40);
+
+  /* Tinted accent background & border for active tool buttons */
+  --sdf-accent-bg:          rgba(0, 210, 255, 0.10);
+  --sdf-accent-border:      rgba(0, 210, 255, 0.30);
+}
+
+[data-theme="light"] {
+  --sdf-bg-app:        #f1f5f9;
+  --sdf-bg-chrome:     #ffffff;
+  --sdf-bg-surface:    #f8fafc;
+  --sdf-bg-elevated:   #e2e8f0;
+  --sdf-bg-input:      #f1f5f9;
+
+  --sdf-text-primary:  #0f172a;
+  --sdf-text-secondary:#475569;
+  --sdf-text-muted:    #64748b;
+  --sdf-text-faint:    #94a3b8;
+
+  --sdf-border:        #cbd5e1;
+  --sdf-border-subtle: #e2e8f0;
+
+  --sdf-accent:        #0891b2;
+  --sdf-accent-text:   #0e7490;
+  --sdf-accent-bg:     rgba(8, 145, 178, 0.1);
+
+  --sdf-hover-bg:      #e2e8f0;
+  --sdf-active-bg:     #cbd5e1;
+
+  --sdf-scrollbar-track: #f1f5f9;
+  --sdf-scrollbar-thumb: #cbd5e1;
+  --sdf-scrollbar-hover: #94a3b8;
+
+  --sdf-overlay-bg:          rgba(255, 255, 255, 0.97);
+  --sdf-overlay-border:      rgba(203, 213, 225, 0.8);
+  --sdf-overlay-input-bg:    #f1f5f9;
+  --sdf-overlay-input-border:#cbd5e1;
+
+  --sdf-canvas-bg:           #d4d8e0;
+
+  --sdf-selection-glow:      rgba(8, 145, 178, 0.30);
+  --sdf-selection-ring:      rgba(8, 145, 178, 0.45);
+
+  --sdf-accent-bg:          rgba(8, 145, 178, 0.10);
+  --sdf-accent-border:      rgba(8, 145, 178, 0.30);
+}
+
 /* 1. Define the physical track boundaries */
 ::-webkit-scrollbar {
   width: 6px;  /* Slimmer, high-fidelity profile width */
@@ -25,27 +120,33 @@
 
 /* 2. Blend the background tray straight into your slate panels */
 ::-webkit-scrollbar-track {
-  background-color: #090d16; 
+  background-color: var(--sdf-scrollbar-track);
 }
 
 /* 3. Style the interactive scrolling thumb slider */
 ::-webkit-scrollbar-thumb {
-  background-color: #1e293b; /* Matches your slate-800 tone */
-  border-radius: 9999px;     /* Smoothly rounded edges */
-  transition: background-color 0.2s ease;
+  background-color: var(--sdf-scrollbar-thumb);
+  border-radius: 9999px;     /* Smooth transition for theme switches */
 }
+
+:root, [data-theme="light"] {
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+/* Hero icon theme swap — purely CSS, no FOUC */
+.hero-icon-light { display: none !important; }
+[data-theme="light"] .hero-icon-dark { display: none !important; }
+[data-theme="light"] .hero-icon-light { display: block !important; }
 
 /* 4. Soft highlight effect when you hover over the rails */
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #334155; /* Bumps up to a slate-700 glow */
+  background-color: var(--sdf-scrollbar-hover);
 }
 
 html, body {
-  background-color: #090d16 !important;
+  background-color: var(--sdf-bg-app) !important;
   overscroll-behavior: none !important;
   margin: 0;
   height: 100%;
   overflow: hidden;
 }
-
-

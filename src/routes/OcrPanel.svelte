@@ -193,17 +193,17 @@
   });
 </script>
 
-<div class="w-[400px] shrink-0 h-full flex flex-col relative bg-[#090d16] border-l border-zinc-800 font-sans text-slate-200 shadow-2xl p-4 overflow-hidden">
+<div class="w-[400px] shrink-0 h-full flex flex-col relative font-sans shadow-2xl p-4 overflow-hidden" style="background: var(--sdf-bg-chrome); border-left: 1px solid var(--sdf-border); color: var(--sdf-text-primary);">
   {#if onClose}
-    <div class="flex items-center justify-between mb-3 border-b border-zinc-900 pb-2 shrink-0">
-      <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">OCR Scan Drawer</span>
-      <button onclick={onClose} class="text-zinc-500 hover:text-white text-xs">✕</button>
+    <div class="flex items-center justify-between mb-3 pb-2 shrink-0" style="border-bottom: 1px solid var(--sdf-border-subtle);">
+      <span class="text-[10px] font-bold uppercase tracking-wider" style="color: var(--sdf-text-secondary);">OCR Scan Drawer</span>
+      <button onclick={onClose} class="text-xs" style="color: var(--sdf-text-muted);">✕</button>
     </div>
   {/if}
   
   {#if !activeDoc.rawBytes && !activeDoc.imageUrl}
-    <div class="flex flex-col items-center justify-center border border-dashed border-zinc-800 bg-zinc-950/40 rounded-lg p-6 text-center text-zinc-500 text-[10px]">
-      <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-zinc-600 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+    <div class="flex flex-col items-center justify-center rounded-lg p-6 text-center text-[10px]" style="border: 1px dashed var(--sdf-border); background: var(--sdf-bg-surface); color: var(--sdf-text-muted);">
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 mb-2" style="color: var(--sdf-text-faint);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
       <span>No document active in viewer. Please open a PDF, image, or TIFF document to extract text.</span>
@@ -211,13 +211,13 @@
   {/if}
 
   {#if engineStatus === 'processing'}
-    <div class="mb-2 p-4 bg-zinc-900/40 border border-zinc-800 rounded-lg space-y-2 shrink-0">
+    <div class="mb-2 p-4 rounded-lg space-y-2 shrink-0" style="background: var(--sdf-bg-surface); border: 1px solid var(--sdf-border);">
       <div class="flex items-center justify-between text-xs font-medium font-sans">
-        <span class="text-zinc-400 animate-pulse">Analyzing Layout Matrices...</span>
+        <span class="animate-pulse" style="color: var(--sdf-text-secondary);">Analyzing Layout Matrices...</span>
         <span class="text-cyan-400 font-mono font-bold">{ocrProgress}%</span>
       </div>
       
-      <div class="w-full h-1.5 bg-zinc-950 rounded-full overflow-hidden border border-zinc-800/50">
+      <div class="w-full h-1.5 rounded-full overflow-hidden" style="background: var(--sdf-bg-app); border: 1px solid var(--sdf-border-subtle);">
         <div 
           class="h-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-300 ease-out rounded-full"
           style="width: {ocrProgress}%"
@@ -234,23 +234,27 @@
   {/if}
 
   {#if (activeDoc.rawBytes || activeDoc.imageUrl) && capturedImageSrc}
-    <div class="flex border-b border-zinc-800 mb-2 shrink-0">
+    <div class="flex mb-2 shrink-0" style="border-bottom: 1px solid var(--sdf-border);">
       <button 
         onclick={() => activeTab = 'document'}
-        class="flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all duration-150 border-b-2 {activeTab === 'document' ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-zinc-400 hover:text-zinc-200'}">
+        class="flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all duration-150 border-b-2 {activeTab === 'document' ? 'border-cyan-400 text-cyan-400' : 'border-transparent'}"
+        style={activeTab === 'document' ? '' : 'color: var(--sdf-text-secondary);'}
+      >
         Doc View
       </button>
       <button 
         onclick={() => activeTab = 'text'}
-        class="flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all duration-150 border-b-2 {activeTab === 'text' ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-zinc-400 hover:text-zinc-200'}">
+        class="flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all duration-150 border-b-2 {activeTab === 'text' ? 'border-cyan-400 text-cyan-400' : 'border-transparent'}"
+        style={activeTab === 'text' ? '' : 'color: var(--sdf-text-secondary);'}
+      >
         Text
       </button>
     </div>
 
     {#if activeTab === 'document'}
-      <div class="flex flex-col flex-1 min-h-0 bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden">
-        <div class="flex justify-between items-center p-2.5 border-b border-zinc-900 bg-zinc-900/40 shrink-0">
-          <span class="text-[9px] font-bold uppercase tracking-wider text-zinc-400">Preview Canvas (Page {activeDoc.currentPage})</span>
+      <div class="flex flex-col flex-1 min-h-0 rounded-lg overflow-hidden" style="background: var(--sdf-bg-surface); border: 1px solid var(--sdf-border);">
+        <div class="flex justify-between items-center p-2.5 shrink-0" style="border-bottom: 1px solid var(--sdf-border-subtle); background: var(--sdf-bg-elevated);">
+          <span class="text-[9px] font-bold uppercase tracking-wider" style="color: var(--sdf-text-secondary);">Preview Canvas (Page {activeDoc.currentPage})</span>
           <button 
             disabled={processingLocked}
             onclick={captureCurrentPdfPageBytes}
@@ -258,13 +262,13 @@
             Refresh
           </button>
         </div>
-        <div class="flex flex-1 min-h-0 items-center justify-center p-3 bg-zinc-950/40 overflow-auto">
-          <img src={capturedImageSrc} alt="Captured Document Page" class="max-w-full max-h-full object-contain rounded shadow-lg border border-zinc-900" />
+        <div class="flex flex-1 min-h-0 items-center justify-center p-3 overflow-auto" style="background: var(--sdf-bg-surface);">
+          <img src={capturedImageSrc} alt="Captured Document Page" class="max-w-full max-h-full object-contain rounded shadow-lg" style="border: 1px solid var(--sdf-border-subtle);" />
         </div>
       </div>
     {:else}
-      <div class="flex flex-col flex-1 min-h-0 bg-zinc-950 rounded-lg border border-zinc-800 overflow-hidden">
-        <div class="flex justify-between items-center p-2.5 border-b border-zinc-900 bg-zinc-900/40 shrink-0">
+      <div class="flex flex-col flex-1 min-h-0 rounded-lg overflow-hidden" style="background: var(--sdf-bg-surface); border: 1px solid var(--sdf-border);">
+        <div class="flex justify-between items-center p-2.5 shrink-0" style="border-bottom: 1px solid var(--sdf-border-subtle); background: var(--sdf-bg-elevated);">
           <span class="text-[9px] font-bold uppercase tracking-wider text-emerald-400">Extracted Output</span>
           
           {#if outputTextResult}
@@ -278,13 +282,14 @@
                   console.error("Failed to copy text: ", err);
                 }
               }}
-              class="relative flex items-center gap-1 text-[9px] uppercase font-black tracking-widest text-zinc-400 hover:text-cyan-400 transition-all select-none">
+              class="relative flex items-center gap-1 text-[9px] uppercase font-black tracking-widest hover:text-cyan-400 transition-all select-none"
+              style="color: var(--sdf-text-secondary);">
               {#if copied}
                 <span class="text-emerald-400 animate-pulse flex items-center gap-0.5">
                   ✓ Copied!
                 </span>
               {:else}
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-zinc-500 hover:text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 hover:text-cyan-400" style="color: var(--sdf-text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                 </svg>
                 Copy
@@ -295,17 +300,18 @@
         
         <div class="p-3 flex-1 min-h-0 flex flex-col">
           {#if engineStatus === 'processing'}
-            <div class="flex-1 flex flex-col items-center justify-center text-zinc-500 text-[10px] font-medium italic">
+            <div class="flex-1 flex flex-col items-center justify-center text-[10px] font-medium italic" style="color: var(--sdf-text-muted);">
               <span class="animate-pulse">Transcribing...</span>
             </div>
           {:else if outputTextResult}
             <textarea 
               readonly 
               bind:value={outputTextResult}
-              class="flex-1 w-full bg-transparent border-0 resize-none text-[10px] text-slate-300 focus:outline-none font-mono leading-relaxed shadow-inner"
+              class="flex-1 w-full bg-transparent border-0 resize-none text-[10px] focus:outline-none font-mono leading-relaxed shadow-inner"
+              style="color: var(--sdf-text-secondary);"
             ></textarea>
           {:else}
-            <div class="flex-1 flex items-center justify-center text-zinc-600 text-[10px] italic">
+            <div class="flex-1 flex items-center justify-center text-[10px] italic" style="color: var(--sdf-text-faint);">
               No text extracted yet.
             </div>
           {/if}
