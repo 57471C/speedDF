@@ -329,6 +329,7 @@
      */
     let pendingCapture: ZoomPointerCapture | null = null;
     let applyToken = 0;
+    let gestureTimer: number | null = null;
 
     const contentEl = (): HTMLElement | null =>
       node.querySelector("[data-workspace-pages]") as HTMLElement | null;
@@ -339,7 +340,6 @@
       const next = pendingZoom;
       const capture = pendingCapture;
       pendingZoom = null;
-      pendingCapture = null;
       const token = ++applyToken;
 
       // Disable smooth scrolling so zoom re-anchor never animates as a pan
@@ -350,12 +350,18 @@
       activeDoc.zoomScale = next;
       zoomScale = next;
 
+      // Reset gesture timer whenever zoom activity occurs; clear capture when wheeling settles
+      if (gestureTimer != null) clearTimeout(gestureTimer);
+      gestureTimer = window.setTimeout(() => {
+        pendingCapture = null;
+        gestureTimer = null;
+      }, 200);
+
       // Wait for Svelte page-shell reflow, then a layout frame, then re-anchor.
       void (async () => {
         try {
           await tick();
           await new Promise<void>((r) => requestAnimationFrame(() => r()));
-          if (token !== applyToken) return;
 
           const pages = contentEl();
           if (capture && pages && capture.oldContentW > 0 && capture.oldContentH > 0) {
@@ -452,6 +458,7 @@
       destroy() {
         node.removeEventListener("wheel", handleWheel, { capture: true } as EventListenerOptions);
         if (zoomRaf != null) cancelAnimationFrame(zoomRaf);
+        if (gestureTimer != null) clearTimeout(gestureTimer);
         applyToken += 1;
       }
     };
