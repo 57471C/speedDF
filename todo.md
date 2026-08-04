@@ -1,5 +1,8 @@
 # Todo List #
 
+## Fixes ##
+- [ ] update buy me a coffee link to buymeacoffee.com/lean.studio
+
 ## Features to add ##
 1. ~~Images only: resize by %, H:V px apect ratio locked (like power toys)~~
 2. ~~Obeject alignment~~

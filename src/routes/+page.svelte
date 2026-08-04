@@ -407,7 +407,7 @@
   }
 
   function openCoffeeLink() {
-    openBrowser("https://buymeacoffee.com/speeddf");
+    openBrowser("https://buymeacoffee.com/lean.studio");
   }
 
   interface RecentFile {
