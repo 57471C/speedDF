@@ -844,6 +844,8 @@ export async function flattenWorkspaceToImage(
 		} else if (lowerPath.endsWith(".webp")) {
 			mimeType = "image/webp";
 		}
+		// SVG source opens as image; flatten always bakes to raster (JPEG default).
+		// Do not try to write annotations back as SVG.
 
 		const dataUrl =
 			mimeType === "image/jpeg"
@@ -946,6 +948,7 @@ function mimeTypeForImagePath(path: string): string {
 	if (lower.endsWith(".webp")) return "image/webp";
 	if (lower.endsWith(".gif")) return "image/gif";
 	if (lower.endsWith(".bmp")) return "image/bmp";
+	if (lower.endsWith(".svg")) return "image/svg+xml";
 	return "image/jpeg";
 }
 

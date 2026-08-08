@@ -74,6 +74,7 @@ fn is_supported_startup_extension(path: &str) -> bool {
         || lower.ends_with(".tif")
         || lower.ends_with(".webp")
         || lower.ends_with(".bmp")
+        || lower.ends_with(".svg")
         || lower.ends_with(".heic")
         || lower.ends_with(".heif")
         || lower.ends_with(".md")

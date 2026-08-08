@@ -603,6 +603,32 @@ The `heic` crate is **AGPL-3.0-only OR Imazen Commercial** dual-licensed. To kee
 
 ---
 
+## Section T2: SVG Opens as Image (No Inline SVG DOM)
+
+### Pattern
+
+`.svg` files use the **same** image workspace as PNG/JPEG:
+
+1. Startup / Open dialog accept `.svg` (Rust `is_supported_startup_extension` + frontend `IMAGE_EXTENSIONS` + `tauri.conf.json` associations).
+2. Bytes → `Blob` with MIME **`image/svg+xml`** → `URL.createObjectURL` → existing image frame (`<img>`).
+3. `fileType: "image"` — zoom, fit, resize strip, annotations, and flatten reuse the image path.
+
+### Security
+
+Do **not** inject raw SVG via `{@html}` or an inline `<svg>` DOM tree. Prefer **`<img src=blob:…>`** so scripts and external resources inside the SVG do not execute in the app origin.
+
+### Save / flatten
+
+Annotations bake through the canvas image flatten pipeline (raster). Saving a marked-up SVG typically becomes JPEG/PNG like other images — do not invent SVG source editing or path re-serialization in this path.
+
+### Rules
+
+- Prefer reusing `"image"` over a new `"svg"` fileType unless a hard special-case is required.
+- Thumbnail: same canvas-from-`<img>` path; if decode fails, leave empty / live `imageUrl` fallback — do not block open.
+- PDF and markdown pipelines stay unchanged.
+
+---
+
 ## Section U: Light Mode Design System & FOUC Prevention
 
 ### The Problem
@@ -780,4 +806,4 @@ Future editing (source editor or WYSIWYG) must **write back to `markdownSource`*
 
 ---
 
-**Last Updated:** August 2026 (Markdown continuous viewer phase 1 — source vs view, 150% open zoom, fixed-palette thumbs; Secondary doc windows Open-in-new-window, floating toolbar stack + dynamic pad, image resize strip, Shift+marquee multi-select + align, light mode FOUC, Scratch Pad paste sanitize, page-move bookmarks/comments, Esc→select, snapshot overlay zoom, HEIC feature-gate, form CropBox/rotate, Ctrl+F marks, merge thumbs, zoom-to-pointer, bookmark compose, calculator memory, line tool, hyperlinks, form/text value memory, workspaceId / Save As)
+**Last Updated:** August 2026 (SVG-as-image open path; Markdown continuous viewer phase 1 — source vs view, 150% open zoom, fixed-palette thumbs; Secondary doc windows Open-in-new-window, floating toolbar stack + dynamic pad, image resize strip, Shift+marquee multi-select + align, light mode FOUC, Scratch Pad paste sanitize, page-move bookmarks/comments, Esc→select, snapshot overlay zoom, HEIC feature-gate, form CropBox/rotate, Ctrl+F marks, merge thumbs, zoom-to-pointer, bookmark compose, calculator memory, line tool, hyperlinks, form/text value memory, workspaceId / Save As)
