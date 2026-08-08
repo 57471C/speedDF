@@ -76,6 +76,8 @@ fn is_supported_startup_extension(path: &str) -> bool {
         || lower.ends_with(".bmp")
         || lower.ends_with(".heic")
         || lower.ends_with(".heif")
+        || lower.ends_with(".md")
+        || lower.ends_with(".markdown")
 }
 
 /// Scan process arguments for a supported document and load it into a FilePayload.

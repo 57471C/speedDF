@@ -754,4 +754,30 @@ For `fileType === "image"` only, a centre-top strip edits **Width (px)**, **Heig
 
 ---
 
-**Last Updated:** July 2026 (Secondary doc windows Open-in-new-window, floating toolbar stack + dynamic pad, image resize strip, Shift+marquee multi-select + align, light mode FOUC, Scratch Pad paste sanitize, page-move bookmarks/comments, Esc→select, snapshot overlay zoom, HEIC feature-gate, form CropBox/rotate, Ctrl+F marks, merge thumbs, zoom-to-pointer, bookmark compose, calculator memory, line tool, hyperlinks, form/text value memory, workspaceId / Save As)
+## Section Z: Markdown Source vs View (Canonical Source)
+
+### Pattern
+
+Markdown documents use a dedicated `fileType: "markdown"` (not PDF/image). On open:
+
+1. File bytes are decoded as **UTF-8** into `DocumentWorkspace.markdownSource`.
+2. `rawBytes` is retained for tab identity / recents / close paths.
+3. The workspace **view** is a pure projection: `markdownSource → marked → DOMPurify → HTML` (`MarkdownView.svelte`).
+4. **Initial zoom is 150%** for markdown only. Workspace auto-fit on open is skipped for this type so fit-to-window does not overwrite the default; zoom controls still work freely after open.
+
+### Why it matters
+
+Future editing (source editor or WYSIWYG) must **write back to `markdownSource`**, then re-project. Never treat the rendered HTML DOM as the document of record, or Save will lose fidelity (comments, unparsed constructs, original newlines).
+
+### Rules
+
+- Do not open markdown with pdf.js or the A4 page shell.
+- Hide annotation tools / OCR / page-merge / bookmarks for this type.
+- Print uses a headless iframe (`lib/markdown/print.ts`) with `@page { size: A4 }`, not PDF flatten.
+- Startup associations: `.md` / `.markdown` in Rust `is_supported_startup_extension` + `tauri.conf.json` fileAssociations.
+- **Recent / sidebar thumbs:** single simple path — `html2canvas` of live `[data-markdown-content]` (top band), then `applyLiveThumbnail`. Fixed dark paper `#121a2b` + light text + sans stack in `onclone` (theme must not flip colours or yield Times). Await `document.fonts.ready` before capture. No offscreen clone / modern-screenshot / multi-strategy stack. Capture failure must not block open.
+- Do not reintroduce auto-fit-on-open for markdown (would fight the 150% default).
+
+---
+
+**Last Updated:** August 2026 (Markdown continuous viewer phase 1 — source vs view, 150% open zoom, fixed-palette thumbs; Secondary doc windows Open-in-new-window, floating toolbar stack + dynamic pad, image resize strip, Shift+marquee multi-select + align, light mode FOUC, Scratch Pad paste sanitize, page-move bookmarks/comments, Esc→select, snapshot overlay zoom, HEIC feature-gate, form CropBox/rotate, Ctrl+F marks, merge thumbs, zoom-to-pointer, bookmark compose, calculator memory, line tool, hyperlinks, form/text value memory, workspaceId / Save As)

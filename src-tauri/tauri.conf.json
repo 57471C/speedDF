@@ -86,6 +86,12 @@
 				"name": "HEIC Image",
 				"description": "iPhone HEIC/HEIF Photo",
 				"role": "Editor"
+			},
+			{
+				"ext": ["md", "markdown"],
+				"name": "Markdown Document",
+				"description": "Markdown text document",
+				"role": "Viewer"
 			}
 		]
 	}
