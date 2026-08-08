@@ -4,6 +4,7 @@
   import * as pdfjsLib from "pdfjs-dist";
   import WorkspacePage from "./WorkspacePage.svelte";
   import ImageResizeStrip from "./ImageResizeStrip.svelte";
+  import MarkdownView from "./MarkdownView.svelte";
   import { activeDoc, FONT_MAP, pushHistorySnapshot } from "../pdfStore.svelte";
   import { debounceLeadingLatest } from "../lib/render/pdfRenderQueue";
   import { notePdfActivity } from "../lib/render/sharedPdfDocument";
@@ -22,12 +23,14 @@
 
   // Auto-fit every newly opened document (PDF / TIFF / image) to the viewport,
   // respecting the page container's actual orientation after layout settles.
+  // Markdown opens at a fixed 150% initial zoom — skip auto-fit so it is not overwritten.
   $effect(() => {
     const bytes = activeDoc.rawBytes;
     const fileKey = activeDoc.filePath || activeDoc.fileName || "";
     // Touch fileType so orientation/type switches re-trigger fit
-    void activeDoc.fileType;
+    const fileType = activeDoc.fileType;
     if (!bytes || !fileKey) return;
+    if (fileType === "markdown") return;
 
     // Retry a few times so page shells (and image natural size) have painted.
     // By keeping the delays, we cover slow-rendering documents.
@@ -52,12 +55,15 @@
     isSystemPrinting = false,
     onShowNotification,
     openDurationMs = null,
+    onPrint,
   } = $props<{
     zoomScale: number;
     isSystemPrinting: boolean;
     onShowNotification?: (message: string) => void;
     /** Perceived open latency (ms) for the active document; null hides burn-in. */
     openDurationMs?: number | null;
+    /** TitleBar / Ctrl+P print path (markdown uses headless iframe spool). */
+    onPrint?: () => void;
   }>();
   let scrollContainer = $state<HTMLDivElement | null>(null);
   let scrollObserver = $state<IntersectionObserver | null>(null);
@@ -505,9 +511,14 @@
       }
     }
 
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
       e.preventDefault();
-      window.print();
+      // Prefer wired print (markdown iframe spool / PDF flatten); fallback window.print
+      if (typeof onPrint === "function") {
+        onPrint();
+      } else {
+        window.print();
+      }
     }
   }
 
@@ -556,6 +567,24 @@
 
   function shrinkToWindow() {
     if (!scrollContainer) return;
+
+    // Markdown: continuous document — fit content column width, not page boxes.
+    if (activeDoc.fileType === "markdown") {
+      const mdEl = scrollContainer.querySelector(
+        "[data-markdown-content]",
+      ) as HTMLElement | null;
+      if (mdEl) {
+        const availableWidth = Math.max(1, scrollContainer.clientWidth - 48);
+        const rect = mdEl.getBoundingClientRect();
+        if (rect.width > 1) {
+          const widthScale = (availableWidth / rect.width) * zoomScale;
+          zoomScale = Math.max(5, Math.min(200, Math.round(Math.abs(widthScale))));
+          return;
+        }
+      }
+      zoomScale = 100;
+      return;
+    }
 
     const availableWidth = Math.max(1, scrollContainer.clientWidth - 48);
     const availableHeight = Math.max(1, scrollContainer.clientHeight - 48);
@@ -906,7 +935,16 @@
     </div>
   {/if}
 
-  {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
+  {#if activeDoc.fileType === "markdown" && activeDoc.rawBytes}
+    <!-- Continuous markdown projection (source → HTML). No pdf.js / page boxes. -->
+    <div
+      data-workspace-pages
+      class="relative z-10 w-full max-w-none mx-auto flex flex-col items-center pb-24 origin-top px-4"
+      style="zoom: {Math.max(5, Math.abs(zoomScale)) / 100};"
+    >
+      <MarkdownView source={activeDoc.markdownSource ?? ""} />
+    </div>
+  {:else if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
     <!--
       Horizontal centering via w-max + mx-auto (not parent items-center).
       Flex items-center on an overflow-auto scroller clips left overflow so
@@ -924,7 +962,7 @@
     </div>
   {/if}
 
-  {#if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
+  {#if activeDoc.rawBytes && (activeDoc.fileType === "markdown" || activeDoc.pageOrder.length > 0)}
     <div
       class="fixed bottom-5 left-1/2 transform -translate-x-1/2 px-3 py-1.5 rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-md z-40 select-none pointer-events-auto border"
       style="background: color-mix(in srgb, var(--sdf-bg-app) 90%, transparent); border-color: var(--sdf-border-subtle);"

@@ -158,10 +158,16 @@ export interface DocumentWorkspace {
 	 * Used as activeDocumentId so remounts and focus loss do not happen on rename.
 	 */
 	workspaceId: string;
-	fileType: "pdf" | "tiff" | "image" | null;
+	fileType: "pdf" | "tiff" | "image" | "markdown" | null;
 	fileName: string;
 	filePath: string | null;
 	rawBytes: Uint8Array | null;
+	/**
+	 * Canonical UTF-8 markdown text for `fileType === "markdown"`.
+	 * Source of truth for the document; the workspace view is a pure projection
+	 * (parse → sanitize → HTML). Future editing must write back here.
+	 */
+	markdownSource?: string | null;
 	pageCount: number;
 	pageOrder: number[];
 	currentPage: number;
@@ -249,7 +255,9 @@ export interface SharedDocumentState {
 	defaultFont: string;
 	defaultSize: number;
 	defaultStyle: "Normal" | "Bold" | "Italic";
-	fileType: "pdf" | "tiff" | "image" | null;
+	fileType: "pdf" | "tiff" | "image" | "markdown" | null;
+	/** Canonical markdown text when fileType is markdown (see DocumentWorkspace). */
+	markdownSource?: string | null;
 	imageUrl?: string | null;
 	imageRotation?: number;
 	imageNativeWidth?: number;
@@ -644,6 +652,14 @@ export async function commitActiveDocumentAfterSave(opts: {
 	// Prefer a real ArrayBuffer-backed copy (detached views from save can be fragile)
 	doc.rawBytes = new Uint8Array(opts.compiledBytes);
 	doc.isDirty = false;
+	// Markdown: keep source in sync with written bytes (source remains canonical)
+	if (doc.fileType === "markdown") {
+		try {
+			doc.markdownSource = new TextDecoder("utf-8").decode(doc.rawBytes);
+		} catch {
+			doc.markdownSource = "";
+		}
+	}
 	// Refresh thumbnail content key so IDB entries match the new bytes
 	setThumbnailContentKeyFromBytes(doc.rawBytes);
 
@@ -797,6 +813,7 @@ export function purgeDocumentResources(doc: DocumentWorkspace): void {
 	doc.imageUrl = null;
 	// Large PDF/image buffers — explicit null so nothing retains the ArrayBuffer.
 	doc.rawBytes = null;
+	doc.markdownSource = null;
 	doc.tiffPages = [];
 	doc.shapes = {};
 	doc.pageThumbnailOverrides = {};
@@ -1049,6 +1066,7 @@ export function initializeNewDocument(
 		fileName: fileName,
 		filePath: filePath,
 		rawBytes: null,
+		markdownSource: null,
 		pageCount: 0,
 		pageOrder: [],
 		currentPage: 1,
@@ -1116,6 +1134,12 @@ export const activeDoc: SharedDocumentState = {
 	},
 	set rawBytes(val) {
 		if (this.current) this.current.rawBytes = val;
+	},
+	get markdownSource() {
+		return this.current?.markdownSource ?? null;
+	},
+	set markdownSource(val) {
+		if (this.current) this.current.markdownSource = val;
 	},
 	get pageCount() {
 		return this.current?.pageCount || 0;

@@ -7,6 +7,7 @@
     undoStack,
     redoStack,
     commitActiveDocumentAfterSave,
+    applyLiveThumbnail,
   } from "../pdfStore.svelte";
   import {
     flattenWorkspaceToPDF,
@@ -17,6 +18,10 @@
   import { decodeCommentsFromKeywords } from "../lib/comments/comments";
   import { extractFormFields } from "../lib/forms/formFields";
   import { extractHyperlinks } from "../lib/links/hyperlinks";
+  import {
+    captureMarkdownViewThumbnail,
+    findMarkdownContentRoot,
+  } from "../lib/markdown/thumbnail";
 
   let {
     onMinimize,
@@ -173,6 +178,32 @@
     activeDoc.isSaving = false;
   }
 
+  /** Encode canonical markdownSource (or rawBytes) as UTF-8 for disk write. */
+  function markdownBytesForSave(): Uint8Array | null {
+    const source =
+      activeDoc.markdownSource ??
+      (activeDoc.rawBytes
+        ? new TextDecoder("utf-8").decode(activeDoc.rawBytes)
+        : null);
+    if (source == null) return null;
+    return new TextEncoder().encode(source);
+  }
+
+  /** Re-capture live MarkdownView top after save (same path as open). */
+  async function refreshMarkdownThumbnails(
+    filePath: string | null | undefined,
+  ) {
+    try {
+      const el = findMarkdownContentRoot();
+      if (!el) return;
+      const dataUrl = await captureMarkdownViewThumbnail(el);
+      if (!dataUrl) return;
+      applyLiveThumbnail(dataUrl, filePath ?? null, 0);
+    } catch (err) {
+      console.warn("Markdown thumbnail refresh after save failed:", err);
+    }
+  }
+
   async function triggerFileSaveAs() {
     if (!activeDoc.rawBytes && !activeDoc.imageUrl) return;
     if (activeDoc.isSaving) return;
@@ -181,30 +212,27 @@
     try {
       let defaultName = "";
 
-      if (activeDoc.fileType === 'image') {
+      if (activeDoc.fileType === "markdown") {
+        defaultName = activeDoc.fileName
+          ? activeDoc.fileName.replace(/\.(md|markdown)$/i, "") + ".md"
+          : "Untitled.md";
+      } else if (activeDoc.fileType === "image") {
         defaultName = activeDoc.fileName
           ? activeDoc.fileName.replace(/\.(jpg|jpeg|png)$/i, "") + "_revised.jpg"
-          : 'Untitled.jpg';
+          : "Untitled.jpg";
       } else {
         defaultName = activeDoc.fileName
           ? activeDoc.fileName.replace(/\.(pdf|tiff|tif)$/i, "") + "_revised.pdf"
-          : 'Untitled.pdf';
+          : "Untitled.pdf";
       }
 
       // 1. Generate dynamic window filters based on file session mode
-      const dialogFilters = activeDoc.fileType === 'image'
-        ? [
-            {
-              name: 'Images',
-              extensions: ['jpg', 'jpeg', 'png']
-            }
-          ]
-        : [
-            {
-              name: 'PDF',
-              extensions: ['pdf']
-            }
-          ];
+      const dialogFilters =
+        activeDoc.fileType === "markdown"
+          ? [{ name: "Markdown", extensions: ["md", "markdown"] }]
+          : activeDoc.fileType === "image"
+            ? [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }]
+            : [{ name: "PDF", extensions: ["pdf"] }];
 
       // 2. Pass these filters down into the native Tauri save picker launch options
       const savedPath = await save({
@@ -217,7 +245,9 @@
       if (!beginSavingLock()) return;
       try {
         let compiledBytes: Uint8Array | null = null;
-        if (activeDoc.fileType === 'image') {
+        if (activeDoc.fileType === "markdown") {
+          compiledBytes = markdownBytesForSave();
+        } else if (activeDoc.fileType === "image") {
           console.log("Compiling and flattening image annotations...");
           compiledBytes = await flattenWorkspaceToImage(savedPath);
         } else {
@@ -226,7 +256,11 @@
         }
 
         if (!compiledBytes) {
-          alert("Failed to compile annotations.");
+          alert(
+            activeDoc.fileType === "markdown"
+              ? "Failed to encode markdown source."
+              : "Failed to compile annotations.",
+          );
           return;
         }
 
@@ -239,7 +273,11 @@
           compiledBytes,
           filePath: savedPath,
         });
-        syncLiveThumbnail(savedPath, compiledBytes);
+        if (activeDoc.fileType === "markdown") {
+          void refreshMarkdownThumbnails(savedPath);
+        } else {
+          syncLiveThumbnail(savedPath, compiledBytes);
+        }
         if (typeof onSaveSuccess === 'function') onSaveSuccess("File Saved Successfully");
         console.log("Document footprint committed cleanly to disk via Save As.");
       } finally {
@@ -263,6 +301,26 @@
     if (!beginSavingLock()) return;
     try {
       const savePath = activeDoc.filePath;
+      if (activeDoc.fileType === "markdown") {
+        const compiledBytes = markdownBytesForSave();
+        if (!compiledBytes) {
+          alert("Failed to encode markdown source.");
+          return;
+        }
+        await invoke("native_overwrite_file", {
+          path: savePath,
+          fileBytes: Array.from(compiledBytes),
+        });
+        await commitActiveDocumentAfterSave({
+          compiledBytes,
+          filePath: savePath,
+        });
+        void refreshMarkdownThumbnails(savePath);
+        console.log("Markdown source committed silently to disk.");
+        if (typeof onSaveSuccess === "function")
+          onSaveSuccess("File Saved Successfully");
+        return;
+      }
       if (activeDoc.fileType === 'image') {
         console.log("Compiling and flattening image annotations for silent save...");
         const compiledBytes = await flattenWorkspaceToImage(savePath);
@@ -452,9 +510,9 @@
         <div class="w-px h-4 bg-slate-700 mx-1.5"></div>
 
         <button 
-          disabled={!activeDoc.rawBytes}
+          disabled={!activeDoc.rawBytes || activeDoc.fileType === "markdown"}
           onclick={onToggleOcr} 
-          title="Extract Text" 
+          title={activeDoc.fileType === "markdown" ? "OCR is not available for markdown documents" : "Extract Text"} 
           class="toolbar-btn"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

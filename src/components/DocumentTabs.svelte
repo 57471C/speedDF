@@ -396,7 +396,9 @@
               ? "🖼"
               : doc.fileType === "tiff"
                 ? "📑"
-                : "📄"}
+                : doc.fileType === "markdown"
+                  ? "📝"
+                  : "📄"}
           </span>
           <span class="truncate text-[11px] font-medium tracking-tight pointer-events-none">
             {shortName(doc.fileName)}{#if doc.isDirty}<span

@@ -21,6 +21,10 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/lib/forms/formMemory.ts`**: Pure form/text value memory store — load/save `localStorage` key **`speeddf_form_memory`**, MRU lists, starts-with suggestions (min 2 chars).
 * **`src/lib/forms/formMemory.svelte.ts`**: Reactive facade over `formMemory` for UI (`rememberFormValue`, `getSuggestions`, `removeFormValue`, `clearAllFormMemory`).
 * **`src/lib/links/hyperlinks.ts`**: URI Link annotation extraction (PDF.js), safe-scheme validation (`http` / `https` / `mailto` only), and per-page link helpers. Pure URL helpers have no top-level PDF.js import (tests stay Node-safe).
+* **`src/lib/markdown/parse.ts`**: Markdown → HTML (`marked`, GFM). Pure projection — does not own document state.
+* **`src/lib/markdown/sanitize.ts`**: DOMPurify XSS sanitize for markdown HTML; safe link `target`/`rel` hooks.
+* **`src/lib/markdown/print.ts`**: Headless iframe print spool for markdown (`@page` A4, chrome-free).
+* **`src/lib/markdown/thumbnail.ts`**: Simple **html2canvas** of live `[data-markdown-content]` (top band, max edge 400px JPEG). Fixed dark paper `#121a2b` + light text + **sans stack** (not Times) via `onclone` / `applyMarkdownThumbCapturePalette`; `document.fonts.ready` before capture. Theme never controls thumb colours. Callers use `applyLiveThumbnail`. No pdf.js / modern-screenshot / offscreen clone.
 * **`src/lib/export/flatten.ts`**: Workspace flatten/export pipeline (PDF + image compilation, annotation draw including **lines + arrowheads**, form bake, post-save thumbnail generation). Called from `TitleBar.svelte`; UI chrome stays in TitleBar.
 * **`src/lib/comments/comments.ts`**: Threaded page comments, author profile, and Keywords embed/decode for save.
 * **`src/lib/interaction/dragHandler.svelte.ts`**: Page drag, multi-select (**Ctrl/Cmd+click** toggle; **Shift+drag marquee** on select tool), resize, **line click–click rubber-band**, line endpoint handles, text edit sessions (`activelyEditingIndex` + `textEditBaseline`), box click-to-drop defaults, and pointer event session for `WorkspacePage`.
@@ -48,12 +52,13 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/components/DocumentTabs.svelte`**: Multi-document tab strip; tab ids use `documentKey()` (`workspaceId`). Drag-reorder, Ctrl+Tab cycle, Recent dropdown, Close-all overflow. **Right-click tab** → context menu **Open in new window** (`openDocumentInNewWindow`). Tab close ("×") and menus use design tokens.
 * **`src/components/ImageResizeStrip.svelte`**: Fixed centre-top W / H / Scale% strip for **image** documents only (aspect lock). Stacks above the text-style toolbar when both are visible.
 * **`src/components/TitleBar.svelte`**: Custom OS-level header: window chrome, Extract Text (Lucide `square-dashed-text` icon), file open/save dialogs, orchestrates save via `lib/export/flatten` + `commitActiveDocumentAfterSave` (also re-extracts hyperlinks after save).
-* **`src/components/Workspace.svelte`**: Primary layout container mapping scrollable `WorkspacePage`s; **Ctrl/Cmd+wheel zoom-to-pointer** (content stack `data-workspace-pages`); hosts **text floating toolbar** + `ImageResizeStrip`; **dynamic `padding-top`** so page 1 clears floating strips; “Document loaded in Xms” burn-in.
+* **`src/components/Workspace.svelte`**: Primary layout container mapping scrollable `WorkspacePage`s **or** continuous `MarkdownView` when `fileType === "markdown"`; **Ctrl/Cmd+wheel zoom-to-pointer** (content stack `data-workspace-pages`); hosts **text floating toolbar** + `ImageResizeStrip`; **dynamic `padding-top`** so page 1 clears floating strips; “Document loaded in Xms” burn-in. Print via `onPrint` (markdown uses iframe spool).
+* **`src/components/MarkdownView.svelte`**: Read-only continuous markdown projection. Prop: `source` (canonical UTF-8 string). Pipeline: parse → sanitize → `{@html}`. After paint, schedules `captureMarkdownViewThumbnail` → `applyLiveThumbnail`. Typography + `@media print` styles. Live font is system-ui/Segoe UI sans (thumb capture re-asserts the same stack).
 * **`src/components/ContextMenu.svelte`**: Selection-aware page context menu (copy/cut/paste, annotate selection, quick tools row gated by Settings).
 * **`src/components/SettingsModal.svelte`**: Theme, tool toggles, OCR/dictionary, update-check settings.
-* **`src/components/ToolSidebar.svelte`**: Left-hand tools: select, stamps (Lucide `signature` icon), shapes, **line**, freehand, highlighter (Lucide `highlighter` icon), colors, styles; thickness menu includes **Ends** (plain / end arrow / start+end).
-* **`src/components/PageSidebar.svelte`**: Right-hand panel: page order, thumbnails, thumbnail options context menu (Add/Merge... & Insert Blank), outline/bookmarks, comments tab; **merge / blank-page insert** rebinds bytes + calls `refreshThumbnailsAfterPageInsert`. All cards & menus use design tokens.
-* **`src/routes/+page.svelte`**: App root wiring sidebars, workspace, titlebar, **Ctrl+F full-document search**, and toast notifications. **Main window** listens for **`startup-file-loaded`** / **`open-file-request`**. **Secondary `doc-*` windows** bootstrap via `/?open=<path>` (skip updater + startup listeners).
+* **`src/components/ToolSidebar.svelte`**: Left-hand tools: select, stamps (Lucide `signature` icon), shapes, **line**, freehand, highlighter (Lucide `highlighter` icon), colors, styles; thickness menu includes **Ends** (plain / end arrow / start+end). **Hidden** for markdown docs (no annotation tools in phase 1).
+* **`src/components/PageSidebar.svelte`**: Right-hand panel: page order, thumbnails, thumbnail options context menu (Add/Merge... & Insert Blank), outline/bookmarks, comments tab; **merge / blank-page insert** rebinds bytes + calls `refreshThumbnailsAfterPageInsert`. All cards & menus use design tokens. Markdown: single “Document” card + live thumb when available; no bookmarks/comments/page ops.
+* **`src/routes/+page.svelte`**: App root wiring sidebars, workspace, titlebar, **Ctrl+F full-document search**, and toast notifications. **Main window** listens for **`startup-file-loaded`** / **`open-file-request`**. **Secondary `doc-*` windows** bootstrap via `/?open=<path>` (skip updater + startup listeners). Loads `.md`/`.markdown` as `fileType: "markdown"` + `markdownSource`; **initial zoom 150%** for markdown only (PDF/image keep auto-fit).
 * **`src/routes/+layout.svelte`**: Reveals non-`tools-*` windows after paint (`visible: false` → show); focuses secondary `doc-*` windows.
 * **`src/routes/tools/+page.svelte`**: Always-on-top Tools window — calculator (expression memory), timer, stopwatch, Magic 8 Ball, scratch pad (`onpaste` HTML style-stripping).
 * **`src/routes/OcrPanel.svelte`**: Overlay for local AI OCR extraction.
@@ -61,7 +66,7 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/app.html`**: FOUC prevention script reading `speeddf_app_settings.theme` from `localStorage` to apply `data-theme="light"` before first paint.
 
 ### Backend System (Rust / Tauri)
-* **`src-tauri/src/lib.rs`**: Backend command registry and application builder. Filesystem validation, TIFF multi-page parse, **HEIC/HEIF one-time decode** (feature-gated), native dialogs, **startup file detection** (`std::env::args` → emit `startup-file-loaded`), and **`tauri-plugin-single-instance`** (focus existing **`main`** window + emit `open-file-request` with file bytes). Multi-window document views are **in-process** `WebviewWindow`s, not second processes.
+* **`src-tauri/src/lib.rs`**: Backend command registry and application builder. Filesystem validation, TIFF multi-page parse, **HEIC/HEIF one-time decode** (feature-gated), native dialogs, **startup file detection** (`std::env::args` → emit `startup-file-loaded`; extensions include **`.md` / `.markdown`**), and **`tauri-plugin-single-instance`** (focus existing **`main`** window + emit `open-file-request` with file bytes). Multi-window document views are **in-process** `WebviewWindow`s, not second processes.
 * **`src-tauri/src/commands.rs`**: Local ONNX OCR pipeline (DBNet + CRNN) via `tract-onnx`.
 * **`src-tauri/src/main.rs`**: Minimal binary entry point for the Tauri v2 app.
 * **`src-tauri/capabilities/default.json`**: Permissions for **`main`** and **`doc-*`** (secondary document windows).
@@ -73,7 +78,7 @@ This document serves as a standardized reference guide for understanding the arc
 
 ### Central Workspace Variables (`activeDoc`)
 Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary state keys:
-* **`openDocuments`**: Array of `DocumentWorkspace` objects for all loaded tabs (PDF, TIFF, image).
+* **`openDocuments`**: Array of `DocumentWorkspace` objects for all loaded tabs (PDF, TIFF, image, markdown).
 * **`activeDocumentId`**: Stable tab identifier — **`workspaceId`** (not path). Path/name may change on Save As without remounting the workspace.
 * **`DocumentWorkspace.workspaceId`**: UUID assigned at tab creation; used by `documentKey()` for tabs, close, and switch.
 * **`currentPage`**: Active page number in view.
@@ -88,7 +93,8 @@ Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary
 * **`isSaving`**: Session lock while flatten/write runs (blocks edits).
 * **`thumbnailVersion`**: Counter forcing thumbnail / sidebar repaints after save.
 * **`pageThumbnailOverrides`**: Per-document `Record<number, string>` base64 snapshots after save.
-* **`fileType`**: `"pdf" | "tiff" | "image"` (HEIC opens convert once then become `"image"`).
+* **`fileType`**: `"pdf" | "tiff" | "image" | "markdown"` (HEIC opens convert once then become `"image"`).
+* **`markdownSource`**: Canonical UTF-8 markdown text when `fileType === "markdown"`. View is a pure projection; do not treat rendered HTML as source of truth.
 * **`imageNativeWidth` / `imageNativeHeight`**: Native pixel size for image docs (Scale % baseline for the resize strip). Multi-doc safe per workspace.
 
 ### Active Tool Modifiers (`activeDoc`)

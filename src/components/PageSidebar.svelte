@@ -40,12 +40,20 @@
   let selectedPages = $state<number[]>([]);
   let activeSidebarTab = $state<'thumbnails' | 'bookmarks' | 'comments'>('thumbnails');
 
-  // Images have no outline/bookmarks or comments UI — keep the tab on thumbnails
+  // Images / markdown have no outline/bookmarks or comments UI — keep the tab on thumbnails
   $effect(() => {
-    if (activeDoc.fileType === 'image' && activeSidebarTab !== 'thumbnails') {
-      activeSidebarTab = 'thumbnails';
+    if (
+      (activeDoc.fileType === "image" || activeDoc.fileType === "markdown") &&
+      activeSidebarTab !== "thumbnails"
+    ) {
+      activeSidebarTab = "thumbnails";
     }
   });
+
+  /** Single logical page / continuous docs — no multi-page PDF chrome. */
+  const isSimpleDoc = $derived(
+    activeDoc.fileType === "image" || activeDoc.fileType === "markdown",
+  );
 
   // --- Bookmark Editing State ---
   let editingBookmarkId = $state<number | null>(null);
@@ -660,7 +668,7 @@
         </svg>
       </button>
 
-      {#if activeDoc.fileType !== 'image'}
+      {#if !isSimpleDoc}
         <button 
           onclick={toggleGridView}
           class="flex justify-center p-1.5 rounded transition-all"
@@ -680,7 +688,7 @@
         </button>
       {/if}
 
-      {#if activeDoc.fileType !== 'image'}
+      {#if !isSimpleDoc}
         <button 
           onclick={() => activeSidebarTab = 'bookmarks'}
           class="flex justify-center p-1.5 rounded transition-all"
@@ -706,7 +714,11 @@
     <div class="flex items-center justify-center py-1" style="background: var(--sdf-bg-surface);">
       <span class="text-[9px] font-bold uppercase tracking-widest font-sans" style="color: var(--sdf-text-muted);">
         {#if activeSidebarTab === 'thumbnails'}
-          Pages ({activeDoc.pageOrder.length})
+          {#if activeDoc.fileType === "markdown"}
+            Document
+          {:else}
+            Pages ({activeDoc.pageOrder.length})
+          {/if}
         {:else if activeSidebarTab === 'bookmarks'}
           Bookmarks ({sortedBookmarks.length})
         {:else}
@@ -759,6 +771,32 @@
                 />
               {/key}
             </div>
+          {:else if activeDoc.fileType === "markdown"}
+            <div
+              class="w-full aspect-[3/4] rounded flex flex-col items-center justify-center gap-1 overflow-hidden border"
+              style="background: var(--sdf-bg-elevated); border-color: var(--sdf-border-subtle);"
+            >
+              {#if (activeDoc.pageThumbnailOverrides || {})[0]}
+                {#key activeDoc.thumbnailVersion}
+                  <img
+                    src={(activeDoc.pageThumbnailOverrides || {})[0]}
+                    alt="Markdown preview"
+                    class="w-full h-full object-cover rounded-sm opacity-90"
+                    draggable="false"
+                  />
+                {/key}
+              {:else}
+                <div class="flex flex-col items-center justify-center gap-2 p-3">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: var(--sdf-accent); opacity: 0.85;">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="8" y1="13" x2="16" y2="13"/>
+                    <line x1="8" y1="17" x2="13" y2="17"/>
+                  </svg>
+                  <span class="text-[9px] font-bold uppercase tracking-wider text-center" style="color: var(--sdf-text-muted);">Markdown</span>
+                </div>
+              {/if}
+            </div>
           {:else}
             {@const cachedThumb = (activeDoc.pageThumbnailOverrides || {})[pageNum - 1]}
             <div
@@ -782,6 +820,7 @@
             </div>
           {/if}
 
+          {#if activeDoc.fileType !== "markdown"}
           <div
             class="flex items-center justify-center gap-1 mt-2.5 w-full transition-opacity
             {isPageMenuOpen && insertAfterPageNum === pageNum ? 'opacity-100' : 'opacity-40 group-hover:opacity-100'}"
@@ -813,14 +852,14 @@
 
             <div class="relative z-[60] isolate font-sans text-left">
               <button
-                disabled={activeDoc.fileType === 'image'}
+                disabled={isSimpleDoc}
                 onclick={(e) => {
                   e.stopPropagation();
                   insertAfterPageNum = pageNum;
                   isPageMenuOpen = !isPageMenuOpen;
                 }}
-                class="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors {activeDoc.fileType === 'image' ? 'opacity-30 pointer-events-none' : ''}"
-                title={activeDoc.fileType === 'image' ? "Structural merging and page injection require a PDF layout document." : "Page Options"}
+                class="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors {isSimpleDoc ? 'opacity-30 pointer-events-none' : ''}"
+                title={isSimpleDoc ? "Structural merging and page injection require a PDF layout document." : "Page Options"}
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -842,7 +881,7 @@
                 </svg>
               </button>
 
-              {#if isPageMenuOpen && insertAfterPageNum === pageNum && activeDoc.fileType !== 'image'}
+              {#if isPageMenuOpen && insertAfterPageNum === pageNum && !isSimpleDoc}
                 <div 
                   class="absolute bottom-full left-0 mb-2 rounded flex flex-col gap-0.5 min-w-[125px] shadow-2xl p-1.5 pointer-events-auto"
                   style="z-index: 99999 !important; background-color: var(--sdf-overlay-bg) !important; border: 1px solid var(--sdf-overlay-border) !important; opacity: 1 !important; color: var(--sdf-text-primary);"
@@ -877,7 +916,7 @@
               {/if}
             </div>
 
-            {#if activeDoc.fileType !== 'image'}
+            {#if !isSimpleDoc}
               <button
                 type="button"
                 disabled={activeDoc.pageOrder.length <= 1}
@@ -935,6 +974,7 @@
               </svg>
             </button>
           </div>
+          {/if}
         </div>
       {/each}
 

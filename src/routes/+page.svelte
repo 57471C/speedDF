@@ -36,11 +36,13 @@
     closeDocumentWorkspace,
     closeAllDocumentWorkspaces,
     pushHistorySnapshot,
+    upsertRecentEntry,
     type AnnotationShape,
   } from "../pdfStore.svelte";
   import { decodeCommentsFromKeywords } from "../lib/comments/comments";
   import { extractFormFields } from "../lib/forms/formFields";
   import { extractHyperlinksFromDocument } from "../lib/links/hyperlinks";
+  import { printMarkdownSource } from "../lib/markdown/print";
   import {
     isMainViewReady,
     resetMainViewReady,
@@ -82,12 +84,16 @@
   const TIFF_EXTENSIONS = ["tiff", "tif"];
   const HEIC_EXTENSIONS = ["heic", "heif"];
   const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "bmp"];
+  const MARKDOWN_EXTENSIONS = ["md", "markdown"];
 
-  function determineFileType(fileName: string): "pdf" | "tiff" | "heic" | "image" {
-    const ext = fileName.toLowerCase().split('.').pop() || "";
+  function determineFileType(
+    fileName: string,
+  ): "pdf" | "tiff" | "heic" | "image" | "markdown" {
+    const ext = fileName.toLowerCase().split(".").pop() || "";
     if (TIFF_EXTENSIONS.includes(ext)) return "tiff";
     if (HEIC_EXTENSIONS.includes(ext)) return "heic";
     if (IMAGE_EXTENSIONS.includes(ext)) return "image";
+    if (MARKDOWN_EXTENSIONS.includes(ext)) return "markdown";
     return "pdf";
   }
 
@@ -169,7 +175,12 @@
     }
 
     // Non-PDF documents: no extractable text stream — leave empty (annotations not indexed)
-    if (activeDoc.fileType === "image" || activeDoc.fileType === "tiff" || !activeDoc.rawBytes) {
+    if (
+      activeDoc.fileType === "image" ||
+      activeDoc.fileType === "tiff" ||
+      activeDoc.fileType === "markdown" ||
+      !activeDoc.rawBytes
+    ) {
       totalMatches = 0;
       currentMatchIndex = -1;
       matchesList = [];
@@ -429,7 +440,11 @@
     fileType?: string,
   ) {
     try {
-      if (fileType === 'image' && typeof bytesOrThumbnail === 'string') {
+      // Image / markdown: caller already produced a data-URL thumbnail
+      if (
+        (fileType === "image" || fileType === "markdown") &&
+        typeof bytesOrThumbnail === "string"
+      ) {
         let currentList: RecentFile[] = [];
         const stored = localStorage.getItem("speeddf_recents");
         if (stored) currentList = JSON.parse(stored);
@@ -440,7 +455,7 @@
           path,
           timestamp: Date.now(),
           thumbnail: bytesOrThumbnail,
-          orientation: 'portrait',
+          orientation: "portrait",
         });
         if (currentList.length > 10) currentList = currentList.slice(0, 10);
 
@@ -867,6 +882,59 @@
 
         // Skip PDF.js rendering entirely and log it out
         console.log(`Image Ingestion Setup: Initialized image frame for ${fileName}`);
+      } else if (fileCategory === "markdown") {
+        // Canonical source = UTF-8 text; view is a pure HTML projection later.
+        let source = "";
+        try {
+          source = new TextDecoder("utf-8").decode(rawBytes);
+        } catch (decodeErr) {
+          console.warn("Markdown UTF-8 decode failed:", decodeErr);
+          source = "";
+        }
+
+        activeDoc.fileType = "markdown";
+        activeDoc.markdownSource = source;
+        activeDoc.rawBytes = rawBytes;
+        activeDoc.tiffPages = [];
+        activeDoc.fileName = fileName;
+        activeDoc.filePath = filePath;
+        activeDoc.pageCount = 1;
+        activeDoc.pageOrder = [1];
+        activeDoc.currentPage = 1;
+        activeDoc.shapes = {};
+        activeDoc.rotations = {};
+        activeDoc.bookmarks = [];
+        activeDoc.comments = [];
+        activeDoc.formFields = [];
+        activeDoc.formValues = {};
+        activeDoc.hyperlinks = [];
+        activeDoc.pageThumbnailOverrides = {};
+        if (activeDoc.imageUrl) {
+          try {
+            URL.revokeObjectURL(activeDoc.imageUrl);
+          } catch {
+            /* ignore */
+          }
+        }
+        activeDoc.imageUrl = null;
+
+        // Markdown opens at 150% (user can still zoom freely after). PDF/image
+        // keep their own default / auto-fit path — do not change those here.
+        zoomScale = 150;
+        activeDoc.zoomScale = 150;
+
+        // Seed Recent row immediately (no thumb yet). MarkdownView captures the
+        // top of the rendered document after paint and calls applyLiveThumbnail
+        // (same store path as image open thumbs). Failure never blocks open.
+        if (filePath) {
+          try {
+            upsertRecentEntry(filePath, fileName);
+          } catch (recentErr) {
+            console.warn("Markdown recent registration skipped:", recentErr);
+          }
+        }
+
+        console.log(`Markdown Ingestion: Loaded source (${source.length} chars) for ${fileName}`);
       } else {
         // ── Fast open path for PDFs ─────────────────────────────────────
         // Warm open (subsequent): layout meta + IDB thumbs → shell + sidebar
@@ -1251,7 +1319,20 @@
       filters: [
         {
           name: "Supported Documents",
-          extensions: ["pdf", "tiff", "tif", "png", "jpg", "jpeg", "gif", "bmp", "heic", "heif"],
+          extensions: [
+            "pdf",
+            "tiff",
+            "tif",
+            "png",
+            "jpg",
+            "jpeg",
+            "gif",
+            "bmp",
+            "heic",
+            "heif",
+            "md",
+            "markdown",
+          ],
         },
       ],
     });
@@ -1338,9 +1419,13 @@
   // (registerRecentFile joins the same loadingTask via getSharedWorkspacePdf).
   $effect(() => {
     if (activeDoc.rawBytes && activeDoc.fileName && activeDoc.filePath) {
-      // Images/TIFF register their own thumbnails (data URL) in the load path —
+      // Images/TIFF/markdown register their own history in the load path —
       // calling registerRecentFile with raw bytes here produces empty JPG thumbs.
-      if (activeDoc.fileType === "image" || activeDoc.fileType === "tiff") {
+      if (
+        activeDoc.fileType === "image" ||
+        activeDoc.fileType === "tiff" ||
+        activeDoc.fileType === "markdown"
+      ) {
         return;
       }
       const stored = localStorage.getItem("speeddf_recents");
@@ -1413,7 +1498,12 @@
 
     // Resolve page + % coords when right-click lands on a document page
     contextCommentTarget = null;
-    if (!activeDoc.rawBytes || activeDoc.fileType === "image") return;
+    if (
+      !activeDoc.rawBytes ||
+      activeDoc.fileType === "image" ||
+      activeDoc.fileType === "markdown"
+    )
+      return;
     const pageEl = (e.target as HTMLElement | null)?.closest?.(
       "[data-page-number]",
     ) as HTMLElement | null;
@@ -1701,6 +1791,19 @@
 
     isPrintingProcess = true;
     showNotification("Preparing Document for Printing");
+
+    if (activeDoc.fileType === "markdown") {
+      try {
+        printMarkdownSource(activeDoc.markdownSource ?? "");
+        showNotification("Document Sent to Printer Queue");
+      } catch (err) {
+        console.error("Markdown print failed:", err);
+        showNotification("Unable to Initialize Print Request");
+      } finally {
+        isPrintingProcess = false;
+      }
+      return;
+    }
 
     if (activeDoc.fileType === 'image') {
       let printWindow = document.getElementById('print-iframe') as HTMLIFrameElement;
@@ -2216,7 +2319,9 @@
 
   {#if activeDoc.rawBytes || activeDoc.openDocuments.length > 0}
     <div class="flex flex-1 w-full overflow-hidden relative">
-      <ToolSidebar bind:zoomScale />
+      {#if activeDoc.fileType !== "markdown"}
+        <ToolSidebar bind:zoomScale />
+      {/if}
       
       <div class="relative flex-1 h-full min-h-0 min-w-0 flex flex-col">
         <DocumentTabs
@@ -2231,12 +2336,13 @@
           {#key activeDoc.activeDocumentId}
             <div class="flex-1 min-h-0 flex flex-col relative">
               <Workspace
-                {zoomScale}
+                bind:zoomScale
                 {isSystemPrinting}
                 onShowNotification={showNotification}
                 openDurationMs={activeDoc.activeDocumentId === renderDurationDocId
                   ? renderDurationMs
                   : null}
+                onPrint={triggerHeadlessPrintSpool}
               />
             </div>
           {/key}
