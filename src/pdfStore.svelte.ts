@@ -720,6 +720,9 @@ export async function commitActiveDocumentAfterSave(opts: {
 			let mime = "image/jpeg";
 			if (lower.endsWith(".png")) mime = "image/png";
 			else if (lower.endsWith(".webp")) mime = "image/webp";
+			else if (lower.endsWith(".svg")) mime = "image/svg+xml";
+			else if (lower.endsWith(".gif")) mime = "image/gif";
+			else if (lower.endsWith(".bmp")) mime = "image/bmp";
 			const blob = new Blob([doc.rawBytes as BlobPart], { type: mime });
 			doc.imageUrl = URL.createObjectURL(blob);
 			// After save, the written pixels are the new original — reset Scale (%) baseline

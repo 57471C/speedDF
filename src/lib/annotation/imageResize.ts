@@ -89,6 +89,8 @@ export function mimeFromFileName(fileName: string | null | undefined): string {
 	if (lower.endsWith(".webp")) return "image/webp";
 	if (lower.endsWith(".gif")) return "image/gif";
 	if (lower.endsWith(".bmp")) return "image/bmp";
+	// Prefer <img src=blob> with image/svg+xml — never {@html} raw SVG (scripts)
+	if (lower.endsWith(".svg")) return "image/svg+xml";
 	return "image/jpeg";
 }
 

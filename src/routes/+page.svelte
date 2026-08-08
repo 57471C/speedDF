@@ -69,6 +69,7 @@
     createLineShape,
     HIGHLIGHT_COLOR,
   } from "../lib/annotation/toolShapes";
+  import { mimeFromFileName } from "../lib/annotation/imageResize";
   import {
     hydrateThumbnailsFromDisk,
     removeDocumentThumbnailCaches,
@@ -83,7 +84,8 @@
 
   const TIFF_EXTENSIONS = ["tiff", "tif"];
   const HEIC_EXTENSIONS = ["heic", "heif"];
-  const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "bmp"];
+  // Raster + SVG (SVG opens as image via blob URL, not inline {@html})
+  const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg"];
   const MARKDOWN_EXTENSIONS = ["md", "markdown"];
 
   function determineFileType(
@@ -511,13 +513,7 @@
               ? bytesOrThumbnail
               : activeDoc.rawBytes;
           if (bytes && bytes.length > 0) {
-            const ext = (name.split(".").pop() || "png").toLowerCase();
-            const mime =
-              ext === "jpg" || ext === "jpeg"
-                ? "image/jpeg"
-                : ext === "webp"
-                  ? "image/webp"
-                  : `image/${ext}`;
+            const mime = mimeFromFileName(name);
             const blob = new Blob([bytes as BlobPart], { type: mime });
             const url = URL.createObjectURL(blob);
             dataUrl = await new Promise<string>((resolve) => {
@@ -832,8 +828,9 @@
         // Clear any stale per-doc override so sidebar uses live imageUrl until paint
         activeDoc.pageThumbnailOverrides = {};
 
-        const ext = fileName.toLowerCase().split('.').pop() || "png";
-        const mimeType = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `image/${ext}`;
+        // SVG uses image/svg+xml so the workspace can use <img src=blob>
+        // (scripts in SVG do not run). Never {@html} raw SVG.
+        const mimeType = mimeFromFileName(fileName);
         const blob = new Blob([rawBytes as any], { type: mimeType });
 
         // Revoke previous object URL if re-loading into same slot
@@ -1328,6 +1325,8 @@
             "jpeg",
             "gif",
             "bmp",
+            "webp",
+            "svg",
             "heic",
             "heif",
             "md",

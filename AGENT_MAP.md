@@ -14,7 +14,7 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/lib/annotation/toolShapes.ts`**: Pure factories for tool-created shapes (box, freehand, **line**, text, stamps). Includes `createLineShape`, `lineBoundsFromPoints`, `arrowHeadVertices`, `defaultTextBoxHeightPct`, and empty-draft helpers.
 * **`src/lib/annotation/ghostDimensions.ts`**: Stamp ghost size defaults + localStorage cache for resized stamps.
 * **`src/lib/annotation/strokeStyles.ts`**: Shared SVG stroke-dasharray presets.
-* **`src/lib/annotation/imageResize.ts`**: Pure W/H/Scale% math for image docs (aspect lock, clamp 1–99% scale presets). Used by `ImageResizeStrip` + `applyImageResizeAction`.
+* **`src/lib/annotation/imageResize.ts`**: Pure W/H/Scale% math for image docs (aspect lock, clamp 1–99% scale presets). Used by `ImageResizeStrip` + `applyImageResizeAction`. **`mimeFromFileName`** maps extensions including **`.svg` → `image/svg+xml`** (blob URL for `<img>`; never raw SVG `{@html}`).
 * **`src/lib/annotation/shapeBounds.ts`**: Axis-aligned page-% bounds for box/line shapes (shared by multi-select + align).
 * **`src/lib/annotation/alignShapes.ts`**: Pure align / distribute helpers (`left|center|right|top|middle|bottom`, horizontal/vertical distribute) over selected shape indices.
 * **`src/lib/forms/formFields.ts`**: AcroForm (non-XFA) field extraction, value application, signature stamp bake, and flatten helpers via pdf-lib. Widget geometry uses **CropBox + page `/Rotate`** via `pdfRectToDisplayPercent` (pdf.js-compatible viewport matrix) so overlays match the painted page at every zoom.
@@ -58,7 +58,7 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/components/SettingsModal.svelte`**: Theme, tool toggles, OCR/dictionary, update-check settings.
 * **`src/components/ToolSidebar.svelte`**: Left-hand tools: select, stamps (Lucide `signature` icon), shapes, **line**, freehand, highlighter (Lucide `highlighter` icon), colors, styles; thickness menu includes **Ends** (plain / end arrow / start+end). **Hidden** for markdown docs (no annotation tools in phase 1).
 * **`src/components/PageSidebar.svelte`**: Right-hand panel: page order, thumbnails, thumbnail options context menu (Add/Merge... & Insert Blank), outline/bookmarks, comments tab; **merge / blank-page insert** rebinds bytes + calls `refreshThumbnailsAfterPageInsert`. All cards & menus use design tokens. Markdown: single “Document” card + live thumb when available; no bookmarks/comments/page ops.
-* **`src/routes/+page.svelte`**: App root wiring sidebars, workspace, titlebar, **Ctrl+F full-document search**, and toast notifications. **Main window** listens for **`startup-file-loaded`** / **`open-file-request`**. **Secondary `doc-*` windows** bootstrap via `/?open=<path>` (skip updater + startup listeners). Loads `.md`/`.markdown` as `fileType: "markdown"` + `markdownSource`; **initial zoom 150%** for markdown only (PDF/image keep auto-fit).
+* **`src/routes/+page.svelte`**: App root wiring sidebars, workspace, titlebar, **Ctrl+F full-document search**, and toast notifications. **Main window** listens for **`startup-file-loaded`** / **`open-file-request`**. **Secondary `doc-*` windows** bootstrap via `/?open=<path>` (skip updater + startup listeners). Loads `.md`/`.markdown` as `fileType: "markdown"` + `markdownSource`; **initial zoom 150%** for markdown only (PDF/image keep auto-fit). Image open list includes **`.svg`** (and webp) as `fileType: "image"` via blob URL.
 * **`src/routes/+layout.svelte`**: Reveals non-`tools-*` windows after paint (`visible: false` → show); focuses secondary `doc-*` windows.
 * **`src/routes/tools/+page.svelte`**: Always-on-top Tools window — calculator (expression memory), timer, stopwatch, Magic 8 Ball, scratch pad (`onpaste` HTML style-stripping).
 * **`src/routes/OcrPanel.svelte`**: Overlay for local AI OCR extraction.
@@ -66,7 +66,7 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/app.html`**: FOUC prevention script reading `speeddf_app_settings.theme` from `localStorage` to apply `data-theme="light"` before first paint.
 
 ### Backend System (Rust / Tauri)
-* **`src-tauri/src/lib.rs`**: Backend command registry and application builder. Filesystem validation, TIFF multi-page parse, **HEIC/HEIF one-time decode** (feature-gated), native dialogs, **startup file detection** (`std::env::args` → emit `startup-file-loaded`; extensions include **`.md` / `.markdown`**), and **`tauri-plugin-single-instance`** (focus existing **`main`** window + emit `open-file-request` with file bytes). Multi-window document views are **in-process** `WebviewWindow`s, not second processes.
+* **`src-tauri/src/lib.rs`**: Backend command registry and application builder. Filesystem validation, TIFF multi-page parse, **HEIC/HEIF one-time decode** (feature-gated), native dialogs, **startup file detection** (`std::env::args` → emit `startup-file-loaded`; extensions include **`.md` / `.markdown`**, **`.svg`**, images, PDF, TIFF), and **`tauri-plugin-single-instance`** (focus existing **`main`** window + emit `open-file-request` with file bytes). Multi-window document views are **in-process** `WebviewWindow`s, not second processes.
 * **`src-tauri/src/commands.rs`**: Local ONNX OCR pipeline (DBNet + CRNN) via `tract-onnx`.
 * **`src-tauri/src/main.rs`**: Minimal binary entry point for the Tauri v2 app.
 * **`src-tauri/capabilities/default.json`**: Permissions for **`main`** and **`doc-*`** (secondary document windows).
@@ -93,7 +93,7 @@ Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary
 * **`isSaving`**: Session lock while flatten/write runs (blocks edits).
 * **`thumbnailVersion`**: Counter forcing thumbnail / sidebar repaints after save.
 * **`pageThumbnailOverrides`**: Per-document `Record<number, string>` base64 snapshots after save.
-* **`fileType`**: `"pdf" | "tiff" | "image" | "markdown"` (HEIC opens convert once then become `"image"`).
+* **`fileType`**: `"pdf" | "tiff" | "image" | "markdown"` (HEIC opens convert once then become `"image"`; **SVG** opens as `"image"` via `image/svg+xml` blob URL — never `{@html}` raw SVG).
 * **`markdownSource`**: Canonical UTF-8 markdown text when `fileType === "markdown"`. View is a pure projection; do not treat rendered HTML as source of truth.
 * **`imageNativeWidth` / `imageNativeHeight`**: Native pixel size for image docs (Scale % baseline for the resize strip). Multi-doc safe per workspace.
 
@@ -307,7 +307,13 @@ Do **not** use a single hard-coded `pt-*` that ignores image + text stacking —
 * **UI:** `ImageResizeStrip.svelte` — W (px), H (px), Scale (% 1–99 + presets), aspect lock (default on).
 * **Math:** `lib/annotation/imageResize.ts` (`computeLinkedResize`, `clampScale`, `SCALE_PRESETS`).
 * **Apply:** `applyImageResizeAction` in `pdfStore` resamples image pixels; keeps **native** size for Scale % baseline (`imageNativeWidth` / `imageNativeHeight`). Multi-document safe (active workspace only).
-* **Scope:** raster image docs only (not multi-page PDF/TIFF page geometry).
+* **Scope:** image docs (`fileType === "image"`) including SVG-as-image; not multi-page PDF/TIFF page geometry. SVG resize/flatten still bakes through canvas (raster output on save).
+
+### SVG as image
+* Opens with the standard **image** pipeline (`fileType: "image"`), not a new type.
+* Blob MIME **`image/svg+xml`** + workspace **`<img src>`** — do **not** inject raw SVG via `{@html}` (scripts in SVG must not run).
+* Annotations reuse the image overlay; Save/flatten rasterizes like PNG/JPEG (default JPEG save path).
+* Startup associations: `.svg` in Rust `is_supported_startup_extension` + `tauri.conf.json` image fileAssociations.
 
 ---
 
@@ -368,4 +374,4 @@ This guarantees exactly one hero icon renders at a time across theme switches.
 
 ---
 
-**Last Updated:** July 2026 (Open in new window / `doc-*` WebviewWindows, floating toolbar stacking + dynamic workspace pad, image resize strip, shape align/distribute + Shift+marquee multi-select, Settings/theme, selection-aware context menu, light mode tokens, Scratch Pad paste sanitize, HEIC feature-gate, form CropBox/rotate, Ctrl+F marks, merge thumbs + Recent p1, bookmark compose, zoom-to-pointer, tools windows, line tool + hyperlinks, form/text value memory, workspaceId / Save As)
+**Last Updated:** August 2026 (SVG-as-image open path; Markdown continuous viewer phase 1; Open in new window / `doc-*` WebviewWindows, floating toolbar stacking + dynamic workspace pad, image resize strip, shape align/distribute + Shift+marquee multi-select, Settings/theme, selection-aware context menu, light mode tokens, Scratch Pad paste sanitize, HEIC feature-gate, form CropBox/rotate, Ctrl+F marks, merge thumbs + Recent p1, bookmark compose, zoom-to-pointer, tools windows, line tool + hyperlinks, form/text value memory, workspaceId / Save As)

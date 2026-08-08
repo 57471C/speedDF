@@ -76,9 +76,9 @@
 				"role": "Editor"
 			},
 			{
-				"ext": ["png", "jpg", "jpeg", "webp", "bmp"],
+				"ext": ["png", "jpg", "jpeg", "webp", "bmp", "svg"],
 				"name": "Image File",
-				"description": "Image Document",
+				"description": "Image Document (including SVG)",
 				"role": "Editor"
 			},
 			{
