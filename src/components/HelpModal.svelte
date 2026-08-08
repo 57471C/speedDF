@@ -24,7 +24,7 @@
           <span
             class="text-[10px] px-1.5 py-0.5 rounded font-mono"
             style="background: var(--sdf-hover-bg); color: var(--sdf-text-secondary);"
-            >v1.2.1</span
+            >v1.2.2</span
           >
         </div>
         <button
