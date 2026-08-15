@@ -193,11 +193,23 @@ async function drawAnnotationsOnPage(
 			}
 
 			const fontSize = s.size || 12;
-			const textBaselineY = pageHeight - (s.y / 100) * pageHeight;
-			const zoomMultiplier = (activeDoc.zoomScale || 120) / 100;
-			const yOffset = 10 / zoomMultiplier;
 			const textHexColor = s.textColor || s.color || "#000000";
 			const resolvedTextColorRgb = hexToRgb(textHexColor);
+
+			// ── Text position: match AnnotationLayer's CSS box model ──
+			// UI text box has: box-border, 1px border, p-0.5 (2px padding),
+			// line-height 1.2. Text ink starts inset from the div origin.
+			// Treat 1 CSS px ≈ 1 PDF pt (holds closely at normal DPI/zoom).
+			const contentInset = 3; // 1px border + 2px padding
+			// Half-leading: CSS line-height 1.2 adds 10% of fontSize above
+			// the em-square top before the first glyph ascender.
+			const halfLeading = fontSize * 0.1;
+			// Font ascent above baseline (pdf-lib metric, no descender).
+			const ascent = pdfFont.heightAtSize(fontSize, { descender: false });
+			// Box top edge in PDF coordinates (Y grows upward from bottom).
+			const boxTopY = pageHeight - (s.y / 100) * pageHeight;
+			// First-line baseline = box top − inset − half-leading − ascent.
+			const textY = boxTopY - contentInset - halfLeading - ascent;
 
 			// Sanitize text input before PDF content stream injection
 			let safeText = stripControlChars(s?.text || "");
@@ -221,7 +233,7 @@ async function drawAnnotationsOnPage(
 				safeText = safeText.substring(0, 5000);
 			}
 
-			let drawX = x;
+			let drawX = x + contentInset;
 			const computedTextWidth = pdfFont.widthOfTextAtSize(safeText, fontSize);
 
 			if (s.alignment === "center") {
@@ -232,7 +244,7 @@ async function drawAnnotationsOnPage(
 
 			page.drawText(safeText, {
 				x: drawX,
-				y: textBaselineY - yOffset,
+				y: textY,
 				size: fontSize,
 				font: pdfFont,
 				color: resolvedTextColorRgb,
@@ -754,8 +766,9 @@ export async function flattenWorkspaceToImage(
 				const cssFontFamily =
 					FONT_MAP[fontName]?.css || `${fontName}, sans-serif`;
 				ctx.font = `${fontStyle} ${fontSize}px ${cssFontFamily}`;
-				ctx.textBaseline = "middle";
-				ctx.fillText(shape.text || "", x, y);
+				ctx.textBaseline = "top";
+				// Content inset: 1px border + 2px CSS padding (p-0.5)
+				ctx.fillText(shape.text || "", x + 3, y + 3);
 			} else if (shape.type === "tick") {
 				ctx.beginPath();
 				ctx.moveTo(x + (20 / 24) * w, y + (6 / 24) * h);
