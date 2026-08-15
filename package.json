@@ -57,6 +57,7 @@
 	},
 	"allowScripts": {
 		"esbuild@0.25.12": true,
-		"canvas@3.2.3": true
+		"canvas@3.2.3": true,
+		"fsevents@2.3.3": true
 	}
 }

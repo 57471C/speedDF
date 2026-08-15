@@ -1,6 +1,9 @@
 # Todo List #
 
 ## Fixes ##
+- [ ] if the user changes the font size in the text annotation tool. ensure it's persistant. example. user changes the size from 16pt to 20pt and clicks to add text, isn't happy with the placment so they click elswhere. the size reverts to 16pt because text wasn't drawn to the page.
+- [ ] When the user add annotations (text, but possibly others) and the document is saved. when the text flattens in the document it's about hald the text hight ofset upwards. This was noticed on a landscape page. !critical investigate if the page orientation is the cause. This isn't noticed as severe with a portait A4 sheet.
+- [ ] some light mode text is hard to read: Saved auto-complete text in the contect menu. the "Acknowlage & save button" in the help modal.
 - [x] update buy me a coffee link to buymeacoffee.com/lean.studio
 
 ## Features to add ##
@@ -12,6 +15,19 @@
 6. ~~Tools: scratch pad/clip board (persistant across all docs)~~
 
 ## long term goals (may never do)
+
+## Text flatten calibration (if re-tuning)
+
+- Overlay text box: 1px border + p-0.5 (2px) → content inset ≈ 3 CSS px from box origin
+- CSS line-height 1.2 → half-leading ≈ fontSize * 0.1 above em-square
+- PDF drawText uses baseline; use pdfFont.heightAtSize(size, { descender: false }) with fallback ~0.8 * size
+- Formula (box top-left % → PDF):
+  - drawX = boxLeft + contentInset
+  - baselineY = boxTopY - contentInset - halfLeading - ascent
+- Do **not** use zoomScale in flatten position math
+- Fixed ~3pt inset is good enough; if bias returns on huge/tiny pages, convert inset to % of page (or scale CSS px → page space) instead of hard-coded points
+- Re-check portrait + landscape + large font (24pt) after any change
+
 1. lopdf + docx-rs export to Word, lopdf + rust_xlsxwriter for Excel
 2. tauri-plugin-tts for Text to Speach
 3. True Structural Text Reflow:
