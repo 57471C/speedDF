@@ -256,8 +256,6 @@
       activeTextShape.font = val;
       activeTextShape.fontFamily = val as any;
       activeDoc.shapes = { ...activeDoc.shapes };
-    } else {
-      activeDoc.defaultFont = val;
     }
   }
 
@@ -271,27 +269,30 @@
     }
   }
 
-  function handleSizeChange(e: Event) {
-    const val = parseInt((e.target as HTMLInputElement).value) || 12;
-    selectedSize = val;
+  /** Toolbar size is the session default immediately — selected draft/shape is extra. */
+  function commitTextToolSize(raw: number) {
+    const size = Math.max(6, Math.min(200, Math.round(raw) || 12));
+    selectedSize = size;
+    activeDoc.defaultSize = size;
     if (activeTextShape) {
       pushHistorySnapshot();
-      applyFontSizeToTextShape(activeTextShape, val);
+      applyFontSizeToTextShape(activeTextShape, size);
       activeDoc.shapes = { ...activeDoc.shapes };
-    } else {
-      activeDoc.defaultSize = val;
     }
+  }
+
+  function handleSizeChange(e: Event) {
+    commitTextToolSize(parseInt((e.target as HTMLInputElement).value) || 12);
   }
 
   function handleStyleChange(e: Event) {
     const val = (e.target as HTMLSelectElement).value as "Normal" | "Bold" | "Italic";
     selectedStyle = val;
+    activeDoc.defaultStyle = val;
     if (activeTextShape) {
       pushHistorySnapshot();
       activeTextShape.style = val;
       activeDoc.shapes = { ...activeDoc.shapes };
-    } else {
-      activeDoc.defaultStyle = val;
     }
   }
 
@@ -312,14 +313,7 @@
   let showSizeDropdown = $state(false);
 
   function selectCustomSize(sz: number) {
-    selectedSize = sz;
-    if (activeTextShape) {
-      pushHistorySnapshot();
-      applyFontSizeToTextShape(activeTextShape, sz);
-      activeDoc.shapes = { ...activeDoc.shapes };
-    } else {
-      activeDoc.defaultSize = sz;
-    }
+    commitTextToolSize(sz);
     showSizeDropdown = false;
   }
 

@@ -11,6 +11,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import { activeDoc } from "../../pdfStore.svelte";
 import { runWithPdfRenderSlot } from "./pdfRenderQueue";
 import { markMainViewReady } from "./mainViewGate";
+import { combinedPageRotation } from "./pageRotation";
 import {
 	cleanupPdfPage,
 	getSharedWorkspacePdf,
@@ -91,6 +92,14 @@ export function createPageRenderer(deps: PageRendererDeps) {
 		}
 	}
 
+	/** Drop glyph spans + rotation attr so a later paint cannot reuse a 0° layer. */
+	function clearTextLayerDom() {
+		const textLayerEl = getTextLayerElement();
+		if (!textLayerEl) return;
+		textLayerEl.replaceChildren();
+		textLayerEl.removeAttribute("data-main-rotation");
+	}
+
 	/**
 	 * Cancel the in-flight page.render() and wait until pdf.js releases the canvas.
 	 * Must complete before starting another render on the same canvas element.
@@ -111,10 +120,11 @@ export function createPageRenderer(deps: PageRendererDeps) {
 		}
 	}
 
-	/** Cancel paint + text layer without destroying page resources or DOM children. */
+	/** Cancel paint + text layer. Glyph DOM is cleared so rotation/bytes changes cannot keep a stale layer. */
 	async function cancelInFlight(): Promise<void> {
 		paintGeneration += 1;
 		cancelTextLayerOnly();
+		clearTextLayerDom();
 		await cancelActiveRenderTask();
 	}
 
@@ -122,11 +132,8 @@ export function createPageRenderer(deps: PageRendererDeps) {
 	async function releaseWhenUnrendered(): Promise<void> {
 		paintGeneration += 1;
 		await cancelActiveRenderTask();
-		const textLayerEl = getTextLayerElement();
 		cancelTextLayerOnly();
-		if (textLayerEl) {
-			textLayerEl.replaceChildren();
-		}
+		clearTextLayerDom();
 		releaseActivePdfPage();
 		// Free canvas bitmap for off-screen pages (DOM node kept for reuse).
 		zeroCanvasBuffer(boundCanvas);
@@ -354,12 +361,16 @@ export function createPageRenderer(deps: PageRendererDeps) {
 
 					const dpr = window.devicePixelRatio || 1;
 					const safeScale = Math.max(0.1, scale / 100);
-					const rotation = (nextPage.rotate + rotationAngle) % 360;
+					const rotation = combinedPageRotation(
+						nextPage.rotate ?? 0,
+						rotationAngle,
+					);
 					const adjustedViewport = nextPage.getViewport({
 						scale: safeScale * dpr,
 						rotation,
 					});
-					// CSS-pixel viewport for the text layer (matches on-screen canvas size)
+					// Same rotation as the canvas. TextLayer lays out in unrotated
+					// space and uses data-main-rotation CSS to match this viewport.
 					const textViewport = nextPage.getViewport({
 						scale: safeScale,
 						rotation,
@@ -407,6 +418,10 @@ export function createPageRenderer(deps: PageRendererDeps) {
 						cancelTextLayerOnly();
 						// Always clear prior text runs before re-rendering (zoom / page change)
 						textLayerContainer.replaceChildren();
+						textLayerContainer.setAttribute(
+							"data-main-rotation",
+							String(rotation),
+						);
 						textLayerContainer.style.setProperty(
 							"--total-scale-factor",
 							String(safeScale),

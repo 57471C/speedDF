@@ -662,3 +662,62 @@ describe("markdown source edit + split view", () => {
 		expect(doc!.fileType).toBeNull();
 	});
 });
+
+describe("commitActiveDocumentAfterSave rotation cache", () => {
+	it("drops session rotations and PDF layout cache so warm reload remasures /Rotate", async () => {
+		openTestDocument("rotated.pdf");
+		activeDoc.fileType = "pdf";
+		activeDoc.pageOrder = [1];
+		activeDoc.pageCount = 1;
+		activeDoc.rotations = { 1: 90 };
+		const doc = activeDoc.current;
+		expect(doc).toBeTruthy();
+		doc!.cachedDimensions = [{ width: 612, height: 792 }];
+		activeDoc.rawBytes = new Uint8Array([1, 2, 3]);
+		await commitActiveDocumentAfterSave({
+			compiledBytes: new Uint8Array([4, 5, 6]),
+		});
+		expect(activeDoc.rotations).toEqual({});
+		expect(activeDoc.current?.cachedDimensions).toBeUndefined();
+	});
+});
+
+describe("text tool session defaults", () => {
+	let prevSize: number;
+	let prevStyle: "Normal" | "Bold" | "Italic";
+
+	beforeEach(() => {
+		openTestDocument();
+		prevSize = activeDoc.defaultSize;
+		prevStyle = activeDoc.defaultStyle;
+	});
+
+	afterEach(() => {
+		activeDoc.defaultSize = prevSize;
+		activeDoc.defaultStyle = prevStyle;
+	});
+
+	it("keeps defaultSize after an empty draft is discarded", () => {
+		activeDoc.defaultSize = 20;
+		expect(activeDoc.defaultSize).toBe(20);
+
+		const draft: AnnotationShape = {
+			type: "text",
+			x: 10,
+			y: 10,
+			width: 20,
+			height: 2,
+			text: "",
+			size: activeDoc.defaultSize,
+		};
+		activeDoc.shapes = { 1: [draft] };
+		activeDoc.selectedShape = { pageNumber: 1, index: 0 };
+
+		// Cancel placement: drop the uncommitted draft and clear selection
+		activeDoc.shapes = { 1: [] };
+		activeDoc.selectedShape = null;
+		activeDoc.selectedShapes = [];
+
+		expect(activeDoc.defaultSize).toBe(20);
+	});
+});

@@ -682,6 +682,11 @@ export async function commitActiveDocumentAfterSave(opts: {
 	// Rotations are applied during flatten — zero them so re-render does not double-rotate.
 	doc.rotations = {};
 	doc.imageRotation = 0;
+	// PDF/TIFF: drop layout cache so warm reload remasures getViewport (includes baked /Rotate).
+	// Image flatten writes already-rotated pixels and reuses cachedDimensions as the new native size.
+	if (doc.fileType === "pdf" || doc.fileType === "tiff") {
+		doc.cachedDimensions = undefined;
+	}
 
 	// Flatten writes pages in pageOrder sequence as PDF pages 1..N.
 	// Remap session page indices so bookmarks/comments/current page stay correct.

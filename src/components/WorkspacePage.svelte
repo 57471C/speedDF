@@ -48,11 +48,20 @@
   let basePageWidth = $state<number>(612);
   let basePageHeight = $state<number>(792);
   let loadedDimensions = $state(false);
+  /** Bytes identity last measured — save/reload must remasure (baked /Rotate). */
+  let measuredBytes: Uint8Array | null = $state(null);
 
   // Apply cached dimensions on initialization if available; also re-sync when
   // image resize updates cachedDimensions for the active image document.
   $effect(() => {
-    if (cachedDim) {
+    if (bytes !== measuredBytes) {
+      measuredBytes = bytes;
+      loadedDimensions = false;
+    }
+  });
+
+  $effect(() => {
+    if (cachedDim && bytes === measuredBytes) {
       basePageWidth = cachedDim.width;
       basePageHeight = cachedDim.height;
       if (!loadedDimensions) loadedDimensions = true;
@@ -857,6 +866,19 @@
     caret-color: transparent;
     --text-scale-factor: calc(var(--total-scale-factor, 1) * var(--min-font-size, 1));
     --min-font-size-inv: calc(1 / var(--min-font-size, 1));
+  }
+
+  /* pdf.js TextLayer lays out in unrotated page space; rotation is CSS on the
+     container (setLayerDimensions writes data-main-rotation). Same rules as
+     pdf_viewer.css so selection/search stay glued to the canvas. */
+  .textLayer:global([data-main-rotation="90"]) {
+    transform: rotate(90deg) translateY(-100%);
+  }
+  .textLayer:global([data-main-rotation="180"]) {
+    transform: rotate(180deg) translate(-100%, -100%);
+  }
+  .textLayer:global([data-main-rotation="270"]) {
+    transform: rotate(270deg) translateX(-100%);
   }
 
   .textLayer :global(:is(span, br)) {
