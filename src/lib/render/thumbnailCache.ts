@@ -33,6 +33,7 @@ import {
 	cleanupPdfPage,
 	getSharedWorkspacePdf,
 } from "./sharedPdfDocument";
+import { combinedPageRotation } from "./pageRotation";
 import {
 	clearLayoutMetaCache,
 	clearPersistedThumbnails,
@@ -294,7 +295,10 @@ export async function generatePageThumbnailDataUrl(
 				const maxScale = quality?.maxScale ?? plan.maxScale;
 				const jpegQ = quality?.jpegQuality ?? THUMBNAIL_JPEG_QUALITY;
 				const sessionRot = activeDoc.rotations[pageNum] ?? 0;
-				const currentRotation = (page.rotate + sessionRot) % 360;
+				const currentRotation = combinedPageRotation(
+					page.rotate ?? 0,
+					sessionRot,
+				);
 				const unrotated = page.getViewport({ scale: 1 });
 				const isVertical = currentRotation % 180 === 0;
 				const renderWidth = isVertical

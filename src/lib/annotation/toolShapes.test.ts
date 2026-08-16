@@ -291,6 +291,23 @@ describe("createTextShape", () => {
 		});
 		expect(s.height).toBe(1.75);
 	});
+
+	it("reads the tool default size on create after an empty draft is cancelled", () => {
+		const draft = createTextShape(10, 10, {
+			fontFamily: "Helvetica",
+			size: 20,
+			style: "Normal",
+			color: "#000",
+		});
+		expect(withoutEmptyTextDrafts([draft])).toEqual([]);
+		const again = createTextShape(20, 20, {
+			fontFamily: "Helvetica",
+			size: 20,
+			style: "Normal",
+			color: "#000",
+		});
+		expect(again.size).toBe(20);
+	});
 });
 
 describe("empty text draft helpers", () => {

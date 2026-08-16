@@ -41,6 +41,7 @@ import {
 	THUMBNAIL_JPEG_QUALITY,
 	THUMBNAIL_MAX_SCALE,
 } from "../render/pdfRenderQueue";
+import { nextPageRotateDegrees } from "../render/pageRotation";
 
 function hexToRgb(hexString: string): RGB {
 	const hex = hexString.replace("#", "");
@@ -485,13 +486,13 @@ export async function flattenWorkspaceToPDF(): Promise<Uint8Array | null> {
 				destDoc.addPage(page);
 
 				const { width: pageWidth, height: pageHeight } = page.getSize();
-				if (activeDoc.rotations[originalPageNumber] !== undefined) {
-					const existingAngle = page.getRotation().angle;
-					page.setRotation(
-						degrees(
-							(existingAngle + activeDoc.rotations[originalPageNumber]) % 360,
-						),
-					);
+				const sessionRotate = activeDoc.rotations[originalPageNumber] ?? 0;
+				const bakedRotate = nextPageRotateDegrees(
+					page.getRotation()?.angle ?? 0,
+					sessionRotate,
+				);
+				if (bakedRotate !== null) {
+					page.setRotation(degrees(bakedRotate));
 				}
 
 				annotationPromises.push(

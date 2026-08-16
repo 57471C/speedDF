@@ -11,6 +11,7 @@
     cleanupPdfPage,
     getSharedWorkspacePdf,
   } from "../lib/render/sharedPdfDocument";
+  import { combinedPageRotation } from "../lib/render/pageRotation";
 
   let { bytes, pageNumber } = $props<{ bytes: Uint8Array; pageNumber: number }>();
   let canvasElement = $state<HTMLCanvasElement | null>(null);
@@ -127,7 +128,7 @@
           // Calculate responsive thumbnail boundary rotation boxes
           const viewport = page.getViewport({ 
             scale: miniScale, 
-            rotation: (page.rotate + rotationAngle) % 360 
+            rotation: combinedPageRotation(page.rotate ?? 0, rotationAngle) 
           });
           
           const context = canvas.getContext("2d");
