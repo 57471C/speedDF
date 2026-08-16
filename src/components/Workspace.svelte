@@ -5,7 +5,13 @@
   import WorkspacePage from "./WorkspacePage.svelte";
   import ImageResizeStrip from "./ImageResizeStrip.svelte";
   import MarkdownView from "./MarkdownView.svelte";
-  import { activeDoc, FONT_MAP, pushHistorySnapshot } from "../pdfStore.svelte";
+  import MarkdownSplitView from "./MarkdownSplitView.svelte";
+  import {
+    activeDoc,
+    FONT_MAP,
+    pushHistorySnapshot,
+    toggleMarkdownSplitView,
+  } from "../pdfStore.svelte";
   import { debounceLeadingLatest } from "../lib/render/pdfRenderQueue";
   import { notePdfActivity } from "../lib/render/sharedPdfDocument";
   import {
@@ -573,8 +579,12 @@
       const mdEl = scrollContainer.querySelector(
         "[data-markdown-content]",
       ) as HTMLElement | null;
+      const previewPane = scrollContainer.querySelector(
+        "[data-markdown-preview-pane]",
+      ) as HTMLElement | null;
       if (mdEl) {
-        const availableWidth = Math.max(1, scrollContainer.clientWidth - 48);
+        const hostWidth = previewPane?.clientWidth ?? scrollContainer.clientWidth;
+        const availableWidth = Math.max(1, hostWidth - 48);
         const rect = mdEl.getBoundingClientRect();
         if (rect.width > 1) {
           const widthScale = (availableWidth / rect.width) * zoomScale;
@@ -759,7 +769,8 @@
   onpointerup={handlePointerUp}
   onpointerleave={handlePointerLeave}
   onwheel={() => settleLoadBurnIn()}
-  class="flex-1 min-w-0 h-full overflow-auto flex flex-col px-4 relative workspace-scroll-container transition-colors duration-200
+  class="flex-1 min-w-0 h-full flex flex-col px-4 relative workspace-scroll-container transition-colors duration-200
+    {activeDoc.fileType === 'markdown' && activeDoc.markdownSplitView ? 'overflow-hidden' : 'overflow-auto'}
     {isDragging ? '' : 'scroll-smooth'}
     [&::-webkit-scrollbar]:w-2 
     [&::-webkit-scrollbar-track]:bg-transparent 
@@ -936,14 +947,24 @@
   {/if}
 
   {#if activeDoc.fileType === "markdown" && activeDoc.rawBytes}
-    <!-- Continuous markdown projection (source → HTML). No pdf.js / page boxes. -->
-    <div
-      data-workspace-pages
-      class="relative z-10 w-full max-w-none mx-auto flex flex-col items-center pb-24 origin-top px-4"
-      style="zoom: {Math.max(5, Math.abs(zoomScale)) / 100};"
-    >
-      <MarkdownView source={activeDoc.markdownSource ?? ""} />
-    </div>
+    {#if activeDoc.markdownSplitView}
+      <!-- Source left / live preview right. Zoom applies only to the preview pane. -->
+      <div
+        data-workspace-pages
+        class="markdown-split-host relative z-10 w-full min-w-0 flex-1 min-h-0 pb-16"
+      >
+        <MarkdownSplitView {zoomScale} />
+      </div>
+    {:else}
+      <!-- Continuous markdown projection (source → HTML). No pdf.js / page boxes. -->
+      <div
+        data-workspace-pages
+        class="relative z-10 w-full max-w-none mx-auto flex flex-col items-center pb-24 origin-top px-4"
+        style="zoom: {Math.max(5, Math.abs(zoomScale)) / 100};"
+      >
+        <MarkdownView source={activeDoc.markdownSource ?? ""} />
+      </div>
+    {/if}
   {:else if activeDoc.rawBytes && activeDoc.pageOrder.length > 0}
     <!--
       Horizontal centering via w-max + mx-auto (not parent items-center).
@@ -990,11 +1011,37 @@
         style="color: var(--sdf-text-secondary);"
         >+</button
       >
+      {#if activeDoc.fileType === "markdown"}
+        <button
+          onclick={() => toggleMarkdownSplitView()}
+          class="h-6 px-2 flex items-center justify-center rounded-full text-[10px] font-bold tracking-wide uppercase transition-colors"
+          style="color: {activeDoc.markdownSplitView
+            ? 'var(--sdf-accent-text)'
+            : 'var(--sdf-text-secondary)'}; background: {activeDoc.markdownSplitView
+            ? 'color-mix(in srgb, var(--sdf-accent) 18%, transparent)'
+            : 'transparent'};"
+          title={activeDoc.markdownSplitView
+            ? "Preview only (Ctrl+\\)"
+            : "Split source and preview (Ctrl+\\)"}
+          aria-pressed={activeDoc.markdownSplitView}
+        >
+          {activeDoc.markdownSplitView ? "Preview" : "Split"}
+        </button>
+      {/if}
     </div>
   {/if}
 </div>
 
 <style>
+  .markdown-split-host {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+  }
+
   .load-burn-in {
     transition: opacity 0.45s ease;
   }

@@ -8,6 +8,7 @@
     redoStack,
     commitActiveDocumentAfterSave,
     applyLiveThumbnail,
+    toggleMarkdownSplitView,
   } from "../pdfStore.svelte";
   import {
     flattenWorkspaceToPDF,
@@ -22,6 +23,7 @@
     captureMarkdownViewThumbnail,
     findMarkdownContentRoot,
   } from "../lib/markdown/thumbnail";
+  import { encodeMarkdownSource } from "../lib/markdown/source";
 
   let {
     onMinimize,
@@ -186,7 +188,7 @@
         ? new TextDecoder("utf-8").decode(activeDoc.rawBytes)
         : null);
     if (source == null) return null;
-    return new TextEncoder().encode(source);
+    return encodeMarkdownSource(source);
   }
 
   /** Re-capture live MarkdownView top after save (same path as open). */
@@ -519,6 +521,26 @@
             <path d="M14 21h1"/><path d="M14 3h1"/><path d="M19 3a2 2 0 0 1 2 2"/><path d="M21 14v1"/><path d="M21 19a2 2 0 0 1-2 2"/><path d="M21 9v1"/><path d="M3 14v1"/><path d="M3 9v1"/><path d="M5 21a2 2 0 0 1-2-2"/><path d="M5 3a2 2 0 0 0-2 2"/><path d="M7 12h10"/><path d="M7 16h6"/><path d="M7 8h8"/><path d="M9 21h1"/><path d="M9 3h1"/>
           </svg>
         </button>
+
+        {#if activeDoc.fileType === "markdown"}
+          <button
+            onclick={() => toggleMarkdownSplitView()}
+            class="toolbar-btn"
+            class:toolbar-btn--active={activeDoc.markdownSplitView}
+            title={activeDoc.markdownSplitView
+              ? "Preview only (Ctrl+\\)"
+              : "Split source and preview (Ctrl+\\)"}
+            aria-pressed={activeDoc.markdownSplitView}
+            aria-label={activeDoc.markdownSplitView
+              ? "Exit split view"
+              : "Split source and preview"}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="18" height="18" x="3" y="3" rx="2" />
+              <path d="M12 3v18" />
+            </svg>
+          </button>
+        {/if}
       </div>
     </div>
 
@@ -689,6 +711,11 @@
   .toolbar-btn:disabled {
     opacity: 0.3;
     pointer-events: none;
+  }
+
+  .toolbar-btn--active {
+    background-color: color-mix(in srgb, var(--sdf-accent) 22%, transparent);
+    color: var(--sdf-accent-text);
   }
 
   .titlebar-btn {

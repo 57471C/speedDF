@@ -75,6 +75,12 @@
                 >F1</kbd
               > <span>Toggle This System Control Panel</span>
             </div>
+            <div class="flex items-center gap-2">
+              <kbd
+                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
+                >Ctrl + \</kbd
+              > <span>Markdown Split / Preview</span>
+            </div>
           </div>
         </div>
 

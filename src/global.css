@@ -70,6 +70,24 @@
   /* Tinted accent background & border for active tool buttons */
   --sdf-accent-bg:          rgba(0, 210, 255, 0.10);
   --sdf-accent-border:      rgba(0, 210, 255, 0.30);
+
+  /* Syntax highlight tokens (highlight.js) — solid colours for html2canvas */
+  --sdf-hl-keyword:    #c084fc;
+  --sdf-hl-string:     #86efac;
+  --sdf-hl-number:     #fdba74;
+  --sdf-hl-comment:    #64748b;
+  --sdf-hl-title:      #22d3ee;
+  --sdf-hl-attr:       #93c5fd;
+  --sdf-hl-literal:    #f9a8d4;
+  --sdf-hl-built:      #67e8f9;
+  --sdf-hl-type:       #7dd3fc;
+  --sdf-hl-meta:       #94a3b8;
+  --sdf-hl-section:    #22d3ee;
+  --sdf-hl-bullet:     #67e8f9;
+  --sdf-hl-link:       #38bdf8;
+  --sdf-hl-tag:        #f472b6;
+  --sdf-hl-name:       #f9a8d4;
+  --sdf-hl-regexp:     #fca5a5;
 }
 
 [data-theme="light"] {
@@ -110,6 +128,96 @@
 
   --sdf-accent-bg:          rgba(8, 145, 178, 0.10);
   --sdf-accent-border:      rgba(8, 145, 178, 0.30);
+
+  --sdf-hl-keyword:    #7c3aed;
+  --sdf-hl-string:     #15803d;
+  --sdf-hl-number:     #c2410c;
+  --sdf-hl-comment:    #64748b;
+  --sdf-hl-title:      #0e7490;
+  --sdf-hl-attr:       #1d4ed8;
+  --sdf-hl-literal:    #be185d;
+  --sdf-hl-built:      #0f766e;
+  --sdf-hl-type:       #0369a1;
+  --sdf-hl-meta:       #475569;
+  --sdf-hl-section:    #0e7490;
+  --sdf-hl-bullet:     #0f766e;
+  --sdf-hl-link:       #0369a1;
+  --sdf-hl-tag:        #be185d;
+  --sdf-hl-name:       #9d174d;
+  --sdf-hl-regexp:     #b91c1c;
+}
+
+/* highlight.js token colours — used by the source overlay and fenced preview */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-doctag {
+  color: var(--sdf-hl-keyword);
+}
+.hljs-string,
+.hljs-code {
+  color: var(--sdf-hl-string);
+}
+.hljs-number,
+.hljs-symbol {
+  color: var(--sdf-hl-number);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--sdf-hl-comment);
+  font-style: italic;
+}
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.function_,
+.hljs-section {
+  color: var(--sdf-hl-title);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-selector-class,
+.hljs-selector-id,
+.hljs-selector-attr {
+  color: var(--sdf-hl-attr);
+}
+.hljs-literal,
+.hljs-template-variable,
+.hljs-variable {
+  color: var(--sdf-hl-literal);
+}
+.hljs-built_in,
+.hljs-builtin-name {
+  color: var(--sdf-hl-built);
+}
+.hljs-type,
+.hljs-class .hljs-title,
+.hljs-params {
+  color: var(--sdf-hl-type);
+}
+.hljs-meta,
+.hljs-meta .hljs-keyword,
+.hljs-meta .hljs-string {
+  color: var(--sdf-hl-meta);
+}
+.hljs-bullet {
+  color: var(--sdf-hl-bullet);
+}
+.hljs-link {
+  color: var(--sdf-hl-link);
+}
+.hljs-tag {
+  color: var(--sdf-hl-tag);
+}
+.hljs-name {
+  color: var(--sdf-hl-name);
+}
+.hljs-regexp {
+  color: var(--sdf-hl-regexp);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 700;
 }
 
 /* 1. Define the physical track boundaries */

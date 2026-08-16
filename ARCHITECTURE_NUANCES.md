@@ -788,12 +788,13 @@ Markdown documents use a dedicated `fileType: "markdown"` (not PDF/image). On op
 
 1. File bytes are decoded as **UTF-8** into `DocumentWorkspace.markdownSource`.
 2. `rawBytes` is retained for tab identity / recents / close paths.
-3. The workspace **view** is a pure projection: `markdownSource → marked → DOMPurify → HTML` (`MarkdownView.svelte`).
+3. The workspace **view** is a pure projection: `markdownSource → marked → highlight.js (fenced code) → DOMPurify → HTML` (`MarkdownView.svelte`). The source pane overlays the same highlighter on a transparent textarea (markdown + nested ```ts/js/rust).
 4. **Initial zoom is 150%** for markdown only. Workspace auto-fit on open is skipped for this type so fit-to-window does not overwrite the default; zoom controls still work freely after open.
+5. **Split edit (optional):** `markdownSplitView` (per tab, default off) shows a plain-text source editor on the left and the same `MarkdownView` on the right. Edits call `setMarkdownSourceAction` (sets `isDirty`). Preview may debounce; Save always encodes live `markdownSource` UTF-8 bytes via `encodeMarkdownSource`. Narrow hosts stack source above preview. No WYSIWYG. Scroll panes stay aligned with a relative `scrollTop / maxScroll` map (`createMarkdownScrollSync`): both directions, rAF-coalesced, applying-flag to block echo, typing guard so preview scroll does not fight the caret. Preview HTML is patched **in place** (no `{@html}` remount); `hold` → restore `scrollTop` → `release` so a mid-document edit does not snap the preview to the top.
 
 ### Why it matters
 
-Future editing (source editor or WYSIWYG) must **write back to `markdownSource`**, then re-project. Never treat the rendered HTML DOM as the document of record, or Save will lose fidelity (comments, unparsed constructs, original newlines).
+Source editing must **write back to `markdownSource`**, then re-project. Never treat the rendered HTML DOM as the document of record, or Save will lose fidelity (comments, unparsed constructs, original newlines).
 
 ### Rules
 

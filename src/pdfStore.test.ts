@@ -17,6 +17,9 @@ import {
 	rotatePageAction,
 	saveSignatureSetAction,
 	setFormFieldValueAction,
+	setMarkdownSourceAction,
+	toggleMarkdownSplitView,
+	commitActiveDocumentAfterSave,
 	undoStack,
 	updateBookmarkNameAction,
 } from "./pdfStore.svelte.ts";
@@ -547,5 +550,115 @@ describe("purgeDocumentResources / cleanupWorkspace", () => {
 		const id = documentKey(doc);
 		await cleanupWorkspace(id);
 		await expect(cleanupWorkspace(id)).resolves.toBeUndefined();
+	});
+});
+
+describe("markdown source edit + split view", () => {
+	beforeEach(() => {
+		// Sync reset — flushDocumentState is async and races tab setup.
+		activeDoc.openDocuments = [];
+		activeDoc.activeDocumentId = null;
+		activeDoc.isSaving = false;
+	});
+
+	afterEach(() => {
+		activeDoc.isSaving = false;
+	});
+
+	function openMarkdown(name = "notes.md") {
+		initializeNewDocument(name, `C:/tmp/${name}`);
+		// Mutate via the facade so writes hit the live $state proxy.
+		activeDoc.fileType = "markdown";
+		activeDoc.markdownSource = "# Hello\n";
+		activeDoc.rawBytes = new TextEncoder().encode("# Hello\n");
+		activeDoc.markdownSplitView = false;
+		activeDoc.isDirty = false;
+		return activeDoc.current;
+	}
+
+	it("defaults to preview-only (split off)", () => {
+		openMarkdown();
+		expect(activeDoc.markdownSplitView).toBe(false);
+	});
+
+	it("toggleMarkdownSplitView flips only markdown tabs", () => {
+		openMarkdown();
+		expect(toggleMarkdownSplitView()).toBe(true);
+		expect(activeDoc.markdownSplitView).toBe(true);
+		expect(toggleMarkdownSplitView()).toBe(true);
+		expect(activeDoc.markdownSplitView).toBe(false);
+		expect(toggleMarkdownSplitView(true)).toBe(true);
+		expect(activeDoc.markdownSplitView).toBe(true);
+	});
+
+	it("toggleMarkdownSplitView is a no-op for PDF / image", () => {
+		initializeNewDocument("scan.pdf", "C:/tmp/scan.pdf");
+		activeDoc.fileType = "pdf";
+		expect(toggleMarkdownSplitView()).toBe(false);
+		expect(activeDoc.markdownSplitView).toBe(false);
+
+		activeDoc.fileType = "image";
+		expect(toggleMarkdownSplitView(true)).toBe(false);
+		expect(activeDoc.markdownSplitView).toBe(false);
+	});
+
+	it("setMarkdownSourceAction writes source and sets dirty", () => {
+		openMarkdown();
+		expect(setMarkdownSourceAction("# Hello\n\nworld\n")).toBe(true);
+		expect(activeDoc.markdownSource).toBe("# Hello\n\nworld\n");
+		expect(activeDoc.isDirty).toBe(true);
+	});
+
+	it("setMarkdownSourceAction no-ops when text is unchanged", () => {
+		openMarkdown();
+		expect(setMarkdownSourceAction("# Hello\n")).toBe(false);
+		expect(activeDoc.isDirty).toBe(false);
+	});
+
+	it("setMarkdownSourceAction no-ops while saving or on non-markdown", () => {
+		openMarkdown();
+		activeDoc.isSaving = true;
+		expect(setMarkdownSourceAction("edited")).toBe(false);
+		expect(activeDoc.markdownSource).toBe("# Hello\n");
+		expect(activeDoc.isDirty).toBe(false);
+		activeDoc.isSaving = false;
+
+		activeDoc.fileType = "pdf";
+		expect(setMarkdownSourceAction("edited")).toBe(false);
+	});
+
+	it("commitActiveDocumentAfterSave rebinds markdownSource from written bytes", async () => {
+		openMarkdown("saved-notes.md");
+		activeDoc.markdownSource = "# Saved\n\nbody\n";
+		activeDoc.isDirty = true;
+		const compiled = new TextEncoder().encode("# Saved\n\nbody\n");
+		await commitActiveDocumentAfterSave({
+			compiledBytes: compiled,
+			filePath: "C:/tmp/saved-notes.md",
+		});
+		expect(activeDoc.isDirty).toBe(false);
+		expect(activeDoc.markdownSource).toBe("# Saved\n\nbody\n");
+		expect(new TextDecoder("utf-8").decode(activeDoc.rawBytes ?? new Uint8Array())).toBe(
+			"# Saved\n\nbody\n",
+		);
+		// Split preference survives save
+		activeDoc.markdownSplitView = true;
+		await commitActiveDocumentAfterSave({
+			compiledBytes: compiled,
+			filePath: "C:/tmp/saved-notes.md",
+		});
+		expect(activeDoc.markdownSplitView).toBe(true);
+	});
+
+	it("purgeDocumentResources clears markdown source and split flag", () => {
+		const doc = openMarkdown("purge-me.md");
+		expect(doc).toBeTruthy();
+		activeDoc.markdownSplitView = true;
+		activeDoc.isDirty = true;
+		purgeDocumentResources(doc!);
+		expect(doc!.markdownSource).toBeNull();
+		expect(doc!.markdownSplitView).toBe(false);
+		expect(doc!.isDirty).toBe(false);
+		expect(doc!.fileType).toBeNull();
 	});
 });

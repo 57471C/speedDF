@@ -37,6 +37,7 @@
     closeAllDocumentWorkspaces,
     pushHistorySnapshot,
     upsertRecentEntry,
+    toggleMarkdownSplitView,
     type AnnotationShape,
   } from "../pdfStore.svelte";
   import { decodeCommentsFromKeywords } from "../lib/comments/comments";
@@ -2187,6 +2188,35 @@
         return;
       }
 
+      const isShift = e.shiftKey;
+      const key = e.key.toLowerCase();
+
+      // Save / Save As must work while the markdown source textarea is focused.
+      if (isCtrl && key === "s") {
+        e.preventDefault();
+        if (activeDoc.isSaving) return;
+        if (isShift) {
+          titleBarRef?.triggerSaveAs?.();
+        } else if (activeDoc.fileType === "tiff") {
+          titleBarRef?.triggerSaveAs?.();
+        } else {
+          titleBarRef?.triggerSave?.();
+        }
+        return;
+      }
+
+      // Split / preview-only toggle (markdown only). Works from the source editor.
+      if (
+        isCtrl &&
+        !isShift &&
+        (e.key === "\\" || e.code === "Backslash") &&
+        activeDoc.fileType === "markdown"
+      ) {
+        e.preventDefault();
+        toggleMarkdownSplitView();
+        return;
+      }
+
       if (
         document.activeElement?.tagName === "INPUT" ||
         document.activeElement?.tagName === "TEXTAREA"
@@ -2194,10 +2224,7 @@
         return;
       }
 
-      const isShift = e.shiftKey;
-
       if (isCtrl) {
-        const key = e.key.toLowerCase();
         if (key === "n") {
           e.preventDefault();
           if (!activeDoc.rawBytes) {
@@ -2206,24 +2233,6 @@
         } else if (key === "o") {
           e.preventDefault();
           openFile();
-        } else if (key === "s") {
-          e.preventDefault();
-          if (activeDoc.isSaving) return;
-          if (isShift) {
-            if (titleBarRef?.triggerSaveAs) {
-              titleBarRef.triggerSaveAs();
-            }
-          } else {
-            if (activeDoc.fileType === "tiff") {
-              if (titleBarRef?.triggerSaveAs) {
-                titleBarRef.triggerSaveAs();
-              }
-            } else {
-              if (titleBarRef?.triggerSave) {
-                titleBarRef.triggerSave();
-              }
-            }
-          }
         } else {
           if (activeDoc.isSaving) return;
           switch (key) {
