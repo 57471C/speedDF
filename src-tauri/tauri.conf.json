@@ -1,11 +1,13 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
 	"productName": "speeddf",
-	"version": "1.2.2",
+	"version": "1.2.3",
 	"identifier": "com.speeddf.doc",
 	"plugins": {
 		"updater": {
-			"endpoints": ["https://speeddf.com/latest.json"],
+			"endpoints": [
+				"https://speeddf.com/latest.json"
+			],
 			"pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDk5OTc3OENBQkYyMzA2QTgKUldTb0JpTy95bmlYbVI2d01NRE5YVzhNYzNDZmRMR1BUa0tOVVlPRytPUG1hUEpRYlluQTM3QjEK"
 		}
 	},
@@ -48,7 +50,9 @@
 				"worker-src": "'self' blob:",
 				"object-src": "'none'"
 			},
-			"dangerousDisableAssetCspModification": ["style-src"]
+			"dangerousDisableAssetCspModification": [
+				"style-src"
+			]
 		}
 	},
 	"bundle": {
@@ -64,31 +68,49 @@
 		],
 		"fileAssociations": [
 			{
-				"ext": ["pdf"],
+				"ext": [
+					"pdf"
+				],
 				"name": "PDF Document",
 				"description": "Portable Document Format",
 				"role": "Editor"
 			},
 			{
-				"ext": ["tiff", "tif"],
+				"ext": [
+					"tiff",
+					"tif"
+				],
 				"name": "TIFF Document",
 				"description": "Multi-page Technical TIFF Drawing",
 				"role": "Editor"
 			},
 			{
-				"ext": ["png", "jpg", "jpeg", "webp", "bmp", "svg"],
+				"ext": [
+					"png",
+					"jpg",
+					"jpeg",
+					"webp",
+					"bmp",
+					"svg"
+				],
 				"name": "Image File",
 				"description": "Image Document (including SVG)",
 				"role": "Editor"
 			},
 			{
-				"ext": ["heic", "heif"],
+				"ext": [
+					"heic",
+					"heif"
+				],
 				"name": "HEIC Image",
 				"description": "iPhone HEIC/HEIF Photo",
 				"role": "Editor"
 			},
 			{
-				"ext": ["md", "markdown"],
+				"ext": [
+					"md",
+					"markdown"
+				],
 				"name": "Markdown Document",
 				"description": "Markdown text document",
 				"role": "Viewer"
