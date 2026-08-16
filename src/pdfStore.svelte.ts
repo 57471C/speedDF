@@ -165,9 +165,14 @@ export interface DocumentWorkspace {
 	/**
 	 * Canonical UTF-8 markdown text for `fileType === "markdown"`.
 	 * Source of truth for the document; the workspace view is a pure projection
-	 * (parse → sanitize → HTML). Future editing must write back here.
+	 * (parse → sanitize → HTML). Source edits must write back here.
 	 */
 	markdownSource?: string | null;
+	/**
+	 * Markdown only: source-left / preview-right split. Default false
+	 * (preview-only). Per-tab so switching documents does not leak the mode.
+	 */
+	markdownSplitView?: boolean;
 	pageCount: number;
 	pageOrder: number[];
 	currentPage: number;
@@ -258,6 +263,8 @@ export interface SharedDocumentState {
 	fileType: "pdf" | "tiff" | "image" | "markdown" | null;
 	/** Canonical markdown text when fileType is markdown (see DocumentWorkspace). */
 	markdownSource?: string | null;
+	/** Markdown source/preview split (per tab; default preview-only). */
+	markdownSplitView?: boolean;
 	imageUrl?: string | null;
 	imageRotation?: number;
 	imageNativeWidth?: number;
@@ -817,6 +824,7 @@ export function purgeDocumentResources(doc: DocumentWorkspace): void {
 	// Large PDF/image buffers — explicit null so nothing retains the ArrayBuffer.
 	doc.rawBytes = null;
 	doc.markdownSource = null;
+	doc.markdownSplitView = false;
 	doc.tiffPages = [];
 	doc.shapes = {};
 	doc.pageThumbnailOverrides = {};
@@ -1070,6 +1078,7 @@ export function initializeNewDocument(
 		filePath: filePath,
 		rawBytes: null,
 		markdownSource: null,
+		markdownSplitView: false,
 		pageCount: 0,
 		pageOrder: [],
 		currentPage: 1,
@@ -1143,6 +1152,12 @@ export const activeDoc: SharedDocumentState = {
 	},
 	set markdownSource(val) {
 		if (this.current) this.current.markdownSource = val;
+	},
+	get markdownSplitView() {
+		return this.current?.markdownSplitView ?? false;
+	},
+	set markdownSplitView(val) {
+		if (this.current) this.current.markdownSplitView = !!val;
 	},
 	get pageCount() {
 		return this.current?.pageCount || 0;
@@ -1877,6 +1892,32 @@ export function deleteReplyAction(threadId: string, replyId: string) {
 		};
 	});
 	activeDoc.isDirty = true;
+}
+
+/**
+ * Write markdown source on the active tab and mark dirty.
+ * No-op when saving, when the tab is not markdown, or when text is unchanged.
+ */
+export function setMarkdownSourceAction(next: string): boolean {
+	if (isSaving) return false;
+	const doc = findOpenDocument(activeDocumentId);
+	if (!doc || doc.fileType !== "markdown") return false;
+	const current = doc.markdownSource ?? "";
+	if (current === next) return false;
+	doc.markdownSource = next;
+	doc.isDirty = true;
+	return true;
+}
+
+/**
+ * Toggle (or force) markdown source/preview split on the active tab.
+ * Preview-only is the default. No-op for non-markdown documents.
+ */
+export function toggleMarkdownSplitView(force?: boolean): boolean {
+	const doc = findOpenDocument(activeDocumentId);
+	if (!doc || doc.fileType !== "markdown") return false;
+	doc.markdownSplitView = force !== undefined ? !!force : !doc.markdownSplitView;
+	return true;
 }
 
 /** Update a single AcroForm field value (text, checkbox, dropdown, or signature stamp data URL). */

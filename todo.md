@@ -2,7 +2,7 @@
 
 ## Fixes ##
 - [ ] if the user changes the font size in the text annotation tool. ensure it's persistant. example. user changes the size from 16pt to 20pt and clicks to add text, isn't happy with the placment so they click elswhere. the size reverts to 16pt because text wasn't drawn to the page.
-- [ ] When the user add annotations (text, but possibly others) and the document is saved. when the text flattens in the document it's about hald the text hight ofset upwards. This was noticed on a landscape page. !critical investigate if the page orientation is the cause. This isn't noticed as severe with a portait A4 sheet.
+- [x] When the user add annotations (text, but possibly others) and the document is saved. when the text flattens in the document it's about hald the text hight ofset upwards. This was noticed on a landscape page. !critical investigate if the page orientation is the cause. This isn't noticed as severe with a portait A4 sheet.
 - [ ] some light mode text is hard to read: Saved auto-complete text in the contect menu. the "Acknowlage & save button" in the help modal.
 - [x] update buy me a coffee link to buymeacoffee.com/lean.studio
 

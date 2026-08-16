@@ -2,7 +2,8 @@
   /**
    * Read-only continuous markdown projection.
    * Prop `source` is the canonical UTF-8 markdown string from the open document.
-   * View only: parse → sanitize → HTML. Never mutates source.
+   * View only: parse → sanitize → in-place innerHTML. Never mutates source.
+   * Does not use `{@html}` / `{#if}` so the preview scroller is not remounted.
    *
    * After sanitized HTML paints, captures the top of this root for Recent /
    * sidebar thumbs via applyLiveThumbnail (same store path as image opens).
@@ -13,13 +14,39 @@
   import { captureMarkdownViewThumbnail } from "../lib/markdown/thumbnail";
   import { activeDoc, applyLiveThumbnail } from "../pdfStore.svelte";
 
-  let { source = "" }: { source: string } = $props();
+  let {
+    source = "",
+    variant = "document",
+  }: {
+    source: string;
+    /** `pane` fills a split preview column; `document` is the standalone card. */
+    variant?: "document" | "pane";
+  } = $props();
 
   const safeHtml = $derived(sanitizeHtml(parseMarkdownToHtml(source ?? "")));
 
   let rootEl = $state<HTMLElement | null>(null);
+  /** Stable host — patched in place so the preview scroller is never remounted. */
+  let htmlHost = $state<HTMLElement | null>(null);
   /** Dedupe captures for the same path + source fingerprint. */
   let lastCaptureKey = $state("");
+
+  const EMPTY_PREVIEW_HTML =
+    '<p class="markdown-view__empty">Empty document</p>';
+
+  // Single innerHTML write (no {#if}/{@html} remount). Restore the nearest
+  // split-preview scroller so a mid-document edit does not snap to top.
+  $effect(() => {
+    const html = safeHtml;
+    const host = htmlHost;
+    if (!host) return;
+    const scroller = host.closest(
+      "[data-markdown-preview-scroll]",
+    ) as HTMLElement | null;
+    const savedTop = scroller?.scrollTop ?? 0;
+    host.innerHTML = html || EMPTY_PREVIEW_HTML;
+    if (scroller) scroller.scrollTop = savedTop;
+  });
 
   $effect(() => {
     const html = safeHtml;
@@ -75,14 +102,11 @@
 <article
   bind:this={rootEl}
   class="markdown-view"
+  class:markdown-view--pane={variant === "pane"}
   data-markdown-content
   aria-label="Markdown document"
 >
-  {#if safeHtml}
-    {@html safeHtml}
-  {:else}
-    <p class="markdown-view__empty">Empty document</p>
-  {/if}
+  <div bind:this={htmlHost} class="markdown-view__html" data-markdown-html></div>
 </article>
 
 <style>
@@ -107,7 +131,15 @@
     -webkit-user-select: text;
   }
 
-  .markdown-view__empty {
+  .markdown-view--pane {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 1.25rem 1.35rem 2rem;
+    box-shadow: none;
+  }
+
+  .markdown-view :global(.markdown-view__empty) {
     margin: 0;
     color: var(--sdf-text-muted, #64748b);
     font-style: italic;
@@ -222,13 +254,16 @@
     color: var(--sdf-text-primary, #e2e8f0);
     font-size: 0.85em;
   }
+  .markdown-view :global(pre code.hljs) {
+    display: block;
+  }
 
   .markdown-view :global(strong) { font-weight: 700; }
   .markdown-view :global(em) { font-style: italic; }
   .markdown-view :global(del) { text-decoration: line-through; opacity: 0.8; }
 
   /* First heading: less top margin so the card padding is balanced */
-  .markdown-view :global(> :first-child) { margin-top: 0; }
+  .markdown-view__html :global(> :first-child) { margin-top: 0; }
 
   /* Print: continuous flow on A4; chrome hide is handled by print iframe / @media below */
   @media print {

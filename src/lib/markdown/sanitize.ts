@@ -45,8 +45,8 @@ export function sanitizeHtml(dirty: string): string {
 	ensureHooks();
 	return DOMPurify.sanitize(dirty, {
 		USE_PROFILES: { html: true },
-		// Allow common markdown targets; force safe link behaviour via hook above.
-		ADD_ATTR: ["target", "rel"],
+		// class: highlight.js tokens; data-lang: fence info-string
+		ADD_ATTR: ["target", "rel", "class", "data-lang"],
 	});
 }
 
