@@ -232,7 +232,7 @@
         <button
           onclick={() => (show = false)}
           class="px-4 py-1.5 text-white rounded-lg text-[11px] font-bold transition-colors shadow-md"
-          style="background: var(--sdf-hover-bg);"
+          style="background: var(--sdf-accent);"
         >
           Acknowledge & Close
         </button>

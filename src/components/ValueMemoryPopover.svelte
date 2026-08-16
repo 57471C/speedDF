@@ -231,10 +231,10 @@
                 id="mem-opt-{i}"
                 role="option"
                 aria-selected={highlightIdx === i}
-                class="flex-1 min-w-0 text-left px-2.5 py-1.5 text-[11px] truncate font-sans transition-colors
-                  {highlightIdx === i
-                    ? 'bg-cyan-500/20 text-white'
-                    : 'text-slate-200 hover:bg-cyan-500/15 hover:text-white'}"
+                class="flex-1 min-w-0 text-left px-2.5 py-1.5 text-[11px] truncate font-sans transition-colors"
+                style="{highlightIdx === i
+                  ? 'background: var(--sdf-accent-bg); color: var(--sdf-text-primary);'
+                  : 'color: var(--sdf-text-secondary);'}"
                 title={item}
                 onmousedown={keepFocus}
                 onmouseenter={() => (highlightIdx = i)}
