@@ -18,19 +18,20 @@
       >
         <div class="flex items-center gap-2">
           <span
-            class="text-xs font-bold uppercase tracking-widest" style="color: var(--sdf-text-secondary);"
+            class="text-xs font-bold uppercase tracking-widest"
+            style="color: var(--sdf-text-secondary);"
             >speedDF Engine Configuration & Licensing</span
           >
           <span
             class="text-[10px] px-1.5 py-0.5 rounded font-mono"
             style="background: var(--sdf-hover-bg); color: var(--sdf-text-secondary);"
-            >v1.2.2</span
+            >v1.2.3</span
           >
         </div>
         <button
           onclick={() => (show = false)}
-          class="text-sm transition-colors" style="color: var(--sdf-text-muted);"
-          >✕</button
+          class="text-sm transition-colors"
+          style="color: var(--sdf-text-muted);">✕</button
         >
       </div>
 
@@ -47,37 +48,43 @@
           >
             <div class="flex items-center gap-2">
               <kbd
-                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
+                class="px-1.5 py-0.5 rounded border-b"
+                style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >Ctrl + Z</kbd
               > <span>Undo Action Transaction</span>
             </div>
             <div class="flex items-center gap-2">
               <kbd
-                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
+                class="px-1.5 py-0.5 rounded border-b"
+                style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >Ctrl + Y</kbd
               > <span>Redo Action Transaction</span>
             </div>
             <div class="flex items-center gap-2">
               <kbd
-                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
+                class="px-1.5 py-0.5 rounded border-b"
+                style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >Ctrl + ←</kbd
               > <span>Counter-Clockwise Rotation</span>
             </div>
             <div class="flex items-center gap-2">
               <kbd
-                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
+                class="px-1.5 py-0.5 rounded border-b"
+                style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >Ctrl + →</kbd
               > <span>Clockwise Page Rotation</span>
             </div>
             <div class="flex items-center gap-2">
               <kbd
-                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
+                class="px-1.5 py-0.5 rounded border-b"
+                style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >F1</kbd
               > <span>Toggle This System Control Panel</span>
             </div>
             <div class="flex items-center gap-2">
               <kbd
-                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
+                class="px-1.5 py-0.5 rounded border-b"
+                style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >Ctrl + \</kbd
               > <span>Markdown Split / Preview</span>
             </div>
@@ -98,12 +105,16 @@
             <div class="flex items-center gap-2">
               <span class="flex gap-1">
                 <kbd
-                  class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
+                  class="px-1.5 py-0.5 rounded border-b"
+                  style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                   >Spacebar</kbd
                 >
-                <span class="font-sans" style="color: var(--sdf-text-muted);">+</span>
+                <span class="font-sans" style="color: var(--sdf-text-muted);"
+                  >+</span
+                >
                 <kbd
-                  class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
+                  class="px-1.5 py-0.5 rounded border-b"
+                  style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                   >Drag</kbd
                 >
               </span>
@@ -112,12 +123,16 @@
             <div class="flex items-center gap-2">
               <span class="flex gap-1">
                 <kbd
-                  class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
+                  class="px-1.5 py-0.5 rounded border-b"
+                  style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                   >Ctrl</kbd
                 >
-                <span class="font-sans" style="color: var(--sdf-text-muted);">+</span>
+                <span class="font-sans" style="color: var(--sdf-text-muted);"
+                  >+</span
+                >
                 <kbd
-                  class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
+                  class="px-1.5 py-0.5 rounded border-b"
+                  style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                   >Wheel</kbd
                 >
               </span>
@@ -125,7 +140,8 @@
             </div>
             <div class="flex items-center gap-2">
               <kbd
-                class="px-1.5 py-0.5 rounded border-b" style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
+                class="px-1.5 py-0.5 rounded border-b"
+                style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >Ctrl + P</kbd
               > <span>Print Document</span>
             </div>
@@ -151,7 +167,9 @@
               decompile, or distribute compiled workspace assets commercially
               without express written consent.
             </p>
-            <p class="font-bold" style="color: var(--sdf-text-primary);">2. NO WARRANTY (AS-IS)</p>
+            <p class="font-bold" style="color: var(--sdf-text-primary);">
+              2. NO WARRANTY (AS-IS)
+            </p>
             <p>
               THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
               EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
@@ -179,28 +197,32 @@
               with active licensing terms, the following copyright notices must
               remain hardcoded inside binary distributions:
             </p>
-            <div class="border-l-2 pl-2.5 space-y-1.5" style="border-color: var(--sdf-border);">
+            <div
+              class="border-l-2 pl-2.5 space-y-1.5"
+              style="border-color: var(--sdf-border);"
+            >
               <p>
-                • <b style="color: var(--sdf-text-primary);">pdf-lib:</b> Copyright (c) 2019 Andrew
-                Chon. Distributed under the MIT License.
+                • <b style="color: var(--sdf-text-primary);">pdf-lib:</b> Copyright
+                (c) 2019 Andrew Chon. Distributed under the MIT License.
               </p>
               <p>
-                • <b style="color: var(--sdf-text-primary);">lopdf:</b> Copyright (c) 2016-2024 lopdf
-                Developers. Distributed under the MIT License.
+                • <b style="color: var(--sdf-text-primary);">lopdf:</b> Copyright
+                (c) 2016-2024 lopdf Developers. Distributed under the MIT License.
               </p>
               <p>
-                • <b style="color: var(--sdf-text-primary);">PDF.js:</b> Copyright (c) Mozilla Foundation.
-                Distributed under the Apache License 2.0.
+                • <b style="color: var(--sdf-text-primary);">PDF.js:</b> Copyright
+                (c) Mozilla Foundation. Distributed under the Apache License 2.0.
               </p>
               <p>
-                • <b style="color: var(--sdf-text-primary);">Tauri Engine:</b> Copyright (c) 2019-2024
-                Tauri Programme Collective. Distributed under Apache 2.0 / MIT.
+                • <b style="color: var(--sdf-text-primary);">Tauri Engine:</b> Copyright
+                (c) 2019-2024 Tauri Programme Collective. Distributed under Apache
+                2.0 / MIT.
               </p>
               <p>
-                • <b style="color: var(--sdf-text-primary);">heic (imazen):</b> Copyright (c) 2024-2026
-                Imazen LLC. Pure-Rust HEIC/HEIF decoder. Distributed under
-                AGPL-3.0-only OR Imazen Commercial License. Optional feature —
-                included only in builds compiled with HEIC support enabled.
+                • <b style="color: var(--sdf-text-primary);">heic (imazen):</b> Copyright
+                (c) 2024-2026 Imazen LLC. Pure-Rust HEIC/HEIF decoder. Distributed
+                under AGPL-3.0-only OR Imazen Commercial License. Optional feature
+                — included only in builds compiled with HEIC support enabled.
               </p>
             </div>
           </div>
