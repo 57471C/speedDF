@@ -396,6 +396,7 @@
     };
 
     const handleWheel = (e: WheelEvent) => {
+      settleLoadBurnIn();
       // Ctrl/Cmd+wheel = zoom only. Always kill native scroll/pinch pan.
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
@@ -762,7 +763,6 @@
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
   onpointerleave={handlePointerLeave}
-  onwheel={() => settleLoadBurnIn()}
   class="flex-1 min-w-0 h-full flex flex-col px-4 relative workspace-scroll-container transition-colors duration-200
     {activeDoc.fileType === 'markdown' && activeDoc.markdownSplitView ? 'overflow-hidden' : 'overflow-auto'}
     {isDragging ? '' : 'scroll-smooth'}
