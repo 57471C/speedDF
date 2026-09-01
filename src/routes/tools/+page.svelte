@@ -20,6 +20,7 @@
     MAGIC_8_BALL_SHAKE_MS,
     pickMagic8BallAnswer,
   } from "../../lib/tools/magic8Ball";
+  import DOMPurify from "dompurify";
   import {
     loadScratchPadHtml,
     saveScratchPadHtml,
@@ -367,8 +368,9 @@
     const plainText = clipboardData.getData("text/plain");
 
     if (htmlData && htmlData.trim()) {
-      const cleanHtml = stripFontStylesFromHtml(htmlData);
-      document.execCommand("insertHTML", false, cleanHtml);
+      const strippedHtml = stripFontStylesFromHtml(htmlData);
+      const safeHtml = DOMPurify.sanitize(strippedHtml);
+      document.execCommand("insertHTML", false, safeHtml);
     } else if (plainText) {
       document.execCommand("insertText", false, plainText);
     }
