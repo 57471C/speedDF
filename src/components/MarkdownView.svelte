@@ -34,18 +34,31 @@
   const EMPTY_PREVIEW_HTML =
     '<p class="markdown-view__empty">Empty document</p>';
 
-  // Single innerHTML write (no {#if}/{@html} remount). Restore the nearest
-  // split-preview scroller so a mid-document edit does not snap to top.
-  $effect(() => {
-    const html = safeHtml;
-    const host = htmlHost;
-    if (!host) return;
-    const scroller = host.closest(
+  // Preserve scroll position when safeHtml updates and causes a remount.
+  let savedScrollTop = 0;
+
+  $effect.pre(() => {
+    // Read safeHtml to trigger this before DOM updates
+    const _ = safeHtml;
+    if (!htmlHost) return;
+    const scroller = htmlHost.closest(
       "[data-markdown-preview-scroll]",
     ) as HTMLElement | null;
-    const savedTop = scroller?.scrollTop ?? 0;
-    host.innerHTML = html || EMPTY_PREVIEW_HTML;
-    if (scroller) scroller.scrollTop = savedTop;
+    if (scroller) {
+      savedScrollTop = scroller.scrollTop;
+    }
+  });
+
+  $effect(() => {
+    // Read safeHtml to trigger this after DOM updates
+    const _ = safeHtml;
+    if (!htmlHost) return;
+    const scroller = htmlHost.closest(
+      "[data-markdown-preview-scroll]",
+    ) as HTMLElement | null;
+    if (scroller) {
+      scroller.scrollTop = savedScrollTop;
+    }
   });
 
   $effect(() => {
@@ -106,7 +119,7 @@
   data-markdown-content
   aria-label="Markdown document"
 >
-  <div bind:this={htmlHost} class="markdown-view__html" data-markdown-html></div>
+  <div bind:this={htmlHost} class="markdown-view__html" data-markdown-html>{@html safeHtml || EMPTY_PREVIEW_HTML}</div>
 </article>
 
 <style>
