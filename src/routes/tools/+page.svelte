@@ -334,7 +334,17 @@
     saveScratchPadHtml(padEl.innerHTML);
   }
 
+  const ALLOWED_COMMANDS = new Set([
+    "bold",
+    "italic",
+    "underline",
+    "insertUnorderedList",
+    "insertOrderedList"
+  ]);
+
   function padCommand(cmd: string, value?: string) {
+    if (!ALLOWED_COMMANDS.has(cmd)) return;
+
     padEl?.focus();
     try {
       document.execCommand(cmd, false, value);
