@@ -150,22 +150,26 @@ export function paintSearchHighlightsOnRoot(
 		testRe.lastIndex = 0;
 
 		const parts = originalText.split(paintRe);
-		let newHTML = "";
+		el.textContent = "";
 		for (let i = 0; i < parts.length; i++) {
 			if (i % 2 === 0) {
-				newHTML += escapeHtml(parts[i]);
+				if (parts[i]) {
+					el.appendChild(document.createTextNode(parts[i]));
+				}
 			} else {
 				const isCurrent =
 					targetOccurrence != null && occurrenceOnPage === targetOccurrence;
 				const cls = isCurrent
 					? "sdf-search-hit sdf-search-hit-current"
 					: "sdf-search-hit";
-				// data-occurrence lets us re-query the mark after paint
-				newHTML += `<mark class="${cls}" data-sdf-search-occ="${occurrenceOnPage}">${escapeHtml(parts[i])}</mark>`;
+				const mark = document.createElement("mark");
+				mark.className = cls;
+				mark.setAttribute("data-sdf-search-occ", String(occurrenceOnPage));
+				mark.appendChild(document.createTextNode(parts[i]));
+				el.appendChild(mark);
 				occurrenceOnPage += 1;
 			}
 		}
-		el.innerHTML = newHTML;
 	});
 
 	if (targetOccurrence != null) {
