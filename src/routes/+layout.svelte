@@ -2,7 +2,7 @@
 import { onMount } from "svelte";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { attachWindowWheelZoomGuard } from "../lib/interaction/wheelZoom";
+import { attachWindowWheelZoomGuard, lockWebviewPageZoom } from "../lib/interaction/wheelZoom";
 
 // Import your Tailwind global stylesheet directly into SvelteKit's layout root!
 import "../global.css";
@@ -13,6 +13,7 @@ let { children } = $props();
 onMount(() => {
   // Prevent WebView/browser page-zoom and pane scroll on Ctrl/Cmd+wheel (Workspace owns zoomScale)
   const detachWheelGuard = attachWindowWheelZoomGuard();
+  void lockWebviewPageZoom();
 
   // Main + secondary doc windows start hidden — reveal once UI is ready.
   // Tools widgets create themselves hidden and reveal from `/tools` after paint.

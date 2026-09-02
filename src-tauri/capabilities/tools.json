@@ -19,6 +19,7 @@
 		"core:window:allow-set-always-on-top",
 		"core:window:allow-set-decorations",
 		"core:window:allow-unminimize",
-		"core:window:allow-minimize"
+		"core:window:allow-minimize",
+		"core:webview:allow-set-webview-zoom"
 	]
 }

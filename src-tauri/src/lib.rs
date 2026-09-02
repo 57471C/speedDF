@@ -612,6 +612,15 @@ pub fn run() {
         })
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            use tauri::Manager;
+            // Pin page zoom at 1 so Ctrl/Cmd+wheel only changes app zoomScale.
+            // zoom_hotkeys_enabled=false also maps to WebView2 IsPinchZoomEnabled.
+            if let Some(main) = app.get_webview_window("main") {
+                if let Err(e) = main.set_zoom(1.0) {
+                    eprintln!("Failed to lock webview zoom: {e}");
+                }
+            }
+
             // File-association / "Open with" / CLI path: load in Rust and push to the
             // frontend via an event. Avoids depending on frontend invoke() which can be
             // blocked by CSP on cold start (connect-src / ipc.localhost).
