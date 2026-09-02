@@ -37,11 +37,15 @@ import {
 import { encodeCommentsKeyword } from "../comments/comments";
 import { applyAndFlattenFormValues } from "../forms/formFields";
 import {
+	combinedPageRotation,
+	computeFlattenedTextPosition,
+	nextPageRotateDegrees,
+} from "../render/pageRotation";
+import {
 	runWithPdfRenderSlot,
 	THUMBNAIL_JPEG_QUALITY,
 	THUMBNAIL_MAX_SCALE,
 } from "../render/pdfRenderQueue";
-import { nextPageRotateDegrees } from "../render/pageRotation";
 
 function hexToRgb(hexString: string): RGB {
 	const hex = hexString.replace("#", "");
@@ -90,6 +94,7 @@ async function drawAnnotationsOnPage(
 	pageHeight: number,
 	imageCache: Map<string, Promise<PDFImage>>,
 	fontCache: Map<string, Promise<PDFFont>>,
+	rotationAngle = 0,
 ) {
 	// Stamps (tick/dash/signature/initial) last so they always sit on top of boxes/ink
 	const pageShapes = shapesInPaintOrder(
@@ -197,20 +202,8 @@ async function drawAnnotationsOnPage(
 			const textHexColor = s.textColor || s.color || "#000000";
 			const resolvedTextColorRgb = hexToRgb(textHexColor);
 
-			// ── Text position: match AnnotationLayer's CSS box model ──
-			// UI text box has: box-border, 1px border, p-0.5 (2px padding),
-			// line-height 1.2. Text ink starts inset from the div origin.
-			// Treat 1 CSS px ≈ 1 PDF pt (holds closely at normal DPI/zoom).
-			const contentInset = 3; // 1px border + 2px padding
-			// Half-leading: CSS line-height 1.2 adds 10% of fontSize above
-			// the em-square top before the first glyph ascender.
-			const halfLeading = fontSize * 0.1;
 			// Font ascent above baseline (pdf-lib metric, no descender).
 			const ascent = pdfFont.heightAtSize(fontSize, { descender: false });
-			// Box top edge in PDF coordinates (Y grows upward from bottom).
-			const boxTopY = pageHeight - (s.y / 100) * pageHeight;
-			// First-line baseline = box top − inset − half-leading − ascent.
-			const textY = boxTopY - contentInset - halfLeading - ascent;
 
 			// Sanitize text input before PDF content stream injection
 			let safeText = stripControlChars(s?.text || "");
@@ -234,22 +227,26 @@ async function drawAnnotationsOnPage(
 				safeText = safeText.substring(0, 5000);
 			}
 
-			let drawX = x + contentInset;
 			const computedTextWidth = pdfFont.widthOfTextAtSize(safeText, fontSize);
 
-			if (s.alignment === "center") {
-				drawX = x - computedTextWidth / 2;
-			} else if (s.alignment === "right") {
-				drawX = x - computedTextWidth;
-			}
+			const placement = computeFlattenedTextPosition({
+				shape: s,
+				pageWidth,
+				pageHeight,
+				rotationAngle,
+				fontSize,
+				ascent,
+				textWidth: computedTextWidth,
+			});
 
 			page.drawText(safeText, {
-				x: drawX,
-				y: textY,
+				x: placement.x,
+				y: placement.y,
 				size: fontSize,
 				font: pdfFont,
 				color: resolvedTextColorRgb,
 				opacity: getHexOpacity(textHexColor),
+				rotate: degrees(placement.rotateDegrees),
 			});
 		} else if (s.type === "tick") {
 			const startPt = { x: x + w * 0.167, y: y + h * 0.5 };
@@ -487,8 +484,13 @@ export async function flattenWorkspaceToPDF(): Promise<Uint8Array | null> {
 
 				const { width: pageWidth, height: pageHeight } = page.getSize();
 				const sessionRotate = activeDoc.rotations[originalPageNumber] ?? 0;
+				const existingRotate = page.getRotation()?.angle ?? 0;
+				const totalRotation = combinedPageRotation(
+					existingRotate,
+					sessionRotate,
+				);
 				const bakedRotate = nextPageRotateDegrees(
-					page.getRotation()?.angle ?? 0,
+					existingRotate,
 					sessionRotate,
 				);
 				if (bakedRotate !== null) {
@@ -504,6 +506,7 @@ export async function flattenWorkspaceToPDF(): Promise<Uint8Array | null> {
 						pageHeight,
 						imageCache,
 						fontCache,
+						totalRotation,
 					),
 				);
 			}
