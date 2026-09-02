@@ -392,7 +392,7 @@ type PersistedTextSettings = {
 	alignment?: "left" | "center" | "right";
 };
 
-function loadTextSettings(): PersistedTextSettings {
+export function loadTextSettings(): PersistedTextSettings {
 	try {
 		const raw = localStorage.getItem(TEXT_SETTINGS_KEY);
 		if (!raw) return {};
