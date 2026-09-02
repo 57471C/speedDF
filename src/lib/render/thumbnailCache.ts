@@ -18,6 +18,7 @@ import {
 	setPageThumbnailOverride,
 } from "../../pdfStore.svelte";
 import { waitMainViewReady } from "./mainViewGate";
+import { combinedPageRotation } from "./pageRotation";
 import {
 	computeThumbnailScale,
 	type PdfRenderPriority,
@@ -26,14 +27,10 @@ import {
 	RECENT_THUMB_MAX_SCALE,
 	runWithPdfRenderSlot,
 	setLowPriorityAllowed,
-	thumbnailScalePlanForBytes,
 	THUMBNAIL_JPEG_QUALITY,
+	thumbnailScalePlanForBytes,
 } from "./pdfRenderQueue";
-import {
-	cleanupPdfPage,
-	getSharedWorkspacePdf,
-} from "./sharedPdfDocument";
-import { combinedPageRotation } from "./pageRotation";
+import { cleanupPdfPage, getSharedWorkspacePdf } from "./sharedPdfDocument";
 import {
 	clearLayoutMetaCache,
 	clearPersistedThumbnails,
@@ -62,6 +59,12 @@ const thumbState = {
 	/** Workspace id the running bg job was started for. */
 	bgWorkspaceId: null as string | null,
 };
+
+let visibilityObserver: IntersectionObserver | null = null;
+let currentObserverRoot: Element | null = null;
+const visiblePagesSet = new Set<number>();
+const observedCards = new WeakSet<Element>();
+let needsSynchronousRead = true;
 
 /** Yield between thumbs so main paints / idle cleanup can run. */
 function yieldToMain(): Promise<void> {
@@ -92,16 +95,16 @@ function waitTwoFrames(): Promise<void> {
  * rootMargin of the scroll container). Sorted top-to-bottom for natural fill.
  * Matches requestStaticThumb IntersectionObserver margin (~240px).
  */
-export function collectVisibleSidebarPages(
-	rootMarginPx = 240,
-): number[] {
+export function collectVisibleSidebarPages(rootMarginPx = 240): number[] {
 	if (typeof document === "undefined") return [];
 	try {
 		const cards = document.querySelectorAll<HTMLElement>("[data-sidebar-page]");
 		if (cards.length === 0) return [];
 
 		// Prefer the scroll container that actually hosts visible cards
+		let activeRoot: Element | null = null;
 		let rootRect: { top: number; bottom: number } | null = null;
+
 		const scrolls = document.querySelectorAll<HTMLElement>(
 			"[data-sidebar-thumb-scroll]",
 		);
@@ -109,10 +112,58 @@ export function collectVisibleSidebarPages(
 			const r = scroll.getBoundingClientRect();
 			// Pick a container that is on-screen and has height
 			if (r.height > 8 && r.bottom > 0 && r.top < window.innerHeight) {
+				activeRoot = scroll;
 				rootRect = { top: r.top, bottom: r.bottom };
 				break;
 			}
 		}
+
+		if (typeof IntersectionObserver !== "undefined") {
+			// If root changed (e.g. unmounted SPA view), we must rebuild observer
+			if (currentObserverRoot !== activeRoot || !visibilityObserver) {
+				if (visibilityObserver) visibilityObserver.disconnect();
+				visiblePagesSet.clear();
+				needsSynchronousRead = true;
+				currentObserverRoot = activeRoot;
+
+				visibilityObserver = new IntersectionObserver(
+					(entries) => {
+						for (const entry of entries) {
+							const pageNum = Number(
+								entry.target.getAttribute("data-sidebar-page"),
+							);
+							if (!Number.isFinite(pageNum) || pageNum < 1) continue;
+
+							if (entry.isIntersecting) {
+								visiblePagesSet.add(pageNum);
+							} else {
+								visiblePagesSet.delete(pageNum);
+							}
+						}
+					},
+					{
+						root: activeRoot,
+						rootMargin: `${rootMarginPx}px 0px ${rootMarginPx}px 0px`,
+					},
+				);
+			}
+
+			// Observe any new cards
+			for (const el of cards) {
+				if (!observedCards.has(el)) {
+					visibilityObserver.observe(el);
+					observedCards.add(el);
+				}
+			}
+
+			// Return cached set if we already synchronized
+			if (!needsSynchronousRead) {
+				const hits = Array.from(visiblePagesSet);
+				hits.sort((a, b) => a - b);
+				return hits;
+			}
+		}
+
 		if (!rootRect) {
 			rootRect = { top: 0, bottom: window.innerHeight };
 		}
@@ -134,6 +185,13 @@ export function collectVisibleSidebarPages(
 				seen.add(pageNum);
 				hits.push({ page: pageNum, top: r.top });
 			}
+		}
+
+		// Initial synchronous read complete. Seed the set and disable synchronous fallback
+		// until root changes.
+		if (visibilityObserver) {
+			for (const h of hits) visiblePagesSet.add(h.page);
+			needsSynchronousRead = false;
 		}
 
 		hits.sort((a, b) => a.top - b.top || a.page - b.page);
@@ -198,7 +256,9 @@ function currentContentKey(): string | null {
 }
 
 /** Call when a new document is bound so IDB keys match. */
-export function setThumbnailContentKeyFromBytes(bytes: Uint8Array | null): void {
+export function setThumbnailContentKeyFromBytes(
+	bytes: Uint8Array | null,
+): void {
 	thumbState.activeContentKey = bytes ? contentKeyForBytes(bytes) : null;
 }
 
@@ -301,14 +361,8 @@ export async function generatePageThumbnailDataUrl(
 				);
 				const unrotated = page.getViewport({ scale: 1 });
 				const isVertical = currentRotation % 180 === 0;
-				const renderWidth = isVertical
-					? unrotated.width
-					: unrotated.height;
-				const scale = computeThumbnailScale(
-					renderWidth,
-					maxEdge,
-					maxScale,
-				);
+				const renderWidth = isVertical ? unrotated.width : unrotated.height;
+				const scale = computeThumbnailScale(renderWidth, maxEdge, maxScale);
 				const viewport = page.getViewport({
 					scale,
 					rotation: currentRotation,
@@ -458,22 +512,14 @@ export async function ensurePageThumbnail(
 				priority,
 			);
 			if (!dataUrl) return;
-			if (
-				activeDoc.fileType !== "pdf" &&
-				activeDoc.fileType !== "tiff"
-			) {
+			if (activeDoc.fileType !== "pdf" && activeDoc.fileType !== "tiff") {
 				return;
 			}
 			setPageThumbnailOverride(idx, dataUrl);
 			// Persist for next open (path-keyed)
 			const ckey = currentContentKey();
 			if (ckey && activeDoc.filePath) {
-				void persistThumbnailPage(
-					activeDoc.filePath,
-					ckey,
-					idx,
-					dataUrl,
-				);
+				void persistThumbnailPage(activeDoc.filePath, ckey, idx, dataUrl);
 			}
 		} catch (err) {
 			console.warn(`Thumbnail cache generate failed for page ${pageNum}:`, err);
@@ -706,9 +752,7 @@ export async function generateThumbnailsForPages(
 	reason = "merge",
 ): Promise<void> {
 	const pages = [
-		...new Set(
-			(pageNums || []).filter((p) => Number.isFinite(p) && p >= 1),
-		),
+		...new Set((pageNums || []).filter((p) => Number.isFinite(p) && p >= 1)),
 	].sort((a, b) => a - b);
 
 	if (pages.length === 0) {
@@ -716,9 +760,7 @@ export async function generateThumbnailsForPages(
 		return;
 	}
 
-	console.log(
-		`${reason}: generating thumbnails for pages ${pages.join(", ")}`,
-	);
+	console.log(`${reason}: generating thumbnails for pages ${pages.join(", ")}`);
 
 	// destroySharedWorkspacePdf → clearPdfRenderQueue sets lowPriorityAllowed=false.
 	// Re-open the gate before any low work; also use high priority for these jobs.
@@ -756,10 +798,7 @@ export async function generateThumbnailsForPages(
 			else fail += 1;
 		} catch (err) {
 			fail += 1;
-			console.warn(
-				`${reason}: thumbnail failed for page ${pageNum}:`,
-				err,
-			);
+			console.warn(`${reason}: thumbnail failed for page ${pageNum}:`, err);
 		}
 		await yieldToMain();
 	}
@@ -891,9 +930,7 @@ export async function removeDocumentThumbnailCaches(
  * Background: remove IDB thumbs for paths not present in the recents list.
  * Also drops layout meta keys for those orphans when possible.
  */
-export function scheduleOrphanThumbnailCleanup(
-	recentPaths: string[],
-): void {
+export function scheduleOrphanThumbnailCleanup(recentPaths: string[]): void {
 	const run = () => {
 		void pruneOrphanedPersistedThumbnails(recentPaths)
 			.then(async (n) => {
