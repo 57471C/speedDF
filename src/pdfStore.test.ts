@@ -10,6 +10,7 @@ import {
 	executeRedoAction,
 	executeUndoAction,
 	initializeNewDocument,
+	loadRecents,
 	loadSavedSets,
 	purgeDocumentResources,
 	pushHistorySnapshot,
@@ -38,6 +39,47 @@ function openTestDocument(name = "test.pdf") {
 	activeDoc.flushDocumentState();
 	initializeNewDocument(name, null);
 }
+
+describe("loadRecents", () => {
+	beforeEach(() => {
+		localStorage.clear();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("should return an empty array if localStorage is empty", () => {
+		expect(loadRecents()).toEqual([]);
+	});
+
+	it("should return parsed array if valid JSON is in localStorage", () => {
+		const validData = [
+			{
+				name: "test.pdf",
+				path: "/path/to/test.pdf",
+				timestamp: 12345,
+				thumbnail: "data:image/png;base64,123",
+			},
+		];
+		localStorage.setItem("speeddf_recents", JSON.stringify(validData));
+		expect(loadRecents()).toEqual(validData);
+	});
+
+	it("should return an empty array if invalid JSON is in localStorage", () => {
+		const invalidStrings = [
+			"invalid-json",
+			"{ malformed object }",
+			'[{ "name": "test", "path": "/path" }',
+			'{"name": "test",',
+		];
+
+		for (const str of invalidStrings) {
+			localStorage.setItem("speeddf_recents", str);
+			expect(loadRecents()).toEqual([]);
+		}
+	});
+});
 
 describe("loadSavedSets", () => {
 	beforeEach(() => {
