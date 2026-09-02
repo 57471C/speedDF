@@ -300,42 +300,65 @@
     activeDoc.currentPage = match.pageNumber;
 
     // Wait for page container (and ideally text layer) to exist
-    let pageEl: HTMLElement | null = null;
-    for (let attempt = 0; attempt < 50; attempt++) {
-      if (gen !== searchGeneration) return;
-      pageEl = document.querySelector(
-        `[data-page-number="${match.pageNumber}"]`,
-      ) as HTMLElement | null;
-      if (pageEl?.querySelector(".textLayer span")) break;
-      if (pageEl && attempt > 12) break; // page shell exists; text may still be painting
-      await new Promise((r) => setTimeout(r, 50));
+    let pageEl = document.querySelector(
+      `[data-page-number="${match.pageNumber}"]`,
+    ) as HTMLElement | null;
+
+    if (!pageEl?.querySelector(".textLayer span")) {
+      // Event-driven wait for the text layer to render
+      await new Promise<void>((resolve) => {
+        let timeoutId: number;
+
+        const onRendered = (e: Event) => {
+          const ce = e as CustomEvent;
+          if (ce.detail?.pageNumber === match.pageNumber) {
+            cleanup();
+            resolve();
+          }
+        };
+
+        const cleanup = () => {
+          document.removeEventListener("textlayerrendered", onRendered);
+          window.clearTimeout(timeoutId);
+        };
+
+        document.addEventListener("textlayerrendered", onRendered);
+
+        // Fallback max wait of 2500ms (50 attempts * 50ms) to ensure we don't hang indefinitely
+        timeoutId = window.setTimeout(() => {
+          cleanup();
+          resolve();
+        }, 2500);
+      });
     }
+
+    if (gen !== searchGeneration) return;
+
+    // Refresh pageEl after wait, as it might have remounted or just been created
+    pageEl = document.querySelector(
+      `[data-page-number="${match.pageNumber}"]`,
+    ) as HTMLElement | null;
 
     if (pageEl) {
       pageEl.scrollIntoView({ behavior: "smooth", block: "center" });
     }
 
-    // Retry highlight until the text layer has the current mark, or give up.
-    // Off-screen pages need extra time for pdf.js TextLayer to finish.
+    // Try highlighting now that we know the text layer is rendered (or timed out).
     let currentMark: HTMLElement | null = null;
-    for (let attempt = 0; attempt < 20; attempt++) {
+
+    // We allow a very short retry (just a few times) for split-item edge cases
+    // where spans exist but the specific mark isn't connected immediately.
+    for (let attempt = 0; attempt < 5; attempt++) {
       if (gen !== searchGeneration) return;
-      await new Promise((r) => setTimeout(r, attempt === 0 ? 80 : 60));
+      if (attempt > 0) {
+         await new Promise((r) => setTimeout(r, 60));
+      }
       clearHighlights();
       currentMark = highlightMatchesOnPage(
         match.pageNumber,
         match.occurrenceOnPage,
       );
       if (currentMark?.isConnected) break;
-      // No mark yet — keep waiting if text layer is still empty / incomplete
-      const hasSpans = !!document
-        .querySelector(`[data-page-number="${match.pageNumber}"]`)
-        ?.querySelector(".textLayer span");
-      if (hasSpans && attempt > 4 && !currentMark) {
-        // Spans exist but this occurrence isn't in the DOM (split-item edge case).
-        // Still paint all yellow hits we can; scroll the first hit or the page.
-        break;
-      }
     }
 
     if (gen !== searchGeneration) return;

@@ -440,6 +440,12 @@ export function createPageRenderer(deps: PageRendererDeps) {
 						activeTextLayer = textLayer;
 						try {
 							await textLayer.render();
+							textLayerContainer.dispatchEvent(
+								new CustomEvent("textlayerrendered", {
+									bubbles: true,
+									detail: { pageNumber: pageNum },
+								}),
+							);
 						} catch (error: unknown) {
 							if (isRenderCancelled(error)) return;
 							throw error;
