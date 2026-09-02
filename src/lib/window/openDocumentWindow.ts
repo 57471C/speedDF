@@ -51,6 +51,7 @@ export async function openDocumentInNewWindow(
 			// +layout.svelte reveals once the UI is ready (same as main)
 			visible: false,
 			skipTaskbar: false,
+			zoomHotkeysEnabled: false,
 		});
 
 		win.once("tauri://error", (event) => {

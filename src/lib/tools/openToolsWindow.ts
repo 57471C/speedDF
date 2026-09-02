@@ -97,6 +97,7 @@ export async function openToolsWindow(mode: ToolsMode): Promise<OpenToolsResult>
 			focus: false,
 			visible: false,
 			skipTaskbar: false,
+			zoomHotkeysEnabled: false,
 		});
 
 		win.once("tauri://created", () => {

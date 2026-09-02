@@ -18,6 +18,7 @@
     scrollAfterZoomToPointer,
     type ZoomPointerCapture,
   } from "../lib/interaction/zoomToPointer";
+  import { createCtrlWheelOverflowLock } from "../lib/interaction/wheelZoom";
 
   // Debounced auto-fit handler to prevent layout thrashing.
   // It guarantees the layout is updated at most once per timeframe.
@@ -336,6 +337,7 @@
     let pendingCapture: ZoomPointerCapture | null = null;
     let applyToken = 0;
     let gestureTimer: number | null = null;
+    const overflowLock = createCtrlWheelOverflowLock(node);
 
     const contentEl = (): HTMLElement | null =>
       node.querySelector("[data-workspace-pages]") as HTMLElement | null;
@@ -348,10 +350,10 @@
       pendingZoom = null;
       const token = ++applyToken;
 
-      // Disable smooth scrolling so zoom re-anchor never animates as a pan
+      // Disable smooth scrolling so zoom re-anchor never animates as a pan.
+      // overflow / workspace-zooming is owned by overflowLock for the gesture.
       const prevBehavior = node.style.scrollBehavior;
       node.style.scrollBehavior = "auto";
-      node.classList.add("workspace-zooming");
 
       activeDoc.zoomScale = next;
       zoomScale = next;
@@ -389,7 +391,7 @@
         } finally {
           if (token === applyToken) {
             node.style.scrollBehavior = prevBehavior;
-            node.classList.remove("workspace-zooming");
+            // workspace-zooming stays until overflowLock idle (~200ms)
           }
         }
       })();
@@ -403,6 +405,8 @@
       e.stopPropagation();
       // Also stop other listeners on the same path (settleLoadBurnIn, etc.)
       e.stopImmediatePropagation?.();
+      // Hide overflow for the gesture so WebView cannot pan the pane
+      overflowLock.hold();
 
       const oldZoom = Math.max(10, Math.abs(zoomScale || activeDoc.zoomScale || 100));
       // Continuous, delta-sensitive zoom (smoother than fixed ±10 steps).
@@ -466,6 +470,7 @@
         node.removeEventListener("wheel", handleWheel, { capture: true } as EventListenerOptions);
         if (zoomRaf != null) cancelAnimationFrame(zoomRaf);
         if (gestureTimer != null) clearTimeout(gestureTimer);
+        overflowLock.dispose();
         applyToken += 1;
       }
     };
@@ -769,7 +774,7 @@
     [&::-webkit-scrollbar]:w-2 
     [&::-webkit-scrollbar-track]:bg-transparent 
     [&::-webkit-scrollbar-thumb]:rounded-full"
-  style="padding-top: {workspacePadTop}; background-color: var(--sdf-canvas-bg); {isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : ''} touch-action: pan-x pan-y;"
+  style="padding-top: {workspacePadTop}; background-color: var(--sdf-canvas-bg); {isSpacePressed ? (isDragging ? 'cursor: grabbing;' : 'cursor: grab;') : ''} touch-action: manipulation; overflow-anchor: none;"
 >
   {#if showLoadBurnIn && openDurationMs != null}
     <!-- Viewport-fixed background layer: stays under document pages (z-0 vs pages z-10) -->
@@ -1047,9 +1052,18 @@
   .load-burn-in--settled {
     opacity: 0.72;
   }
-  /* While Ctrl-zooming: no CSS smooth-scroll so re-anchor never pans visibly */
+  /* While Ctrl-zooming: no CSS smooth-scroll so re-anchor never pans visibly.
+     overflow:hidden + overflow-anchor:none so the pane cannot creep; native
+     wheel/pinch cannot pan. Restored ~200ms after last ctrl-wheel. */
   :global(.workspace-scroll-container.workspace-zooming) {
     scroll-behavior: auto !important;
+    overflow: hidden !important;
+    overflow-anchor: none !important;
+    touch-action: none !important;
+  }
+
+  .workspace-scroll-container {
+    overflow-anchor: none;
   }
 
   /* Dark Cyber Scrollbar Custom Webkit Injectors */
