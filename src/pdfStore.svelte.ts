@@ -463,7 +463,7 @@ let isClickScrolling = $state(false);
 let activeStampDataUrl = $state<string | null>(null);
 let savedSignatureSets = $state<SignatureSet[]>(loadSavedSets());
 
-function loadRecents(): RecentFile[] {
+export function loadRecents(): RecentFile[] {
 	try {
 		const stored = localStorage.getItem("speeddf_recents");
 		if (stored) return JSON.parse(stored);
