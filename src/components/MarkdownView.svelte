@@ -71,7 +71,6 @@
 
     if (fileType !== "markdown" || !el) return;
 
-    // Fingerprint: path + length + short content hash so empty→filled re-captures
     const key = `${filePath || wsId || ""}::${src.length}::${html.slice(0, 96)}`;
     if (key === lastCaptureKey) return;
 
@@ -79,12 +78,10 @@
 
     void (async () => {
       try {
-        // Wait for {@html} to land + layout paint before capture
         await tick();
         await new Promise<void>((r) =>
           requestAnimationFrame(() => requestAnimationFrame(() => r())),
         );
-        // Brief settle so fonts start; image wait lives inside capture helper
         await new Promise((r) => setTimeout(r, 80));
         if (cancelled || !rootEl) return;
         if (activeDoc.fileType !== "markdown") return;
@@ -94,14 +91,12 @@
         )
           return;
 
-        // Simple html2canvas of this root → applyLiveThumbnail (same path as image opens)
         const dataUrl = await captureMarkdownViewThumbnail(rootEl);
         if (cancelled || !dataUrl) return;
         if (activeDoc.fileType !== "markdown") return;
         applyLiveThumbnail(dataUrl, activeDoc.filePath, 0);
         lastCaptureKey = key;
       } catch (err) {
-        // Failure → leave empty / icon fallback; do not block open
         console.warn("Markdown thumb capture schedule failed:", err);
       }
     })();
@@ -124,7 +119,6 @@
 
 <style>
   .markdown-view {
-    /* Continuous document — not A4 page boxes */
     width: min(48rem, 100%);
     max-width: 100%;
     margin: 0 auto;
@@ -158,7 +152,6 @@
     font-style: italic;
   }
 
-  /* ── Typography (scoped via :global so {@html} content is styled) ── */
   .markdown-view :global(h1),
   .markdown-view :global(h2),
   .markdown-view :global(h3),
@@ -187,16 +180,49 @@
 
   .markdown-view :global(p) { margin: 0.65em 0; }
   .markdown-view :global(ul),
-  .markdown-view :global(ol) { margin: 0.6em 0; padding-left: 1.5em; }
-  .markdown-view :global(li) { margin: 0.25em 0; }
+  .markdown-view :global(ol) {
+    margin: 0.6em 0;
+    padding-left: 1.6em;
+    list-style-position: outside;
+  }
+  .markdown-view :global(ul) { list-style-type: disc; }
+  .markdown-view :global(ol) { list-style-type: decimal; }
+  .markdown-view :global(li) {
+    margin: 0.25em 0;
+    display: list-item;
+  }
   .markdown-view :global(li > p) { margin: 0.25em 0; }
+
+  .markdown-view :global(input[type="checkbox"]) {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 0.95em;
+    height: 0.95em;
+    margin: 0 0.45em 0 0;
+    vertical-align: -0.15em;
+    border: 1.5px solid var(--sdf-border, #cbd5e1);
+    border-radius: 3px;
+    background: var(--sdf-bg-input, #fff);
+  }
+  .markdown-view :global(input[type="checkbox"]:checked) {
+    border-color: var(--sdf-accent, #0891b2);
+    background-color: var(--sdf-accent, #0891b2);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='M2.5 6.2 5 8.7 9.5 3.5'/%3E%3C/svg%3E");
+    background-size: 100% 100%;
+  }
+
+  .markdown-view :global(mark) {
+    background: rgba(234, 179, 8, 0.35);
+    color: inherit;
+    padding: 0 0.12em;
+    border-radius: 2px;
+  }
 
   .markdown-view :global(blockquote) {
     margin: 0.85em 0;
     padding: 0.35em 0 0.35em 1em;
     border-left: 3px solid var(--sdf-accent, #22d3ee);
     color: var(--sdf-text-secondary, #94a3b8);
-    /* Solid rgba — avoid color-mix (html2canvas cannot parse it for thumbs) */
     background: rgba(34, 211, 238, 0.06);
     border-radius: 0 0.25rem 0.25rem 0;
   }
@@ -239,8 +265,7 @@
     font-weight: 600;
   }
   .markdown-view :global(tr:nth-child(even) td) {
-    /* Solid rgba — avoid color-mix (html2canvas cannot parse it for thumbs) */
-    background: rgba(30, 41, 59, 0.5);
+    background: var(--sdf-hover-bg, rgba(148, 163, 184, 0.08));
   }
 
   .markdown-view :global(code) {
@@ -275,10 +300,8 @@
   .markdown-view :global(em) { font-style: italic; }
   .markdown-view :global(del) { text-decoration: line-through; opacity: 0.8; }
 
-  /* First heading: less top margin so the card padding is balanced */
   .markdown-view__html :global(> :first-child) { margin-top: 0; }
 
-  /* Print: continuous flow on A4; chrome hide is handled by print iframe / @media below */
   @media print {
     @page {
       size: A4;
