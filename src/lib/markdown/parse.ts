@@ -6,6 +6,26 @@
 import { Marked } from "marked";
 import { renderFencedBlock, unescapeHtml } from "./highlight";
 
+const highlightMark = {
+	name: "highlightMark",
+	level: "inline" as const,
+	start(src: string) {
+		return src.indexOf("==");
+	},
+	tokenizer(src: string) {
+		const match = /^==([^=\n]+)==/.exec(src);
+		if (!match) return;
+		return {
+			type: "highlightMark",
+			raw: match[0],
+			text: match[1],
+		};
+	},
+	renderer(token: { text: string }) {
+		return `<mark>${token.text}</mark>`;
+	},
+};
+
 const marked = new Marked({
 	gfm: true,
 	breaks: false,
@@ -16,6 +36,8 @@ const marked = new Marked({
 		},
 	},
 });
+
+marked.use({ extensions: [highlightMark] });
 
 /**
  * Parse markdown source into raw HTML (not XSS-safe — always sanitize before inject).
