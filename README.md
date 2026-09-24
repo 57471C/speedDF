@@ -49,9 +49,16 @@ If you just need to rotate a page, sign a form, highlight a clause, or merge a f
 - Full-document find (`Ctrl+F` / `Cmd+F`)
 
 ### Images too
-- Open PNG, JPG, TIFF, WebP, BMP
+- Open PNG, JPG, TIFF, WebP, BMP, SVG, and HEIC/HEIF (one-time convert)
 - Annotate and export
 - Image resize (%, px, aspect locked)
+
+### Markdown
+- Open `.md` / `.markdown` in a continuous preview (not a PDF page)
+- **Edit** in the title bar (or the zoom bar, or `Ctrl+\`) shows source beside the preview in the same window
+- Preview follows the app light/dark theme; fenced code is highlighted (including YAML, SQL, Go, Java, C, and INI/TOML)
+- Drag the gutter between source and preview (25–75%, remembered per document). Narrow windows stack the panes with no gutter
+- Page thumbnails, bookmarks, and comments stay hidden for markdown. Recent documents and tabs stay
 
 ### Extra tools
 - Always-on-top Tools window: calculator, timer, stopwatch, scratch pad, Magic 8 Ball
@@ -76,7 +83,7 @@ Download the latest release from the [Releases](https://github.com/57471C/speedD
 ## Quick start (users)
 
 1. Grab the installer for your OS from [Releases](https://github.com/57471C/speedDF/releases)
-2. Install and open a PDF or image
+2. Install and open a PDF, image, or Markdown file
 3. Annotate, fill forms, reorder pages as needed
 4. **Save** or **Save As…** — changes are written into the file
 

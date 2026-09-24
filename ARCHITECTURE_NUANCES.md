@@ -788,9 +788,10 @@ Markdown documents use a dedicated `fileType: "markdown"` (not PDF/image). On op
 
 1. File bytes are decoded as **UTF-8** into `DocumentWorkspace.markdownSource`.
 2. `rawBytes` is retained for tab identity / recents / close paths.
-3. The workspace **view** is a pure projection: `markdownSource → marked → highlight.js (fenced code) → DOMPurify → HTML` (`MarkdownView.svelte`). The source pane overlays the same highlighter on a transparent textarea (markdown + nested ```ts/js/rust).
+3. The workspace **view** is a pure projection: `markdownSource → marked → highlight.js core (fenced code) → DOMPurify → HTML` (`MarkdownView.svelte`). Block open tags carry `data-md-line`. The preview card uses `--sdf-*` tokens (readable in light and dark) and a measure of about **78ch**. Fences highlight js/ts, rust, python, json, css, xml, bash, and also **yaml, sql, go, java, c, ini** (TOML via ini). A `data-lang` label sits on the `<pre>` when the fence names a language. The source pane overlays the same highlighter on a transparent textarea. Overlay and textarea share **13px font / 20px line-height** (no WebKit text-fill trick); the caret uses `--sdf-accent`.
 4. **Initial zoom is 150%** for markdown only. Workspace auto-fit on open is skipped for this type so fit-to-window does not overwrite the default; zoom controls still work freely after open.
-5. **Split edit (optional):** `markdownSplitView` (per tab, default off) shows a plain-text source editor on the left and the same `MarkdownView` on the right. Edits call `setMarkdownSourceAction` (sets `isDirty`). Preview may debounce; Save always encodes live `markdownSource` UTF-8 bytes via `encodeMarkdownSource`. Narrow hosts stack source above preview. No WYSIWYG. Scroll panes stay aligned with a relative `scrollTop / maxScroll` map (`createMarkdownScrollSync`): both directions, rAF-coalesced, applying-flag to block echo, typing guard so preview scroll does not fight the caret. Preview HTML is patched **in place** (no `{@html}` remount); `hold` → restore `scrollTop` → `release` so a mid-document edit does not snap the preview to the top.
+5. **Split edit (optional):** fresh opens set `markdownSplitView` **false** (preview only). Already-open tabs keep their flag. **Edit** in the title bar (also the zoom-bar chip and Ctrl+\\) shows source left and `MarkdownView` right in the **same window**. Edits call `setMarkdownSourceAction` (sets `isDirty`). Preview may debounce; Save always encodes live `markdownSource` UTF-8 bytes via `encodeMarkdownSource`. A gutter sets `markdownSplitRatio` (**0.25–0.75**, per document). Hosts under 720px stack source above preview and show **no gutter**. No WYSIWYG.
+6. **Scroll sync is a line map, not a height ratio.** `createMarkdownScrollSync` aligns panes by `data-md-line` (viewport top, or the caret line while typing). Tall images and fences only stretch their own span, so later lines do not drift. Both directions, rAF-coalesced, applying-flag to block echo, typing guard so preview scroll does not fight the caret, 1px epsilon. No ratio fallback when anchors are missing. After a preview image loads, one `realign()` from the line map. Preview HTML is patched **in place** (stable host, no scroller remount); `hold` → restore `scrollTop` → `release` so a mid-document edit does not snap the preview to the top.
 
 ### Why it matters
 
@@ -798,13 +799,16 @@ Source editing must **write back to `markdownSource`**, then re-project. Never t
 
 ### Rules
 
-- Do not open markdown with pdf.js or the A4 page shell.
-- Hide annotation tools / OCR / page-merge / bookmarks for this type.
+- Do not open markdown with pdf.js or the A4 page shell. The preview page is a theme-token card, not a pdf.js page box.
+- Hide the **tool sidebar** and do **not mount `PageSidebar`** for `fileType === "markdown"` (no thumbs, bookmarks, comments, or page ops). PDF and image sidebars stay. Recent documents and the tab strip stay.
+- Do not open a second OS window for Edit. Split stays in the current window.
 - Print uses a headless iframe (`lib/markdown/print.ts`) with `@page { size: A4 }`, not PDF flatten.
 - Startup associations: `.md` / `.markdown` in Rust `is_supported_startup_extension` + `tauri.conf.json` fileAssociations.
-- **Recent / sidebar thumbs:** single simple path — `html2canvas` of live `[data-markdown-content]` (top band), then `applyLiveThumbnail`. Fixed dark paper `#121a2b` + light text + sans stack in `onclone` (theme must not flip colours or yield Times). Await `document.fonts.ready` before capture. No offscreen clone / modern-screenshot / multi-strategy stack. Capture failure must not block open.
+- **Recent thumbs:** single simple path — `html2canvas` of live `[data-markdown-content]` (top band), then `applyLiveThumbnail`. Fixed dark paper `#121a2b` + light text + sans stack in `onclone` (theme must not flip colours or yield Times). Await `document.fonts.ready` before capture. No offscreen clone / modern-screenshot / multi-strategy stack. Capture failure must not block open. The page sidebar is not where this thumb is shown for markdown.
 - Do not reintroduce auto-fit-on-open for markdown (would fight the 150% default).
+- Do not sync the split panes by `scrollTop / maxScroll`. Use the `data-md-line` map.
+- Do not import the full `highlight.js` package; keep `highlight.js/lib/core` + `registerLanguage`.
 
 ---
 
-**Last Updated:** August 2026 (SVG-as-image open path; Markdown continuous viewer phase 1 — source vs view, 150% open zoom, fixed-palette thumbs; Secondary doc windows Open-in-new-window, floating toolbar stack + dynamic pad, image resize strip, Shift+marquee multi-select + align, light mode FOUC, Scratch Pad paste sanitize, page-move bookmarks/comments, Esc→select, snapshot overlay zoom, HEIC feature-gate, form CropBox/rotate, Ctrl+F marks, merge thumbs, zoom-to-pointer, bookmark compose, calculator memory, line tool, hyperlinks, form/text value memory, workspaceId / Save As)
+**Last Updated:** September 2026 — **v1.2.5** (Markdown preview-first Edit/Preview, theme-token preview ~78ch, fenced yaml/sql/go/java/c/ini, `data-md-line` scroll sync, 25–75% gutter, page sidebar hidden for markdown; prior: SVG-as-image, continuous markdown viewer, 150% open zoom, fixed-palette thumbs, secondary doc windows, image resize, multi-select, HEIC, forms, hyperlinks, workspaceId / Save As)

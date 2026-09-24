@@ -1,5 +1,11 @@
 # Todo List #
 
+## Current (v1.2.5) ##
+- [x] Markdown opens preview-first. Title bar **Edit / Preview** (and Ctrl+\\) toggles the in-window split. No new OS window.
+- [x] Preview uses `--sdf-*` tokens and a wider (~78ch) page. Fenced code adds yaml, sql, go, java, c, and ini/toml via highlight.js core only.
+- [x] Split scroll follows `data-md-line`, not pane-height ratio. Gutter is 25–75% (`markdownSplitRatio`, per document). Narrow layout stacks with no gutter.
+- [x] Page sidebar is hidden for markdown. PDF/image sidebars, Recent, and document tabs stay.
+
 ## Fixes ##
 - [x] page rotation must include pdf.js text layer + save/reload
 - [x] if the user changes the font size in the text annotation tool. ensure it's persistant. example. user changes the size from 16pt to 20pt and clicks to add text, isn't happy with the placment so they click elswhere. the size reverts to 16pt because text wasn't drawn to the page.
