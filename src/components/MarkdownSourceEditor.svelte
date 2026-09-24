@@ -109,8 +109,8 @@
     padding: 1rem 1.1rem 1.5rem;
     border: none;
     font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
-    font-size: 0.85rem;
-    line-height: 1.55;
+    font-size: 13px;
+    line-height: 20px;
     tab-size: 2;
     white-space: pre-wrap;
     overflow-wrap: break-word;
@@ -146,8 +146,7 @@
     outline: none;
     background: transparent;
     color: transparent;
-    caret-color: var(--sdf-text-primary, #e2e8f0);
-    -webkit-text-fill-color: transparent;
+    caret-color: var(--sdf-accent, #22d3ee);
   }
 
   .md-source-editor:disabled {

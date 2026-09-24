@@ -50,6 +50,33 @@ describe("MarkdownSplitView", () => {
 		);
 	});
 
+	it("drags the gutter and clamps the ratio on this document", () => {
+		const { container } = render(MarkdownSplitView, { zoomScale: 150 });
+		const root = container.querySelector("[data-markdown-split]") as HTMLElement;
+		const gutter = container.querySelector(
+			"[data-markdown-split-gutter]",
+		) as HTMLElement;
+		expect(gutter).toBeTruthy();
+		expect(activeDoc.markdownSplitRatio).toBe(0.5);
+		root.getBoundingClientRect = () =>
+			({ left: 0, width: 1000, top: 0, height: 400, right: 1000, bottom: 400 }) as DOMRect;
+
+		gutter.dispatchEvent(
+			new PointerEvent("pointerdown", { button: 0, pointerId: 1, clientX: 500, bubbles: true }),
+		);
+		gutter.dispatchEvent(
+			new PointerEvent("pointermove", { pointerId: 1, clientX: 100, bubbles: true }),
+		);
+		expect(activeDoc.markdownSplitRatio).toBe(0.25);
+		gutter.dispatchEvent(
+			new PointerEvent("pointermove", { pointerId: 1, clientX: 990, bubbles: true }),
+		);
+		expect(activeDoc.markdownSplitRatio).toBe(0.75);
+		gutter.dispatchEvent(
+			new PointerEvent("pointerup", { pointerId: 1, bubbles: true }),
+		);
+	});
+
 	it("wires both scroll panes for relative sync", () => {
 		const { container } = render(MarkdownSplitView, { zoomScale: 150 });
 		expect(screen.getByLabelText("Markdown source")).toBeTruthy();

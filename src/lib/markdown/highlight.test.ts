@@ -5,6 +5,7 @@ import {
 	escapeHtml,
 	highlightFenced,
 	highlightMarkdownSource,
+	renderFencedBlock,
 	resolveHighlightLang,
 } from "./highlight";
 
@@ -23,6 +24,13 @@ describe("resolveHighlightLang", () => {
 		expect(resolveHighlightLang("ts")).toBe("typescript");
 		expect(resolveHighlightLang("JS")).toBe("javascript");
 		expect(resolveHighlightLang("rust")).toBe("rust");
+		expect(resolveHighlightLang("yml")).toBe("yaml");
+		expect(resolveHighlightLang("toml")).toBe("ini");
+		expect(resolveHighlightLang("golang")).toBe("go");
+		expect(resolveHighlightLang("jsp")).toBe("java");
+		expect(resolveHighlightLang("h")).toBe("c");
+		expect(resolveHighlightLang("mysql")).toBe("sql");
+		expect(resolveHighlightLang("postgres")).toBe("sql");
 		expect(resolveHighlightLang("unknown-lang")).toBeNull();
 	});
 });
@@ -48,6 +56,44 @@ describe("highlightFenced", () => {
 		const out = highlightFenced("a < b", "not-a-lang");
 		expect(out.language).toBeNull();
 		expect(out.html).toBe("a &lt; b");
+	});
+
+	it("colors yaml, sql, toml, go, java, c, and ini", () => {
+		expect(highlightFenced("name: app\n", "yaml").language).toBe("yaml");
+		expect(highlightFenced("name: app\n", "yml").html).toMatch(/hljs-/);
+
+		const sql = highlightFenced("SELECT id FROM t;\n", "sql");
+		expect(sql.language).toBe("sql");
+		expect(sql.html).toContain("hljs-keyword");
+
+		expect(highlightFenced("key = 1\n", "toml").language).toBe("ini");
+		expect(highlightFenced("[section]\nkey = 1\n", "ini").html).toMatch(/hljs-/);
+
+		const go = highlightFenced("func main() {}\n", "go");
+		expect(go.language).toBe("go");
+		expect(go.html).toContain("hljs-keyword");
+
+		const java = highlightFenced("public class A {}\n", "java");
+		expect(java.language).toBe("java");
+		expect(java.html).toContain("hljs-keyword");
+
+		const c = highlightFenced("int main() { return 0; }\n", "c");
+		expect(c.language).toBe("c");
+		expect(c.html).toMatch(/hljs-keyword|hljs-type|hljs-number/);
+	});
+});
+
+describe("renderFencedBlock", () => {
+	it("puts an optional data-lang label on pre", () => {
+		const html = renderFencedBlock("name: app\n", "yml");
+		expect(html).toMatch(/^<pre data-lang="yml">/);
+		expect(html).not.toMatch(/<code[^>]*data-lang/);
+		expect(html).toContain("language-yaml");
+	});
+
+	it("omits data-lang when the fence has no language", () => {
+		expect(renderFencedBlock("plain\n", null)).not.toContain("data-lang");
+		expect(renderFencedBlock("plain\n", "   ")).not.toContain("data-lang");
 	});
 });
 
@@ -93,6 +139,8 @@ describe("parseMarkdownToHtml fenced + existing constructs", () => {
 	it("sanitize keeps highlight classes", () => {
 		const safe = markdownSourceToSafeHtml("```js\nconst x = 1;\n```\n");
 		expect(safe).toContain("hljs-keyword");
+		expect(safe).toContain('data-lang="js"');
+		expect(safe).toMatch(/<pre[^>]*data-md-line="1"[^>]*data-lang="js"/);
 		expect(escapeHtml("<x>")).toBe("&lt;x&gt;");
 	});
 });

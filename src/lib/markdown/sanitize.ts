@@ -45,8 +45,8 @@ export function sanitizeHtml(dirty: string): string {
 	ensureHooks();
 	return DOMPurify.sanitize(dirty, {
 		USE_PROFILES: { html: true },
-		// class: highlight.js tokens; data-lang: fence info-string
-		ADD_ATTR: ["target", "rel", "class", "data-lang"],
+		// class: highlight.js tokens; data-lang: fence info-string; data-md-line: source line
+		ADD_ATTR: ["target", "rel", "class", "data-lang", "data-md-line"],
 	});
 }
 

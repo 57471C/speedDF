@@ -916,6 +916,8 @@
         activeDoc.fileType = "markdown";
         activeDoc.markdownSource = source;
         activeDoc.rawBytes = rawBytes;
+        // Fresh open is preview-only. Already-open tabs return above and keep the flag.
+        activeDoc.markdownSplitView = false;
         activeDoc.tiffPages = [];
         activeDoc.fileName = fileName;
         activeDoc.filePath = filePath;
@@ -2485,7 +2487,9 @@
         {/if}
       </div>
 
-      <PageSidebar />
+      {#if activeDoc.fileType !== "markdown"}
+        <PageSidebar />
+      {/if}
 
       {#if showOcrDrawer}
         <OcrPanel onClose={() => (showOcrDrawer = false)} />
