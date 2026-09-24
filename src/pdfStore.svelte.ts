@@ -173,6 +173,11 @@ export interface DocumentWorkspace {
 	 * (preview-only). Per-tab so switching documents does not leak the mode.
 	 */
 	markdownSplitView?: boolean;
+	/**
+	 * Markdown split only: source-pane share of the row, 0.25–0.75.
+	 * Per-tab. Ignored when the split stacks in a narrow column.
+	 */
+	markdownSplitRatio?: number;
 	pageCount: number;
 	pageOrder: number[];
 	currentPage: number;
@@ -265,6 +270,8 @@ export interface SharedDocumentState {
 	markdownSource?: string | null;
 	/** Markdown source/preview split (per tab; default preview-only). */
 	markdownSplitView?: boolean;
+	/** Markdown split source-pane fraction, clamped to 0.25–0.75. */
+	markdownSplitRatio?: number;
 	imageUrl?: string | null;
 	imageRotation?: number;
 	imageNativeWidth?: number;
@@ -830,6 +837,7 @@ export function purgeDocumentResources(doc: DocumentWorkspace): void {
 	doc.rawBytes = null;
 	doc.markdownSource = null;
 	doc.markdownSplitView = false;
+	doc.markdownSplitRatio = MARKDOWN_SPLIT_RATIO_DEFAULT;
 	doc.tiffPages = [];
 	doc.shapes = {};
 	doc.pageThumbnailOverrides = {};
@@ -1084,6 +1092,7 @@ export function initializeNewDocument(
 		rawBytes: null,
 		markdownSource: null,
 		markdownSplitView: false,
+		markdownSplitRatio: MARKDOWN_SPLIT_RATIO_DEFAULT,
 		pageCount: 0,
 		pageOrder: [],
 		currentPage: 1,
@@ -1163,6 +1172,12 @@ export const activeDoc: SharedDocumentState = {
 	},
 	set markdownSplitView(val) {
 		if (this.current) this.current.markdownSplitView = !!val;
+	},
+	get markdownSplitRatio() {
+		return clampMarkdownSplitRatio(this.current?.markdownSplitRatio);
+	},
+	set markdownSplitRatio(val) {
+		if (this.current) this.current.markdownSplitRatio = clampMarkdownSplitRatio(val);
 	},
 	get pageCount() {
 		return this.current?.pageCount || 0;
@@ -1912,6 +1927,21 @@ export function setMarkdownSourceAction(next: string): boolean {
 	doc.markdownSource = next;
 	doc.isDirty = true;
 	return true;
+}
+
+/** Source pane share of the markdown split row. Narrow layout ignores this. */
+export const MARKDOWN_SPLIT_RATIO_MIN = 0.25;
+export const MARKDOWN_SPLIT_RATIO_MAX = 0.75;
+export const MARKDOWN_SPLIT_RATIO_DEFAULT = 0.5;
+
+/** Clamp a split fraction into 25–75%. Non-finite values become the default. */
+export function clampMarkdownSplitRatio(value: number | null | undefined): number {
+	const n = typeof value === "number" ? value : Number.NaN;
+	if (!Number.isFinite(n)) return MARKDOWN_SPLIT_RATIO_DEFAULT;
+	return Math.min(
+		MARKDOWN_SPLIT_RATIO_MAX,
+		Math.max(MARKDOWN_SPLIT_RATIO_MIN, n),
+	);
 }
 
 /**

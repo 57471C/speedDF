@@ -726,23 +726,42 @@ describe("markdown source edit + split view", () => {
 		expect(new TextDecoder("utf-8").decode(activeDoc.rawBytes ?? new Uint8Array())).toBe(
 			"# Saved\n\nbody\n",
 		);
-		// Split preference survives save
+		// Split preference and gutter ratio survive save
 		activeDoc.markdownSplitView = true;
+		activeDoc.markdownSplitRatio = 0.4;
 		await commitActiveDocumentAfterSave({
 			compiledBytes: compiled,
 			filePath: "C:/tmp/saved-notes.md",
 		});
 		expect(activeDoc.markdownSplitView).toBe(true);
+		expect(activeDoc.markdownSplitRatio).toBe(0.4);
+	});
+
+	it("markdownSplitRatio is per document and clamped to 25–75%", () => {
+		openMarkdown("ratio-a.md");
+		expect(activeDoc.markdownSplitRatio).toBe(0.5);
+		activeDoc.markdownSplitRatio = 0.1;
+		expect(activeDoc.markdownSplitRatio).toBe(0.25);
+		activeDoc.markdownSplitRatio = 0.9;
+		expect(activeDoc.markdownSplitRatio).toBe(0.75);
+		activeDoc.markdownSplitRatio = 0.4;
+		const first = activeDoc.current;
+		initializeNewDocument("ratio-b.md", "C:/tmp/ratio-b.md");
+		activeDoc.fileType = "markdown";
+		expect(activeDoc.markdownSplitRatio).toBe(0.5);
+		expect(first!.markdownSplitRatio).toBe(0.4);
 	});
 
 	it("purgeDocumentResources clears markdown source and split flag", () => {
 		const doc = openMarkdown("purge-me.md");
 		expect(doc).toBeTruthy();
 		activeDoc.markdownSplitView = true;
+		activeDoc.markdownSplitRatio = 0.7;
 		activeDoc.isDirty = true;
 		purgeDocumentResources(doc!);
 		expect(doc!.markdownSource).toBeNull();
 		expect(doc!.markdownSplitView).toBe(false);
+		expect(doc!.markdownSplitRatio).toBe(0.5);
 		expect(doc!.isDirty).toBe(false);
 		expect(doc!.fileType).toBeNull();
 	});

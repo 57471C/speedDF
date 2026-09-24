@@ -86,7 +86,7 @@
                 class="px-1.5 py-0.5 rounded border-b"
                 style="background: var(--sdf-hover-bg); color: var(--sdf-text-primary); border-color: var(--sdf-border);"
                 >Ctrl + \</kbd
-              > <span>Markdown Split / Preview</span>
+              > <span>Markdown Edit / Preview</span>
             </div>
           </div>
         </div>

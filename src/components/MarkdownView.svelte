@@ -3,7 +3,8 @@
    * Read-only continuous markdown projection.
    * Prop `source` is the canonical UTF-8 markdown string from the open document.
    * View only: parse → sanitize → in-place innerHTML. Never mutates source.
-   * Does not use `{@html}` / `{#if}` so the preview scroller is not remounted.
+   * Sanitized HTML is patched on a stable host (`{@html}`), never a `{#key}`
+   * remount, so the preview scroller survives each keystroke.
    *
    * After sanitized HTML paints, captures the top of this root for Recent /
    * sidebar thumbs via applyLiveThumbnail (same store path as image opens).
@@ -119,36 +120,46 @@
 
 <style>
   .markdown-view {
-    width: min(48rem, 100%);
+    --md-measure: 78ch;
+    width: min(calc(var(--md-measure) + 5rem), 100%);
     max-width: 100%;
-    margin: 0 auto;
-    padding: 2rem 2.25rem 3rem;
-    background: var(--sdf-bg-elevated, #0f172a);
-    color: var(--sdf-text-primary, #e2e8f0);
-    border: 1px solid var(--sdf-border-subtle, rgba(148, 163, 184, 0.15));
+    margin: 1.25rem auto 2rem;
+    padding: 2.5rem 2.5rem 3.25rem;
+    background: var(--sdf-bg-chrome);
+    color: var(--sdf-text-primary);
+    border: 1px solid var(--sdf-border);
     border-radius: 0.5rem;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    font-size: 0.95rem;
-    line-height: 1.65;
+    font-size: 1rem;
+    line-height: 1.7;
     word-wrap: break-word;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
     text-align: left;
     user-select: text;
     -webkit-user-select: text;
   }
 
+  .markdown-view__html {
+    max-width: var(--md-measure);
+    margin-inline: auto;
+  }
+
+  /* Split preview column: fill the paper pane, same measure, no nested dark card. */
   .markdown-view--pane {
     width: 100%;
-    max-width: 100%;
+    max-width: none;
     margin: 0;
-    padding: 1.25rem 1.35rem 2rem;
+    padding: 1.75rem 1.75rem 2.75rem;
+    background: transparent;
+    border: none;
+    border-radius: 0;
     box-shadow: none;
   }
 
   .markdown-view :global(.markdown-view__empty) {
     margin: 0;
-    color: var(--sdf-text-muted, #64748b);
+    color: var(--sdf-text-muted);
     font-style: italic;
   }
 
@@ -158,40 +169,68 @@
   .markdown-view :global(h4),
   .markdown-view :global(h5),
   .markdown-view :global(h6) {
-    line-height: 1.3;
+    line-height: 1.22;
     font-weight: 700;
-    color: var(--sdf-text-primary, #f1f5f9);
-    margin: 1.25em 0 0.5em;
+    color: var(--sdf-text-primary);
+    letter-spacing: -0.02em;
   }
   .markdown-view :global(h1) {
-    font-size: 1.75rem;
-    padding-bottom: 0.35em;
-    border-bottom: 1px solid var(--sdf-border-subtle, rgba(148, 163, 184, 0.2));
+    font-size: 2.05rem;
+    margin: 0 0 0.55em;
+    padding-bottom: 0.4em;
+    border-bottom: 1px solid var(--sdf-border);
   }
   .markdown-view :global(h2) {
-    font-size: 1.4rem;
-    padding-bottom: 0.25em;
-    border-bottom: 1px solid var(--sdf-border-subtle, rgba(148, 163, 184, 0.12));
+    font-size: 1.5rem;
+    margin: 1.85em 0 0.5em;
+    padding-bottom: 0.28em;
+    border-bottom: 1px solid var(--sdf-border-subtle);
   }
-  .markdown-view :global(h3) { font-size: 1.2rem; font-weight: 600; }
-  .markdown-view :global(h4) { font-size: 1.05rem; font-weight: 600; }
-  .markdown-view :global(h5),
-  .markdown-view :global(h6) { font-size: 0.95rem; font-weight: 600; color: var(--sdf-text-secondary, #cbd5e1); }
+  .markdown-view :global(h3) {
+    font-size: 1.22rem;
+    font-weight: 600;
+    margin: 1.55em 0 0.4em;
+    letter-spacing: -0.015em;
+  }
+  .markdown-view :global(h4) {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 1.35em 0 0.35em;
+    letter-spacing: -0.01em;
+  }
+  .markdown-view :global(h5) {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 1.25em 0 0.3em;
+    color: var(--sdf-text-secondary);
+  }
+  .markdown-view :global(h6) {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: 1.25em 0 0.3em;
+    color: var(--sdf-text-muted);
+  }
 
-  .markdown-view :global(p) { margin: 0.65em 0; }
+  .markdown-view :global(p) { margin: 0.9em 0; }
   .markdown-view :global(ul),
   .markdown-view :global(ol) {
-    margin: 0.6em 0;
-    padding-left: 1.6em;
+    margin: 0.75em 0 1em;
+    padding-left: 1.5em;
     list-style-position: outside;
   }
   .markdown-view :global(ul) { list-style-type: disc; }
   .markdown-view :global(ol) { list-style-type: decimal; }
   .markdown-view :global(li) {
-    margin: 0.25em 0;
+    margin: 0.35em 0;
     display: list-item;
   }
-  .markdown-view :global(li > p) { margin: 0.25em 0; }
+  .markdown-view :global(li > p) { margin: 0.3em 0; }
+  .markdown-view :global(li:has(> input[type="checkbox"])) {
+    list-style: none;
+    margin-left: -1.15em;
+  }
 
   .markdown-view :global(input[type="checkbox"]) {
     appearance: none;
@@ -200,107 +239,133 @@
     height: 0.95em;
     margin: 0 0.45em 0 0;
     vertical-align: -0.15em;
-    border: 1.5px solid var(--sdf-border, #cbd5e1);
+    border: 1.5px solid var(--sdf-border);
     border-radius: 3px;
-    background: var(--sdf-bg-input, #fff);
+    background: var(--sdf-bg-input);
   }
   .markdown-view :global(input[type="checkbox"]:checked) {
-    border-color: var(--sdf-accent, #0891b2);
-    background-color: var(--sdf-accent, #0891b2);
+    border-color: var(--sdf-accent);
+    background-color: var(--sdf-accent);
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='M2.5 6.2 5 8.7 9.5 3.5'/%3E%3C/svg%3E");
     background-size: 100% 100%;
   }
 
   .markdown-view :global(mark) {
-    background: rgba(234, 179, 8, 0.35);
+    background: color-mix(in srgb, var(--sdf-hl-number) 35%, transparent);
     color: inherit;
     padding: 0 0.12em;
     border-radius: 2px;
   }
 
   .markdown-view :global(blockquote) {
-    margin: 0.85em 0;
-    padding: 0.35em 0 0.35em 1em;
-    border-left: 3px solid var(--sdf-accent, #22d3ee);
-    color: var(--sdf-text-secondary, #94a3b8);
-    background: rgba(34, 211, 238, 0.06);
+    margin: 1.15em 0;
+    padding: 0.45em 0.9em 0.45em 1em;
+    border-left: 3px solid var(--sdf-accent);
+    color: var(--sdf-text-secondary);
+    background: color-mix(in srgb, var(--sdf-accent) 8%, transparent);
     border-radius: 0 0.25rem 0.25rem 0;
   }
-  .markdown-view :global(blockquote p) { margin: 0.35em 0; }
+  .markdown-view :global(blockquote p) { margin: 0.4em 0; }
 
   .markdown-view :global(a) {
-    color: var(--sdf-accent-text, #22d3ee);
+    color: var(--sdf-accent-text);
     text-decoration: underline;
     text-underline-offset: 2px;
   }
-  .markdown-view :global(a:hover) { opacity: 0.9; }
+  .markdown-view :global(a:hover) { opacity: 0.85; }
 
   .markdown-view :global(hr) {
     border: none;
-    border-top: 1px solid var(--sdf-border-subtle, rgba(148, 163, 184, 0.25));
-    margin: 1.5em 0;
+    border-top: 1px solid var(--sdf-border);
+    margin: 1.75em 0;
   }
 
   .markdown-view :global(img) {
     max-width: 100%;
     height: auto;
     border-radius: 0.35rem;
-    margin: 0.75em 0;
+    margin: 1em 0;
   }
 
   .markdown-view :global(table) {
     border-collapse: collapse;
     width: 100%;
-    margin: 0.85em 0;
-    font-size: 0.9em;
+    margin: 1.15em 0;
+    font-size: 0.92em;
   }
   .markdown-view :global(th),
   .markdown-view :global(td) {
-    border: 1px solid var(--sdf-border, rgba(148, 163, 184, 0.3));
-    padding: 0.4em 0.7em;
+    border: 1px solid var(--sdf-border);
+    padding: 0.45em 0.75em;
     text-align: left;
   }
   .markdown-view :global(th) {
-    background: var(--sdf-hover-bg, rgba(148, 163, 184, 0.1));
+    background: var(--sdf-hover-bg);
     font-weight: 600;
   }
   .markdown-view :global(tr:nth-child(even) td) {
-    background: var(--sdf-hover-bg, rgba(148, 163, 184, 0.08));
+    background: color-mix(in srgb, var(--sdf-hover-bg) 55%, transparent);
   }
 
   .markdown-view :global(code) {
     font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
     font-size: 0.88em;
-    background: var(--sdf-bg-surface, #1e293b);
-    color: var(--sdf-accent-text, #a5f3fc);
-    padding: 0.12em 0.4em;
+    background: var(--sdf-bg-input);
+    color: var(--sdf-text-primary);
+    padding: 0.12em 0.38em;
     border-radius: 0.25rem;
+    border: 1px solid var(--sdf-border-subtle);
   }
 
   .markdown-view :global(pre) {
-    margin: 0.85em 0;
-    padding: 0.9em 1.1em;
-    background: var(--sdf-bg-surface, #0b1220);
-    border: 1px solid var(--sdf-border-subtle, rgba(148, 163, 184, 0.15));
+    margin: 1.15em 0;
+    padding: 0.95em 1.1em;
+    background: var(--sdf-bg-input);
+    border: 1px solid var(--sdf-border);
     border-radius: 0.4rem;
     overflow-x: auto;
-    line-height: 1.5;
+    line-height: 1.55;
   }
   .markdown-view :global(pre code) {
     background: transparent;
     padding: 0;
-    color: var(--sdf-text-primary, #e2e8f0);
-    font-size: 0.85em;
+    border: none;
+    color: var(--sdf-text-primary);
+    font-size: 0.86em;
   }
   .markdown-view :global(pre code.hljs) {
     display: block;
   }
+  .markdown-view :global(pre[data-lang]) {
+    position: relative;
+    padding-top: 1.85rem;
+  }
+  .markdown-view :global(pre[data-lang]::before) {
+    content: attr(data-lang);
+    position: absolute;
+    top: 0.4rem;
+    right: 0.7rem;
+    font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sdf-text-muted);
+    pointer-events: none;
+    user-select: none;
+  }
+  .markdown-view :global(.hljs-keyword) { color: var(--sdf-hl-keyword); }
+  .markdown-view :global(.hljs-string) { color: var(--sdf-hl-string); }
+  .markdown-view :global(.hljs-comment) { color: var(--sdf-hl-comment); font-style: italic; }
+  .markdown-view :global(.hljs-number) { color: var(--sdf-hl-number); }
+  .markdown-view :global(.hljs-title) { color: var(--sdf-hl-title); }
 
   .markdown-view :global(strong) { font-weight: 700; }
   .markdown-view :global(em) { font-style: italic; }
   .markdown-view :global(del) { text-decoration: line-through; opacity: 0.8; }
 
   .markdown-view__html :global(> :first-child) { margin-top: 0; }
+  .markdown-view__html :global(> :last-child) { margin-bottom: 0; }
 
   @media print {
     @page {

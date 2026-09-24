@@ -524,21 +524,18 @@
 
         {#if activeDoc.fileType === "markdown"}
           <button
+            type="button"
             onclick={() => toggleMarkdownSplitView()}
-            class="toolbar-btn"
-            class:toolbar-btn--active={activeDoc.markdownSplitView}
+            class="md-mode-btn"
+            aria-pressed={!!activeDoc.markdownSplitView}
             title={activeDoc.markdownSplitView
               ? "Preview only (Ctrl+\\)"
-              : "Split source and preview (Ctrl+\\)"}
-            aria-pressed={activeDoc.markdownSplitView}
+              : "Edit source (Ctrl+\\)"}
             aria-label={activeDoc.markdownSplitView
-              ? "Exit split view"
-              : "Split source and preview"}
+              ? "Preview only"
+              : "Edit markdown"}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect width="18" height="18" x="3" y="3" rx="2" />
-              <path d="M12 3v18" />
-            </svg>
+            {activeDoc.markdownSplitView ? "Preview" : "Edit"}
           </button>
         {/if}
       </div>
@@ -713,9 +710,33 @@
     pointer-events: none;
   }
 
-  .toolbar-btn--active {
-    background-color: color-mix(in srgb, var(--sdf-accent) 22%, transparent);
+  .md-mode-btn {
+    height: 1.75rem;
+    padding: 0 0.65rem;
+    margin-left: 0.15rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.25rem;
+    border: 1px solid var(--sdf-accent-border);
+    background: var(--sdf-accent-bg);
     color: var(--sdf-accent-text);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .md-mode-btn:hover {
+    background: color-mix(in srgb, var(--sdf-accent) 22%, var(--sdf-bg-chrome));
+    color: var(--sdf-text-primary);
+  }
+  .md-mode-btn[aria-pressed="true"] {
+    background: var(--sdf-hover-bg);
+    color: var(--sdf-text-primary);
+    border-color: var(--sdf-border);
   }
 
   .titlebar-btn {

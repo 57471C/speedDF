@@ -1021,10 +1021,13 @@
             : 'transparent'};"
           title={activeDoc.markdownSplitView
             ? "Preview only (Ctrl+\\)"
-            : "Split source and preview (Ctrl+\\)"}
+            : "Edit source (Ctrl+\\)"}
           aria-pressed={activeDoc.markdownSplitView}
+          aria-label={activeDoc.markdownSplitView
+            ? "Preview only"
+            : "Edit markdown"}
         >
-          {activeDoc.markdownSplitView ? "Preview" : "Split"}
+          {activeDoc.markdownSplitView ? "Preview" : "Edit"}
         </button>
       {/if}
     </div>

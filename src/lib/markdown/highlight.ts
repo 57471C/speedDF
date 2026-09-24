@@ -4,15 +4,21 @@
  */
 import hljs from "highlight.js/lib/core";
 import bash from "highlight.js/lib/languages/bash";
+import c from "highlight.js/lib/languages/c";
 import css from "highlight.js/lib/languages/css";
+import go from "highlight.js/lib/languages/go";
+import ini from "highlight.js/lib/languages/ini";
+import java from "highlight.js/lib/languages/java";
 import javascript from "highlight.js/lib/languages/javascript";
 import json from "highlight.js/lib/languages/json";
 import markdown from "highlight.js/lib/languages/markdown";
 import plaintext from "highlight.js/lib/languages/plaintext";
 import python from "highlight.js/lib/languages/python";
 import rust from "highlight.js/lib/languages/rust";
+import sql from "highlight.js/lib/languages/sql";
 import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
+import yaml from "highlight.js/lib/languages/yaml";
 
 /** Overlay re-highlight delay (ms). Textarea stays live. */
 export const EDITOR_HIGHLIGHT_DEBOUNCE_MS = 64;
@@ -37,6 +43,19 @@ const LANG_ALIASES: Record<string, string> = {
 	md: "markdown",
 	txt: "plaintext",
 	text: "plaintext",
+	yml: "yaml",
+	golang: "go",
+	jsp: "java",
+	h: "c",
+	// highlight.js ships TOML as an alias of the ini grammar.
+	toml: "ini",
+	mysql: "sql",
+	postgres: "sql",
+	postgresql: "sql",
+	pgsql: "sql",
+	sqlite: "sql",
+	plsql: "sql",
+	tsql: "sql",
 };
 
 let registered = false;
@@ -54,6 +73,12 @@ function ensureLanguages(): void {
 	hljs.registerLanguage("bash", bash);
 	hljs.registerLanguage("markdown", markdown);
 	hljs.registerLanguage("plaintext", plaintext);
+	hljs.registerLanguage("yaml", yaml);
+	hljs.registerLanguage("sql", sql);
+	hljs.registerLanguage("go", go);
+	hljs.registerLanguage("java", java);
+	hljs.registerLanguage("c", c);
+	hljs.registerLanguage("ini", ini);
 }
 
 export function escapeHtml(text: string): string {
@@ -109,10 +134,9 @@ export function highlightFenced(
 export function renderFencedBlock(code: string, lang?: string | null): string {
 	const { html, language } = highlightFenced(code, lang);
 	const langClass = language ? ` language-${escapeHtml(language)}` : "";
-	const dataLang = lang
-		? ` data-lang="${escapeHtml(lang.trim().split(/\s+/)[0] || "")}"`
-		: "";
-	return `<pre><code class="hljs${langClass}"${dataLang}>${html}</code></pre>\n`;
+	const info = (lang ?? "").trim().split(/\s+/)[0] || "";
+	const dataLang = info ? ` data-lang="${escapeHtml(info)}"` : "";
+	return `<pre${dataLang}><code class="hljs${langClass}">${html}</code></pre>\n`;
 }
 
 function highlightMarkdownFragment(fragment: string): string {
