@@ -1,0 +1,27 @@
+[package]
+name = "speeddf-preview"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "64-bit Windows preview-handler spike for .md files"
+
+[lib]
+name = "speeddf_preview"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+windows-core = "0.62"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Ole",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+] }
