@@ -158,42 +158,50 @@ fn find_helper(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(find_pair(app)?.0)
 }
 
+/// Cargo cdylib name. The Windows bundle copies this file beside speeddf.exe.
+const DLL_FILE: &str = "speeddf_preview.dll";
+const HELPER_FILE: &str = "speeddf-preview-register.exe";
+
 fn find_pair(app: &AppHandle) -> Result<(PathBuf, PathBuf), String> {
+    let mut helper_without_dll: Option<(PathBuf, PathBuf)> = None;
     for dir in candidate_dirs(app) {
-        let helper = dir.join("speeddf-preview-register.exe");
+        let helper = dir.join(HELPER_FILE);
         if !helper.is_file() {
             continue;
         }
-        let sibling = dir.join("speeddf_preview.dll");
-        if sibling.is_file() {
-            return Ok((helper, sibling));
+        if let Some(dll) = dll_beside(&dir) {
+            return Ok((helper, dll));
         }
-        let deps = dir.join("deps").join("speeddf_preview.dll");
-        if deps.is_file() {
-            return Ok((helper, deps));
+        if helper_without_dll.is_none() {
+            helper_without_dll = Some((helper, dir.join(DLL_FILE)));
         }
-        return Ok((helper, sibling));
     }
-    Err(
-        "speeddf-preview-register.exe was not found. Build it from speeddf-preview before enabling Markdown preview."
-            .to_string(),
-    )
+    helper_without_dll.ok_or_else(|| {
+        "speeddf-preview-register.exe was not found beside speeddf.exe. Build speeddf-preview before enabling Markdown preview."
+            .to_string()
+    })
 }
 
+/// Install directory first (beside speeddf.exe). Dev builds then check
+/// speeddf-preview/target/release and debug.
 fn candidate_dirs(app: &AppHandle) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Ok(resource) = app.path().resource_dir() {
-        dirs.push(resource.join("preview"));
-        dirs.push(resource);
+        push_dir(&mut dirs, resource);
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            dirs.push(dir.join("preview"));
-            dirs.push(dir.to_path_buf());
+            push_dir(&mut dirs, dir.to_path_buf());
             let mut up = dir.to_path_buf();
             for _ in 0..6 {
-                dirs.push(up.join("speeddf-preview").join("target").join("release"));
-                dirs.push(up.join("speeddf-preview").join("target").join("debug"));
+                push_dir(
+                    &mut dirs,
+                    up.join("speeddf-preview").join("target").join("release"),
+                );
+                push_dir(
+                    &mut dirs,
+                    up.join("speeddf-preview").join("target").join("debug"),
+                );
                 if !up.pop() {
                     break;
                 }
@@ -201,4 +209,77 @@ fn candidate_dirs(app: &AppHandle) -> Vec<PathBuf> {
         }
     }
     dirs
+}
+
+fn push_dir(dirs: &mut Vec<PathBuf>, dir: PathBuf) {
+    if !dirs.iter().any(|existing| existing == &dir) {
+        dirs.push(dir);
+    }
+}
+
+/// Same lookup the helper uses when `--dll` is omitted: beside the helper, then cargo `deps/`.
+fn dll_beside(dir: &Path) -> Option<PathBuf> {
+    let sibling = dir.join(DLL_FILE);
+    if sibling.is_file() {
+        return Some(sibling);
+    }
+    let deps = dir.join("deps").join(DLL_FILE);
+    if deps.is_file() {
+        return Some(deps);
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{dll_beside, push_dir, DLL_FILE, HELPER_FILE};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn scratch() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("speeddf-preview-path-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn dll_beside_prefers_the_install_directory_name() {
+        let dir = scratch();
+        let sibling = dir.join(DLL_FILE);
+        fs::write(&sibling, b"mz").unwrap();
+        fs::create_dir_all(dir.join("deps")).unwrap();
+        fs::write(dir.join("deps").join(DLL_FILE), b"deps").unwrap();
+        assert_eq!(dll_beside(&dir).as_deref(), Some(sibling.as_path()));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dll_beside_uses_cargo_deps_when_the_sibling_is_absent() {
+        let dir = scratch();
+        fs::create_dir_all(dir.join("deps")).unwrap();
+        let deps = dir.join("deps").join(DLL_FILE);
+        fs::write(&deps, b"mz").unwrap();
+        assert_eq!(dll_beside(&dir).as_deref(), Some(deps.as_path()));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn install_dir_is_listed_once_before_the_dev_tree() {
+        let mut dirs = Vec::new();
+        let app = PathBuf::from(r"C:\Program Files\speeddf");
+        push_dir(&mut dirs, app.clone());
+        push_dir(&mut dirs, app.clone());
+        push_dir(
+            &mut dirs,
+            app.join("speeddf-preview").join("target").join("release"),
+        );
+        assert_eq!(dirs.len(), 2);
+        assert_eq!(dirs[0], app);
+        assert!(dirs[0].join(HELPER_FILE).ends_with(HELPER_FILE));
+    }
 }

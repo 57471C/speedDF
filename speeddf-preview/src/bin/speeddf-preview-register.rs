@@ -192,6 +192,8 @@ fn resolve_dll(explicit: Option<PathBuf>) -> Result<PathBuf, ToolError> {
         return Ok(path);
     }
     let exe = env::current_exe().map_err(|err| ToolError::new(err.to_string(), 1))?;
+    // Packaged install: this exe and speeddf_preview.dll both sit beside speeddf.exe.
+    // Dev: cargo writes the cdylib next to this exe or under deps/.
     let dir = exe.parent().unwrap_or(Path::new("."));
     let sibling = dir.join("speeddf_preview.dll");
     if sibling.is_file() {
@@ -202,7 +204,7 @@ fn resolve_dll(explicit: Option<PathBuf>) -> Result<PathBuf, ToolError> {
         return Ok(deps);
     }
     Err(ToolError::new(
-        "pass --dll with the absolute path of speeddf_preview.dll",
+        "speeddf_preview.dll was not found beside speeddf-preview-register.exe",
         2,
     ))
 }
