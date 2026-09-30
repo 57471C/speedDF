@@ -9,26 +9,36 @@ export const CAVEAT_FAMILY = "Caveat";
 /** Dark ink for typed stamps. Not a toolbar colour. */
 export const SIGNATURE_INK = "#1a1a1a";
 
-/** First letters of a typed name. "Terry Minett" → "TM". Max 4. */
-export function initialsFromTypedName(name: string): string {
-	const words = (name || "").trim().split(/\s+/).filter(Boolean);
-	let letters = "";
-	for (const word of words) {
-		const ch = word.charAt(0).toUpperCase();
-		if (ch >= "A" && ch <= "Z") letters += ch;
-		if (letters.length >= 4) break;
-	}
-	return letters.slice(0, 4);
+function collapseSpaces(value: string): string {
+	return (value || "").trim().replace(/\s+/g, " ");
 }
 
-export function splitTypedName(name: string): {
-	firstName: string;
-	lastName: string;
-} {
-	const parts = (name || "").trim().split(/\s+/).filter(Boolean);
-	if (parts.length === 0) return { firstName: "", lastName: "" };
-	if (parts.length === 1) return { firstName: parts[0], lastName: "" };
-	return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
+/** Profile line used when Written as is empty. "Terry" + "Minett" → "Terry Minett". */
+export function caveatStringFromName(firstName: string, lastName: string): string {
+	return collapseSpaces(`${firstName || ""} ${lastName || ""}`);
+}
+
+/**
+ * Caveat stamp string. A non-empty Written as replaces the line only.
+ * Empty or whitespace uses First Last.
+ */
+export function resolveCaveatString(
+	firstName: string,
+	lastName: string,
+	writtenAs?: string,
+): string {
+	const override = collapseSpaces(writtenAs || "");
+	return override || caveatStringFromName(firstName, lastName);
+}
+
+/** First letter of first name + first letter of last name. Uppercase A–Z. */
+export function initialsFromIdentity(firstName: string, lastName: string): string {
+	const a = (firstName || "").trim().charAt(0).toUpperCase();
+	const b = (lastName || "").trim().charAt(0).toUpperCase();
+	let letters = "";
+	if (a >= "A" && a <= "Z") letters += a;
+	if (b >= "A" && b <= "Z") letters += b;
+	return letters;
 }
 
 /** True when any pixel in ImageData is non-transparent. */
@@ -72,28 +82,22 @@ export interface BuildSignatureSetInput {
 }
 
 /**
- * Merge a typed name onto a signature set.
+ * Merge profile identity and an optional Written-as line onto a signature set.
+ * Identity stays on firstName / lastName. signatureText is the Caveat line:
+ * a non-empty signatureText (Written as) wins, otherwise First Last.
  * A saved scan is kept unless a new drawn data URL is passed.
  */
 export function buildSignatureSet(input: BuildSignatureSetInput): SignatureSet {
-	const text = (input.signatureText || "").trim();
-	const split = text ? splitTypedName(text) : { firstName: "", lastName: "" };
-	const firstName = (
-		input.firstName ??
-		(text ? split.firstName : input.existing?.firstName) ??
-		""
-	).trim();
-	const lastName = (
-		input.lastName ??
-		(text ? split.lastName : input.existing?.lastName) ??
-		""
-	).trim();
+	const firstName = (input.firstName ?? input.existing?.firstName ?? "").trim();
+	const lastName = (input.lastName ?? input.existing?.lastName ?? "").trim();
+	const text =
+		collapseSpaces(input.signatureText || "") ||
+		caveatStringFromName(firstName, lastName);
 	const initialsRaw =
 		input.initials !== undefined
 			? input.initials.trim()
-			: text
-				? initialsFromTypedName(text)
-				: (input.existing?.initials || "").trim();
+			: initialsFromIdentity(firstName, lastName) ||
+				(input.existing?.initials || "").trim();
 	const initials = initialsRaw.slice(0, 4);
 	const signatureDataUrl = input.drawnSignatureDataUrl
 		? input.drawnSignatureDataUrl

@@ -1,36 +1,35 @@
 import { describe, expect, it } from "vitest";
+import { createSignatureOrInitialShape } from "./toolShapes";
 import {
 	buildSignatureSet,
 	imageDataHasInk,
-	initialsFromTypedName,
+	initialsFromIdentity,
 	isCaveatTextStamp,
-	splitTypedName,
+	resolveCaveatString,
 } from "./signatureText";
 
-describe("initialsFromTypedName", () => {
-	it("uses the first letter of each word", () => {
-		expect(initialsFromTypedName("Terry Minett")).toBe("TM");
-		expect(initialsFromTypedName("  mary ann smith  ")).toBe("MAS");
-		expect(initialsFromTypedName("a b c d e")).toBe("ABCD");
-		expect(initialsFromTypedName("")).toBe("");
-		expect(initialsFromTypedName("Terry")).toBe("T");
+describe("resolveCaveatString", () => {
+	it("joins first and last with one space", () => {
+		expect(resolveCaveatString(" Terry ", " Minett ")).toBe("Terry Minett");
+		expect(resolveCaveatString("Terry", "")).toBe("Terry");
+		expect(resolveCaveatString("", "")).toBe("");
+	});
+
+	it("lets Written as replace the Caveat string only", () => {
+		expect(resolveCaveatString("Terry", "Minett", "  T. Minett  ")).toBe(
+			"T. Minett",
+		);
+		expect(resolveCaveatString("Terry", "Minett", "   ")).toBe("Terry Minett");
 	});
 });
 
-describe("splitTypedName", () => {
-	it("splits a typed signature into first and last", () => {
-		expect(splitTypedName("Terry Minett")).toEqual({
-			firstName: "Terry",
-			lastName: "Minett",
-		});
-		expect(splitTypedName("Terry Ann Minett")).toEqual({
-			firstName: "Terry",
-			lastName: "Ann Minett",
-		});
-		expect(splitTypedName("Terry")).toEqual({
-			firstName: "Terry",
-			lastName: "",
-		});
+describe("initialsFromIdentity", () => {
+	it("uses the first letter of first and last, uppercase", () => {
+		expect(initialsFromIdentity("Terry", "Minett")).toBe("TM");
+		expect(initialsFromIdentity(" terry ", " minett ")).toBe("TM");
+		expect(initialsFromIdentity("Mary Ann", "Smith")).toBe("MS");
+		expect(initialsFromIdentity("Terry", "")).toBe("T");
+		expect(initialsFromIdentity("", "")).toBe("");
 	});
 });
 
@@ -75,19 +74,54 @@ describe("buildSignatureSet", () => {
 		expect(next.initials).toBe("T");
 	});
 
-	it("does not invent signature text from a profile name", () => {
+	it("stores First Last and TM when Written as is empty", () => {
 		const next = buildSignatureSet({
 			id: "2",
 			signatureText: "",
-			initials: "TM",
-			firstName: "Terry",
-			lastName: "Minett",
+			firstName: " Terry ",
+			lastName: " Minett ",
 			drawnSignatureDataUrl: "data:image/png;base64,drawn",
 			drawnInitialDataUrl: "data:image/png;base64,di",
 		});
-		expect(next.signatureText).toBeUndefined();
-		expect(next.signatureDataUrl).toBe("data:image/png;base64,drawn");
+		expect(next.signatureText).toBe("Terry Minett");
 		expect(next.initials).toBe("TM");
+		expect(next.firstName).toBe("Terry");
+		expect(next.lastName).toBe("Minett");
+		expect(next.signatureDataUrl).toBe("data:image/png;base64,drawn");
+		expect(next.initialDataUrl).toBe("data:image/png;base64,di");
+		expect(next.label).toBe("Terry Minett:");
+	});
+
+	it("lets Written as override the Caveat string without changing identity or initials", () => {
+		const next = buildSignatureSet({
+			id: "3",
+			signatureText: "Alex Quinn",
+			firstName: "Terry",
+			lastName: "Minett",
+		});
+		expect(next.signatureText).toBe("Alex Quinn");
+		expect(next.firstName).toBe("Terry");
+		expect(next.lastName).toBe("Minett");
+		expect(next.initials).toBe("TM");
+		expect(next.label).toBe("Terry Minett:");
+	});
+
+	it("places a Caveat stamp with the profile name", () => {
+		const set = buildSignatureSet({
+			id: "tm",
+			firstName: "Terry",
+			lastName: "Minett",
+		});
+		const shape = createSignatureOrInitialShape("signature", 50, 40, {
+			ghostW: 32,
+			ghostH: 8,
+			text: set.signatureText,
+		});
+		expect(set.initials).toBe("TM");
+		expect(shape.text).toBe("Terry Minett");
+		expect(shape.fontFamily).toBe("Caveat");
+		expect(shape.textColor).toBe("#1a1a1a");
+		expect(shape.dataUrl).toBeUndefined();
 	});
 });
 

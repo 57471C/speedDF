@@ -14,8 +14,8 @@
   import {
     buildSignatureSet,
     imageDataHasInk,
-    initialsFromTypedName,
-    splitTypedName,
+    initialsFromIdentity,
+    resolveCaveatString,
   } from "../lib/annotation/signatureText";
 
   // ⚡ FIXED: This explicitly sets up the missing property mapping for line 118 in +page.svelte
@@ -31,10 +31,11 @@
   let profileLastName = $state("");
   let profileEmail = $state("");
   let profileFormError = $state("");
-  let typedSignature = $state("");
-  let typedInitials = $state("");
-  /** When true, typing the name no longer overwrites the initials field. */
-  let initialsTouched = $state(false);
+  /** Optional Caveat override. Empty uses First Last. */
+  let writtenAs = $state("");
+  let writtenAsOpen = $state(false);
+  /** null until the user edits the initials field. */
+  let initialsOverride = $state<string | null>(null);
   let isColorMenuOpen = $state(false);
   let isShapeMenuOpen = $state(false);
   let isThicknessMenuOpen = $state(false);
@@ -218,22 +219,15 @@
     isMenuOpen = false;
   }
 
-  function onTypedSignatureInput(value: string) {
-    typedSignature = value;
-    if (!initialsTouched) {
-      typedInitials = initialsFromTypedName(value);
-    }
-  }
-
   function resetProfileForm() {
     editingSetId = null;
     profileFirstName = "";
     profileLastName = "";
     profileEmail = "";
     profileFormError = "";
-    typedSignature = "";
-    typedInitials = "";
-    initialsTouched = false;
+    writtenAs = "";
+    writtenAsOpen = false;
+    initialsOverride = null;
   }
 
   function paintDataUrlOnCanvas(
@@ -289,15 +283,19 @@
     profileFirstName = first;
     profileLastName = last;
     profileEmail = (set.email || "").trim();
-    typedSignature = (set.signatureText || "").trim();
-    if (typedSignature) {
-      const auto = initialsFromTypedName(typedSignature);
-      typedInitials = (set.initials || auto).slice(0, 4);
-      initialsTouched = !!set.initials && set.initials !== auto;
+    const identity = resolveCaveatString(first, last);
+    const savedText = (set.signatureText || "").trim().replace(/\s+/g, " ");
+    if (savedText && savedText !== identity) {
+      writtenAs = savedText;
+      writtenAsOpen = true;
     } else {
-      typedInitials = "";
-      initialsTouched = false;
+      writtenAs = "";
+      writtenAsOpen = false;
     }
+    const auto = initialsFromIdentity(first, last);
+    const savedInitials = (set.initials || "").slice(0, 4);
+    initialsOverride =
+      savedInitials && savedInitials !== auto ? savedInitials : null;
 
     isModalOpen = true;
     isMenuOpen = false;
@@ -310,8 +308,12 @@
     }
   }
 
-  let previewInitials = $derived(
-    initialsFromName(profileFirstName, profileLastName),
+  let autoInitials = $derived(
+    initialsFromIdentity(profileFirstName, profileLastName),
+  );
+  let previewInitials = $derived(initialsOverride ?? autoInitials);
+  let caveatPreview = $derived(
+    resolveCaveatString(profileFirstName, profileLastName, writtenAs),
   );
   let previewLabel = $derived(
     signatureSetLabel(profileFirstName, profileLastName),
@@ -402,39 +404,26 @@
 
   function commitSignatureSet() {
     if (!validateSignatureCanvases()) return;
-    const typed = typedSignature.trim();
+    const firstName = profileFirstName.trim();
+    const lastName = profileLastName.trim();
+    if (!firstName || !lastName) {
+      profileFormError = "First and last name are required.";
+      return;
+    }
+    profileFormError = "";
     const existing = editingSetId
       ? (doc.savedSignatureSets || []).find((s: SignatureSet) => s.id === editingSetId)
       : null;
     const drawnSig = drawnDataUrl(sigCanvas);
     const drawnInit = drawnDataUrl(initCanvas);
-    const hasScan = !!(drawnSig || existing?.signatureDataUrl);
-    if (!typed && !hasScan) {
-      profileFormError = "Type your signature or draw one.";
-      return;
-    }
-    let firstName = profileFirstName.trim();
-    let lastName = profileLastName.trim();
-    if (typed) {
-      const split = splitTypedName(typed);
-      if (!firstName) firstName = split.firstName;
-      if (!lastName) lastName = split.lastName;
-    }
-    if (!typed && (!firstName || !lastName)) {
-      profileFormError = "First and last name are required.";
-      return;
-    }
-    profileFormError = "";
     try {
-      const initials = initialsTouched
-        ? typedInitials.trim()
-        : typed
-          ? initialsFromTypedName(typed)
-          : initialsFromName(firstName, lastName);
+      const initials = (initialsOverride ?? initialsFromIdentity(firstName, lastName))
+        .trim()
+        .slice(0, 4);
       const payload = buildSignatureSet({
         id: editingSetId || crypto.randomUUID(),
         existing,
-        signatureText: typed,
+        signatureText: resolveCaveatString(firstName, lastName, writtenAs),
         initials,
         firstName,
         lastName,
@@ -1211,29 +1200,15 @@
         >
       </div>
       <div class="px-6 pt-5 flex flex-col gap-2" style="background: var(--sdf-bg-surface);">
-        <label class="flex flex-col gap-1">
-          <span class="text-[9px] font-bold uppercase tracking-widest px-1" style="color: var(--sdf-text-muted);"
-            >Type your signature</span
-          >
-          <input
-            type="text"
-            value={typedSignature}
-            oninput={(e) => onTypedSignatureInput(e.currentTarget.value)}
-            placeholder="Type your signature"
-            autocomplete="name"
-            class="rounded-md px-2.5 py-1.5 text-[11px] placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 font-sans"
-            style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
-          />
-        </label>
         <div
           class="h-14 bg-white rounded-lg border border-slate-800/40 flex items-center justify-center overflow-hidden px-3"
-          aria-hidden="true"
+          aria-live="polite"
         >
-          {#if typedSignature}
+          {#if caveatPreview}
             <span
               class="text-[32px] leading-none text-[#1a1a1a] truncate"
               style="font-family: Caveat, cursive;"
-            >{typedSignature}</span>
+            >{caveatPreview}</span>
           {:else}
             <span class="text-[11px] font-sans" style="color: #94a3b8;">Preview</span>
           {/if}
@@ -1245,16 +1220,38 @@
           <input
             type="text"
             maxlength="4"
-            value={typedInitials}
+            value={previewInitials}
             oninput={(e) => {
-              initialsTouched = true;
-              typedInitials = e.currentTarget.value.slice(0, 4);
+              initialsOverride = e.currentTarget.value.slice(0, 4);
             }}
             placeholder="TM"
             class="rounded-md px-2.5 py-1.5 text-[11px] placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 w-24"
             style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary); font-family: Caveat, cursive; font-size: 18px;"
           />
         </label>
+        <button
+          type="button"
+          class="self-start text-[9px] font-bold uppercase tracking-widest px-1"
+          style="color: var(--sdf-text-muted);"
+          aria-expanded={writtenAsOpen}
+          onclick={(e) => {
+            e.stopPropagation();
+            writtenAsOpen = !writtenAsOpen;
+          }}
+        >
+          {writtenAsOpen ? "▾" : "▸"} Written as
+          <span class="normal-case tracking-normal font-medium" style="color: var(--sdf-text-faint);">(optional)</span>
+        </button>
+        {#if writtenAsOpen}
+          <input
+            type="text"
+            bind:value={writtenAs}
+            placeholder="Leave blank to use first and last name"
+            autocomplete="off"
+            class="rounded-md px-2.5 py-1.5 text-[11px] placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 font-sans"
+            style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
+          />
+        {/if}
       </div>
       <div class="p-6 grid grid-cols-3 gap-5" style="background: var(--sdf-bg-surface);">
         <div class="col-span-2 flex flex-col gap-1.5">
