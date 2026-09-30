@@ -97,6 +97,34 @@ describe("MarkdownSplitView", () => {
 		});
 	});
 
+	it("shows bare task lines as disabled checkboxes and keeps the quote", async () => {
+		activeDoc.markdownSource = [
+			"[ ] Add signature",
+			"",
+			"> _I will add these next update_",
+			"",
+			"[x] Add text",
+			"[X] This should be view-mode first.",
+		].join("\n");
+		render(MarkdownSplitView, { zoomScale: 100 });
+		await waitFor(() => {
+			const preview = screen.getByLabelText("Markdown document");
+			const boxes = [
+				...preview.querySelectorAll('input[type="checkbox"]'),
+			] as HTMLInputElement[];
+			expect(boxes).toHaveLength(3);
+			expect(boxes.every((box) => box.disabled)).toBe(true);
+			expect(boxes[0].checked).toBe(false);
+			expect(boxes[1].checked).toBe(true);
+			expect(boxes[2].checked).toBe(true);
+			const quote = preview.querySelector("blockquote");
+			expect(quote?.textContent).toContain("I will add these next update");
+			boxes[0].click();
+			expect(boxes[0].checked).toBe(false);
+			expect(boxes[0].disabled).toBe(true);
+		});
+	});
+
 	it("patches preview HTML in place without remounting the scroller", async () => {
 		const { container } = render(MarkdownSplitView, { zoomScale: 150 });
 		const article = container.querySelector("[data-markdown-content]");
