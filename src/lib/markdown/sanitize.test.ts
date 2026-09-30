@@ -13,4 +13,13 @@ describe("markdownSourceToSafeHtml", () => {
 	it("renders an empty source as empty html", () => {
 		expect(markdownSourceToSafeHtml("")).toBe("");
 	});
+
+	it("keeps disabled task checkboxes after sanitizing", () => {
+		const html = markdownSourceToSafeHtml("[ ] open\n[x] done\n");
+		expect(html).toContain('type="checkbox"');
+		expect(html).toContain("disabled");
+		expect(html).toContain("checked");
+		expect(html).toContain("open");
+		expect(html).toContain("done");
+	});
 });

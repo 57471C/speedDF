@@ -149,11 +149,53 @@ const marked = new Marked({
 
 marked.use({ extensions: [highlightMark] });
 
+/** `[ ]`, `[x]`, or `[X]` at the start of a line (indent allowed, no marker). */
+function isBareTaskLine(line: string): boolean {
+	return /^[ \t]*\[[ xX]\](?:[ \t]+.*)?[ \t]*$/.test(line);
+}
+
+/**
+ * GFM task lists need a `-`, `*`, or `+` marker. Notes in this viewer also
+ * write the checkbox alone. Prefix those lines so the GFM renderer emits a
+ * disabled checkbox. Fenced code is left unchanged.
+ */
+function promoteBareTaskLines(source: string): string {
+	let fenceChar = "";
+	let fenceLen = 0;
+	const lines = source.split(/\r?\n/);
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		if (fenceChar) {
+			const close = new RegExp(
+				`^[ \\t]{0,3}${fenceChar}{${fenceLen},}[ \\t]*$`,
+			);
+			if (close.test(line)) {
+				fenceChar = "";
+				fenceLen = 0;
+			}
+			continue;
+		}
+		const open = /^[ \t]{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+		if (open) {
+			const marker = open[1];
+			const rest = open[2] ?? "";
+			if (!(marker[0] === "`" && rest.includes("`"))) {
+				fenceChar = marker[0];
+				fenceLen = marker.length;
+				continue;
+			}
+		}
+		if (!isBareTaskLine(line)) continue;
+		lines[i] = line.replace(/^[ \t]*(\[[ xX]\])[ \t]*/, "- $1 ");
+	}
+	return lines.join("\n");
+}
+
 /**
  * Parse markdown source into raw HTML (not XSS-safe — always sanitize before inject).
  */
 export function parseMarkdownToHtml(source: string): string {
 	if (!source) return "";
-	const result = marked.parse(source, { async: false });
+	const result = marked.parse(promoteBareTaskLines(source), { async: false });
 	return typeof result === "string" ? result : "";
 }

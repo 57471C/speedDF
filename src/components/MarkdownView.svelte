@@ -131,7 +131,7 @@
     border-radius: 0.5rem;
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    font-size: 1rem;
+    font-size: 0.75rem;
     line-height: 1.7;
     word-wrap: break-word;
     overflow-wrap: break-word;
@@ -227,7 +227,7 @@
     display: list-item;
   }
   .markdown-view :global(li > p) { margin: 0.3em 0; }
-  .markdown-view :global(li:has(> input[type="checkbox"])) {
+  .markdown-view :global(li:has(input[type="checkbox"])) {
     list-style: none;
     margin-left: -1.15em;
   }
@@ -242,6 +242,9 @@
     border: 1.5px solid var(--sdf-border);
     border-radius: 3px;
     background: var(--sdf-bg-input);
+    pointer-events: none;
+    opacity: 1;
+    cursor: default;
   }
   .markdown-view :global(input[type="checkbox"]:checked) {
     border-color: var(--sdf-accent);
