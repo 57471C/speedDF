@@ -41,4 +41,35 @@ describe("getGhostDimensions", () => {
 		localStorage.setItem("speeddf_stamp_tick_h", "10");
 		expect(getGhostDimensions("tick")).toEqual({ w: 4, h: 4 });
 	});
+
+	it("uses a wide short box for a typed name and a smaller box for initials", () => {
+		expect(getGhostDimensions("signature", { text: true })).toEqual({
+			w: 32,
+			h: 8,
+		});
+		expect(getGhostDimensions("initial", { text: true })).toEqual({
+			w: 8,
+			h: 5,
+		});
+		expect(getGhostDimensions("tick", { text: true })).toEqual({ w: 4, h: 4 });
+		expect(getGhostDimensions("dash", { text: true })).toEqual({ w: 6, h: 2 });
+	});
+
+	it("keeps typed stamp sizes separate from image stamp sizes", () => {
+		localStorage.setItem("speeddf_stamp_signature_w", "30");
+		localStorage.setItem("speeddf_stamp_signature_h", "15");
+		expect(getGhostDimensions("signature")).toEqual({ w: 30, h: 15 });
+		expect(getGhostDimensions("signature", { text: true })).toEqual({
+			w: 32,
+			h: 8,
+		});
+
+		localStorage.setItem("speeddf_stamp_signature_text_w", "40");
+		localStorage.setItem("speeddf_stamp_signature_text_h", "9");
+		expect(getGhostDimensions("signature", { text: true })).toEqual({
+			w: 40,
+			h: 9,
+		});
+		expect(getGhostDimensions("signature")).toEqual({ w: 30, h: 15 });
+	});
 });

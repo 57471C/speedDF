@@ -217,7 +217,11 @@
 
   const shapeTypesList = SHAPE_TYPES_LIST as readonly string[];
 
-  let ghostDimensions = $derived.by(() => getGhostDimensions(activeDoc.activeTool));
+  let ghostDimensions = $derived.by(() =>
+    getGhostDimensions(activeDoc.activeTool, {
+      text: !!activeDoc.activeStampText && !activeDoc.activeStampDataUrl,
+    }),
+  );
 
   let pageHasCommentThreads = $derived(pageHasComments(activeDoc.comments, pageNumber));
   let pageComments = $derived(commentsForPage(activeDoc.comments, pageNumber));

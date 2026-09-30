@@ -9,6 +9,7 @@ import {
 	pushHistorySnapshot,
 } from "../../pdfStore.svelte";
 import { cacheStampDimensions } from "../annotation/ghostDimensions";
+import { isCaveatTextStamp } from "../annotation/signatureText";
 import {
 	createBoxShape,
 	createFreehandShape,
@@ -256,6 +257,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		const pageNumber = getPageNumber();
 		const toolType = activeDoc.activeTool as "signature" | "initial";
 		const dims = getGhostDimensions();
+		const stampUrl = activeDoc.activeStampDataUrl;
 		const newSignatureStamp = createSignatureOrInitialShape(
 			toolType,
 			mousePctX,
@@ -263,7 +265,8 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 			{
 				ghostW: dims.w,
 				ghostH: dims.h,
-				dataUrl: activeDoc.activeStampDataUrl,
+				dataUrl: stampUrl,
+				text: stampUrl ? null : activeDoc.activeStampText,
 			},
 		);
 		const newIndex = addShapeToPage(newSignatureStamp);
@@ -516,7 +519,7 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 		if (
 			(activeDoc.activeTool === "signature" ||
 				activeDoc.activeTool === "initial") &&
-			activeDoc.activeStampDataUrl
+			(activeDoc.activeStampDataUrl || activeDoc.activeStampText)
 		) {
 			e.preventDefault();
 			handleSignatureOrInitial(mousePctX, mousePctY);
@@ -1259,7 +1262,9 @@ export function createPageInteraction(deps: PageInteractionDeps) {
 						shape.width &&
 						shape.height
 					) {
-						cacheStampDimensions(shape.type, shape.width, shape.height);
+						cacheStampDimensions(shape.type, shape.width, shape.height, {
+							text: isCaveatTextStamp(shape),
+						});
 					}
 				}
 				// Clear live inline overrides so Svelte styles take over cleanly

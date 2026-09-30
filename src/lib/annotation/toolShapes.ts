@@ -5,6 +5,7 @@
 
 import type { AnnotationShape } from "../../pdfStore.svelte";
 import { getGhostDimensions } from "./ghostDimensions";
+import { CAVEAT_FAMILY, SIGNATURE_INK } from "./signatureText";
 
 /** Stamp tools that must paint above geometry shapes (boxes, lines, ink). */
 export const STAMP_SHAPE_TYPES = new Set([
@@ -45,17 +46,29 @@ export function createSignatureOrInitialShape(
 	opts: {
 		ghostW: number;
 		ghostH: number;
-		dataUrl: string | null | undefined;
+		dataUrl?: string | null | undefined;
+		/** Typed stamp. Ignored when dataUrl is set (PNG wins). */
+		text?: string | null | undefined;
 	},
 ): AnnotationShape {
-	return {
+	const shape: AnnotationShape = {
 		type: toolType,
 		x: mousePctX - opts.ghostW / 2,
 		y: mousePctY - opts.ghostH / 2,
 		width: opts.ghostW,
 		height: opts.ghostH,
-		dataUrl: opts.dataUrl ?? undefined,
 	};
+	if (opts.dataUrl) {
+		shape.dataUrl = opts.dataUrl;
+		return shape;
+	}
+	const text = (opts.text || "").trim();
+	if (text) {
+		shape.text = text;
+		shape.fontFamily = CAVEAT_FAMILY;
+		shape.textColor = SIGNATURE_INK;
+	}
+	return shape;
 }
 
 export function createTickOrDashShape(

@@ -759,16 +759,20 @@
         <div
           data-shape-idx={idx}
           onmousedown={(e) => initShapeMove(e, idx)}
-          class="absolute pointer-events-auto z-[45] flex items-center justify-center border rounded-sm cursor-move p-0.5 overflow-hidden mix-blend-multiply bg-transparent transition-[border-color,box-shadow] duration-100"
+          class="stamp-box absolute pointer-events-auto z-[45] flex items-center justify-center border rounded-sm cursor-move p-0.5 overflow-hidden mix-blend-multiply bg-transparent transition-[border-color,box-shadow] duration-100"
           style="left: {display.x}%; top: {display.y}%; width: {display.width}%; height: {display.height}%; {activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)
             ? 'border-color: var(--sdf-accent); box-shadow: 0 0 12px var(--sdf-selection-glow);'
             : 'border-color: transparent;'}"
         >
-          <img
-            src={shape.dataUrl}
-            alt="Sign"
-            class="w-full h-full object-contain pointer-events-none"
-          />
+          {#if shape.dataUrl}
+            <img
+              src={shape.dataUrl}
+              alt="Sign"
+              class="w-full h-full object-contain pointer-events-none"
+            />
+          {:else if shape.text && shape.fontFamily === "Caveat"}
+            <span class="stamp-script">{shape.text}</span>
+          {/if}
           {#if activeDoc.activeTool === "select" && activeDoc.selectedShapes.length === 1 && activeDoc.selectedShapes.some(s => s.pageNumber === pageNumber && s.index === idx)}
             <div
               onmousedown={(e) => initHandleDrag(e, idx, "tl")}
@@ -847,16 +851,20 @@
 
     {#if ix.isMouseOverPage && activeDoc.activeTool && !ix.isDrawing}
       {@const displayCursor = getDisplayCoords({ x: ix.hoverPctX, y: ix.hoverPctY, width: 0, height: 0 } as any)}
-      {#if ["signature", "initial"].includes(activeDoc.activeTool) && activeDoc.activeStampDataUrl}
+      {#if ["signature", "initial"].includes(activeDoc.activeTool) && (activeDoc.activeStampDataUrl || activeDoc.activeStampText)}
         <div
-          class="absolute pointer-events-none opacity-45 mix-blend-multiply transform -translate-x-1/2 -translate-y-1/2 border border-dashed border-[#00d2ff] bg-cyan-500/5 flex items-center justify-center p-0.5 rounded-xs"
+          class="stamp-box absolute pointer-events-none opacity-45 mix-blend-multiply transform -translate-x-1/2 -translate-y-1/2 border border-dashed border-[#00d2ff] bg-cyan-500/5 flex items-center justify-center p-0.5 rounded-xs overflow-hidden"
           style="left: {displayCursor.x}%; top: {displayCursor.y}%; width: {ghostDimensions.w}%; height: {ghostDimensions.h}%;"
         >
-          <img
-            src={activeDoc.activeStampDataUrl}
-            alt="Ghost"
-            class="w-full h-full object-contain"
-          />
+          {#if activeDoc.activeStampDataUrl}
+            <img
+              src={activeDoc.activeStampDataUrl}
+              alt="Ghost"
+              class="w-full h-full object-contain"
+            />
+          {:else}
+            <span class="stamp-script">{activeDoc.activeStampText}</span>
+          {/if}
         </div>
       {:else if activeDoc.activeTool === "tick"}
         <div
@@ -1057,6 +1065,18 @@
   </div>
 
 <style>
+  .stamp-box {
+    container-type: size;
+  }
+  .stamp-script {
+    font-family: Caveat, cursive;
+    color: #1a1a1a;
+    font-size: min(72cqh, 22cqw);
+    line-height: 0.9;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+  }
   .align-btn {
     display: flex;
     align-items: center;

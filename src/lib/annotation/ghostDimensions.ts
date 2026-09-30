@@ -12,6 +12,12 @@ const DEFAULTS: Record<string, GhostSize> = {
 	dash: { w: 6, h: 2 },
 };
 
+/** Typed Caveat stamps. Separate from PNG sizes so a resize does not overwrite a scan. */
+const TEXT_DEFAULTS: Record<string, GhostSize> = {
+	signature: { w: 32, h: 8 },
+	initial: { w: 8, h: 5 },
+};
+
 /** Stamp tools that show a follow-cursor ghost preview. */
 export const GHOST_STAMP_TOOLS = [
 	"signature",
@@ -20,8 +26,20 @@ export const GHOST_STAMP_TOOLS = [
 	"dash",
 ] as const;
 
-export function getGhostDimensions(tool: string | null | undefined): GhostSize {
+export function getGhostDimensions(
+	tool: string | null | undefined,
+	opts?: { text?: boolean },
+): GhostSize {
 	if (!tool || !(tool in DEFAULTS)) return { w: 0, h: 0 };
+
+	if (opts?.text && tool in TEXT_DEFAULTS) {
+		const cachedWidth = localStorage.getItem(`speeddf_stamp_${tool}_text_w`);
+		const cachedHeight = localStorage.getItem(`speeddf_stamp_${tool}_text_h`);
+		if (cachedWidth && cachedHeight) {
+			return { w: parseFloat(cachedWidth), h: parseFloat(cachedHeight) };
+		}
+		return TEXT_DEFAULTS[tool];
+	}
 
 	const cachedWidth = localStorage.getItem(`speeddf_stamp_${tool}_w`);
 	const cachedHeight = localStorage.getItem(`speeddf_stamp_${tool}_h`);
@@ -36,7 +54,15 @@ export function cacheStampDimensions(
 	type: string,
 	width: number,
 	height: number,
+	opts?: { text?: boolean },
 ): void {
-	localStorage.setItem(`speeddf_stamp_${type}_w`, width.toString());
-	localStorage.setItem(`speeddf_stamp_${type}_h`, height.toString());
+	const textKey = opts?.text ? "_text" : "";
+	localStorage.setItem(
+		`speeddf_stamp_${type}${textKey}_w`,
+		width.toString(),
+	);
+	localStorage.setItem(
+		`speeddf_stamp_${type}${textKey}_h`,
+		height.toString(),
+	);
 }

@@ -11,6 +11,12 @@
     setCommentAuthorProfile,
     signatureSetLabel,
   } from "../lib/comments/comments";
+  import {
+    buildSignatureSet,
+    imageDataHasInk,
+    initialsFromIdentity,
+    resolveCaveatString,
+  } from "../lib/annotation/signatureText";
 
   // ⚡ FIXED: This explicitly sets up the missing property mapping for line 118 in +page.svelte
   let { zoomScale = $bindable() }: { zoomScale: number } = $props();
@@ -25,6 +31,11 @@
   let profileLastName = $state("");
   let profileEmail = $state("");
   let profileFormError = $state("");
+  /** Optional Caveat override. Empty uses First Last. */
+  let writtenAs = $state("");
+  let writtenAsOpen = $state(false);
+  /** null until the user edits the initials field. */
+  let initialsOverride = $state<string | null>(null);
   let isColorMenuOpen = $state(false);
   let isShapeMenuOpen = $state(false);
   let isThicknessMenuOpen = $state(false);
@@ -99,7 +110,11 @@
           if (shape.lineEnds && doc.activeLineEnds !== shape.lineEnds) {
             doc.activeLineEnds = shape.lineEnds;
           }
-          if (shape.fontFamily && doc.activeFontFamily !== shape.fontFamily) {
+          if (
+            shape.fontFamily &&
+            shape.fontFamily !== "Caveat" &&
+            doc.activeFontFamily !== shape.fontFamily
+          ) {
             doc.activeFontFamily = shape.fontFamily;
           }
           if (shape.alignment && doc.activeTextAlignment !== shape.alignment) {
@@ -145,6 +160,27 @@
     return matched ? matched.id : shapeVariants[0].id;
   });
 
+  function applyStampAuthor(set?: {
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    initials?: string;
+    label?: string;
+  }) {
+    if (set && (set.initials || set.firstName || set.lastName)) {
+      const fullName =
+        `${set.firstName || ""} ${set.lastName || ""}`.trim() ||
+        set.label?.replace(/:$/, "") ||
+        set.initials ||
+        "You";
+      setCommentAuthorProfile({
+        initials: set.initials || initialsFromName(set.firstName || "", set.lastName || ""),
+        fullName,
+        email: set.email,
+      });
+    }
+  }
+
   function handleSelectStamp(
     type: "signature" | "initial",
     dataUrl: string,
@@ -158,19 +194,28 @@
   ) {
     doc.activeTool = type;
     doc.activeStampDataUrl = dataUrl;
-    // Activate this profile as the comment author when the set has identity fields
-    if (set && (set.initials || set.firstName || set.lastName)) {
-      const fullName =
-        `${set.firstName || ""} ${set.lastName || ""}`.trim() ||
-        set.label?.replace(/:$/, "") ||
-        set.initials ||
-        "You";
-      setCommentAuthorProfile({
-        initials: set.initials || initialsFromName(set.firstName || "", set.lastName || ""),
-        fullName,
-        email: set.email,
-      });
-    }
+    doc.activeStampText = null;
+    applyStampAuthor(set);
+    isMenuOpen = false;
+  }
+
+  function handleSelectTextStamp(
+    type: "signature" | "initial",
+    text: string | undefined,
+    set?: {
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      initials?: string;
+      label?: string;
+    },
+  ) {
+    const value = (text || "").trim();
+    if (!value) return;
+    doc.activeTool = type;
+    doc.activeStampText = value;
+    doc.activeStampDataUrl = null;
+    applyStampAuthor(set);
     isMenuOpen = false;
   }
 
@@ -180,6 +225,9 @@
     profileLastName = "";
     profileEmail = "";
     profileFormError = "";
+    writtenAs = "";
+    writtenAsOpen = false;
+    initialsOverride = null;
   }
 
   function paintDataUrlOnCanvas(
@@ -235,6 +283,19 @@
     profileFirstName = first;
     profileLastName = last;
     profileEmail = (set.email || "").trim();
+    const identity = resolveCaveatString(first, last);
+    const savedText = (set.signatureText || "").trim().replace(/\s+/g, " ");
+    if (savedText && savedText !== identity) {
+      writtenAs = savedText;
+      writtenAsOpen = true;
+    } else {
+      writtenAs = "";
+      writtenAsOpen = false;
+    }
+    const auto = initialsFromIdentity(first, last);
+    const savedInitials = (set.initials || "").slice(0, 4);
+    initialsOverride =
+      savedInitials && savedInitials !== auto ? savedInitials : null;
 
     isModalOpen = true;
     isMenuOpen = false;
@@ -247,8 +308,12 @@
     }
   }
 
-  let previewInitials = $derived(
-    initialsFromName(profileFirstName, profileLastName),
+  let autoInitials = $derived(
+    initialsFromIdentity(profileFirstName, profileLastName),
+  );
+  let previewInitials = $derived(initialsOverride ?? autoInitials);
+  let caveatPreview = $derived(
+    resolveCaveatString(profileFirstName, profileLastName, writtenAs),
   );
   let previewLabel = $derived(
     signatureSetLabel(profileFirstName, profileLastName),
@@ -268,9 +333,10 @@
       "speeddf_signature_sets",
       JSON.stringify(doc.savedSignatureSets),
     );
-    if (doc.activeStampDataUrl) {
+    if (doc.activeStampDataUrl || doc.activeStampText) {
       doc.activeTool = "select";
       doc.activeStampDataUrl = null;
+      doc.activeStampText = null;
     }
     setPendingDeletion = null;
   }
@@ -323,14 +389,17 @@
     return !!sigCanvas && !!initCanvas;
   }
 
-  function extractSignatureData(): { signatureDataUrl: string; initialDataUrl: string } {
-    if (!sigCanvas || !initCanvas) {
-      throw new Error("Signature canvases are not initialized.");
+  function drawnDataUrl(canvas: HTMLCanvasElement | null): string | null {
+    if (!canvas) return null;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    try {
+      const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      if (!imageDataHasInk(data)) return null;
+    } catch {
+      return null;
     }
-    return {
-      signatureDataUrl: sigCanvas.toDataURL("image/png"),
-      initialDataUrl: initCanvas.toDataURL("image/png"),
-    };
+    return canvas.toDataURL("image/png");
   }
 
   function commitSignatureSet() {
@@ -342,21 +411,26 @@
       return;
     }
     profileFormError = "";
+    const existing = editingSetId
+      ? (doc.savedSignatureSets || []).find((s: SignatureSet) => s.id === editingSetId)
+      : null;
+    const drawnSig = drawnDataUrl(sigCanvas);
+    const drawnInit = drawnDataUrl(initCanvas);
     try {
-      const data = extractSignatureData();
-      const initials = initialsFromName(firstName, lastName);
-      const label = signatureSetLabel(firstName, lastName);
-      const email = profileEmail.trim() || undefined;
-      const payload: SignatureSet = {
+      const initials = (initialsOverride ?? initialsFromIdentity(firstName, lastName))
+        .trim()
+        .slice(0, 4);
+      const payload = buildSignatureSet({
         id: editingSetId || crypto.randomUUID(),
-        signatureDataUrl: data.signatureDataUrl,
-        initialDataUrl: data.initialDataUrl,
+        existing,
+        signatureText: resolveCaveatString(firstName, lastName, writtenAs),
+        initials,
         firstName,
         lastName,
-        email,
-        label,
-        initials,
-      };
+        email: profileEmail.trim(),
+        drawnSignatureDataUrl: drawnSig,
+        drawnInitialDataUrl: drawnInit,
+      });
       if (editingSetId) {
         updateSignatureSetAction(payload);
       } else {
@@ -381,6 +455,7 @@
     onclick={() => {
       doc.activeTool = "select";
       doc.activeStampDataUrl = null;
+      doc.activeStampText = null;
     }}
     class="w-8 h-8 flex items-center justify-center rounded transition-all"
     style={doc.activeTool === 'select'
@@ -624,6 +699,12 @@
         isColorMenuOpen = false;
         isShapeMenuOpen = false;
         isThicknessMenuOpen = false;
+        const sets = doc.savedSignatureSets || [];
+        if (sets.length === 0) {
+          isMenuOpen = false;
+          void openSignatureModal();
+          return;
+        }
         isMenuOpen = !isMenuOpen;
       }}
       class="w-8 h-8 flex items-center justify-center rounded transition-all relative"
@@ -683,27 +764,65 @@
                   {/if}
                 </div>
               {/if}
-              <div class="flex items-center gap-1.5">
-                <button
-                  onclick={() =>
-                    handleSelectStamp("signature", set.signatureDataUrl, set)}
-                  class="flex-1 h-10 bg-white rounded flex items-center justify-center border border-transparent hover:border-[#00d2ff] p-1 overflow-hidden"
-                  ><img
-                    src={set.signatureDataUrl}
-                    alt="Sig"
-                    class="max-h-full max-w-full object-contain"
-                  /></button
-                >
-                <button
-                  onclick={() =>
-                    handleSelectStamp("initial", set.initialDataUrl, set)}
-                  class="w-12 h-10 bg-white rounded flex items-center justify-center border border-transparent hover:border-[#00d2ff] p-1 overflow-hidden"
-                  ><img
-                    src={set.initialDataUrl}
-                    alt="Init"
-                    class="max-h-full max-w-full object-contain"
-                  /></button
-                >
+              <div class="flex items-start gap-1.5">
+                <div class="flex-1 min-w-0 flex flex-col gap-1">
+                  {#if set.signatureText}
+                    <div class="flex items-center gap-1.5">
+                      <button
+                        onclick={() =>
+                          handleSelectTextStamp("signature", set.signatureText, set)}
+                        class="flex-1 h-10 bg-white rounded flex items-center justify-center border border-transparent hover:border-[#00d2ff] px-2 overflow-hidden"
+                        title="Typed signature"
+                        ><span
+                          class="text-[22px] leading-none text-[#1a1a1a] truncate"
+                          style="font-family: Caveat, cursive;">{set.signatureText}</span
+                        ></button
+                      >
+                      {#if set.initials}
+                        <button
+                          onclick={() =>
+                            handleSelectTextStamp("initial", set.initials, set)}
+                          class="w-12 h-10 bg-white rounded flex items-center justify-center border border-transparent hover:border-[#00d2ff] overflow-hidden"
+                          title="Typed initials"
+                          ><span
+                            class="text-[20px] leading-none text-[#1a1a1a]"
+                            style="font-family: Caveat, cursive;">{set.initials}</span
+                          ></button
+                        >
+                      {/if}
+                    </div>
+                  {/if}
+                  {#if set.signatureDataUrl || set.initialDataUrl}
+                    <div class="flex items-center gap-1.5">
+                      {#if set.signatureDataUrl}
+                        <button
+                          onclick={() =>
+                            handleSelectStamp("signature", set.signatureDataUrl, set)}
+                          class="flex-1 h-10 bg-white rounded flex items-center justify-center border border-transparent hover:border-[#00d2ff] p-1 overflow-hidden"
+                          title="Image signature"
+                          ><img
+                            src={set.signatureDataUrl}
+                            alt="Sig"
+                            class="max-h-full max-w-full object-contain"
+                          /></button
+                        >
+                      {/if}
+                      {#if set.initialDataUrl}
+                        <button
+                          onclick={() =>
+                            handleSelectStamp("initial", set.initialDataUrl, set)}
+                          class="w-12 h-10 bg-white rounded flex items-center justify-center border border-transparent hover:border-[#00d2ff] p-1 overflow-hidden"
+                          title="Image initials"
+                          ><img
+                            src={set.initialDataUrl}
+                            alt="Init"
+                            class="max-h-full max-w-full object-contain"
+                          /></button
+                        >
+                      {/if}
+                    </div>
+                  {/if}
+                </div>
                 <button
                   onclick={(e) => openEditSignatureModal(e, set)}
                   class="w-7 h-10 rounded flex items-center justify-center text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 transition-all"
@@ -1079,6 +1198,60 @@
           style="color: var(--sdf-text-muted);"
           >✕</button
         >
+      </div>
+      <div class="px-6 pt-5 flex flex-col gap-2" style="background: var(--sdf-bg-surface);">
+        <div
+          class="h-14 bg-white rounded-lg border border-slate-800/40 flex items-center justify-center overflow-hidden px-3"
+          aria-live="polite"
+        >
+          {#if caveatPreview}
+            <span
+              class="text-[32px] leading-none text-[#1a1a1a] truncate"
+              style="font-family: Caveat, cursive;"
+            >{caveatPreview}</span>
+          {:else}
+            <span class="text-[11px] font-sans" style="color: #94a3b8;">Preview</span>
+          {/if}
+        </div>
+        <label class="flex flex-col gap-1">
+          <span class="text-[9px] font-bold uppercase tracking-widest px-1" style="color: var(--sdf-text-muted);"
+            >Initials <span class="normal-case tracking-normal font-medium" style="color: var(--sdf-text-faint);">(optional)</span></span
+          >
+          <input
+            type="text"
+            maxlength="4"
+            value={previewInitials}
+            oninput={(e) => {
+              initialsOverride = e.currentTarget.value.slice(0, 4);
+            }}
+            placeholder="TM"
+            class="rounded-md px-2.5 py-1.5 text-[11px] placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 w-24"
+            style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary); font-family: Caveat, cursive; font-size: 18px;"
+          />
+        </label>
+        <button
+          type="button"
+          class="self-start text-[9px] font-bold uppercase tracking-widest px-1"
+          style="color: var(--sdf-text-muted);"
+          aria-expanded={writtenAsOpen}
+          onclick={(e) => {
+            e.stopPropagation();
+            writtenAsOpen = !writtenAsOpen;
+          }}
+        >
+          {writtenAsOpen ? "▾" : "▸"} Written as
+          <span class="normal-case tracking-normal font-medium" style="color: var(--sdf-text-faint);">(optional)</span>
+        </button>
+        {#if writtenAsOpen}
+          <input
+            type="text"
+            bind:value={writtenAs}
+            placeholder="Leave blank to use first and last name"
+            autocomplete="off"
+            class="rounded-md px-2.5 py-1.5 text-[11px] placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 font-sans"
+            style="background: var(--sdf-overlay-input-bg); border: 1px solid var(--sdf-overlay-input-border); color: var(--sdf-text-primary);"
+          />
+        {/if}
       </div>
       <div class="p-6 grid grid-cols-3 gap-5" style="background: var(--sdf-bg-surface);">
         <div class="col-span-2 flex flex-col gap-1.5">
