@@ -155,4 +155,10 @@ Markdown preview stays off until the user turns it on. The NSIS installer remain
 
 `register` is idempotent. It writes HKCU `.md` shellex (and the non-PDF ProgID), `PreviewHandlers`, CLSID `AppID` `{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}`, and `InprocServer32` with an absolute x64 DLL path. `DllSurrogate` stays on the system prevhost AppID. The helper writes an HKCU AppID `DllSurrogate` only when that system value is missing, and unregister removes that HKCU key only if this helper created it. It also sets the Click-to-Run HKLM value `{E7A4C2B1-9D58-4F63-A1E0-6C8B3D5F27A4}` = `speedDF Markdown Preview`. `unregister` deletes only that value plus our HKCU values. Word, Excel, PowerPoint, and Visio stay. Repair is `register` again.
 
-The helper appends to `%USERPROFILE%\AppData\Local\Temp\speeddf-preview.log` (the user `%TEMP%` file). It logs the operation and the DLL path, not file contents. A per-user install bundles `preview\speeddf_preview.dll` and `preview\speeddf-preview-register.exe` from `speeddf-preview/target/release`. Build that crate before packaging. Do not register `.pdf` or `.svg`, and do not add `speeddf.exe --preview`.
+The helper appends to `%USERPROFILE%\AppData\Local\Temp\speeddf-preview.log` (the user `%TEMP%` file). It logs the operation and the DLL path, not file contents. Do not register `.pdf` or `.svg`, and do not add `speeddf.exe --preview`.
+
+## Windows bundle
+
+`cargo build --release --manifest-path speeddf-preview/Cargo.toml` writes `speeddf_preview.dll` (the `[lib]` cdylib name) and `speeddf-preview-register.exe` to `speeddf-preview/target/release`. That directory is the Windows bundle input. NSIS copies both files into the same folder as `speeddf.exe`. MSI uses the same resource map when that target is built. Settings launches the helper from that install directory and passes the sibling DLL. With no `--dll`, the helper looks beside itself, then in `deps/`. A dev `speeddf.exe` still falls back to `speeddf-preview/target/release` or `debug`.
+
+The tag workflow builds this crate on `windows-latest` only, copies those two files into the bundle input, and does not run `register` or `unregister`. macOS and Linux jobs do not build or ship the preview binaries. The installer stays `installMode: currentUser`.

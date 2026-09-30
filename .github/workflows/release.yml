@@ -42,7 +42,9 @@ jobs:
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
+          workspaces: |
+            ./src-tauri -> target
+            ./speeddf-preview -> target
 
       - name: Install WebKit2GTK (Linux only)
         if: matrix.platform == 'ubuntu-22.04'
@@ -76,6 +78,27 @@ jobs:
             -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productsign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security find-identity -v -p codesigning
+
+      - name: Build preview handler
+        if: matrix.platform == 'windows-latest'
+        run: cargo build --release --manifest-path speeddf-preview/Cargo.toml
+
+      - name: Copy preview binaries to the bundle input
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $release = Join-Path "speeddf-preview" "target/release"
+          $dllName = "speeddf_preview.dll"
+          $helperName = "speeddf-preview-register.exe"
+          $dll = Join-Path $release $dllName
+          $depsDll = Join-Path $release "deps/$dllName"
+          $helper = Join-Path $release $helperName
+          if (Test-Path $depsDll) {
+            Copy-Item $depsDll $dll -Force
+          }
+          if (-not (Test-Path $dll)) { throw "Missing $dll" }
+          if (-not (Test-Path $helper)) { throw "Missing $helper" }
+          Get-Item $dll, $helper | ForEach-Object { Write-Host "$($_.FullName) $($_.Length)" }
 
       - name: Build & Release
         uses: tauri-apps/tauri-action@v0
