@@ -25,6 +25,7 @@ import {
 	FONT_MAP,
 	updateRecentThumbnail,
 } from "../../pdfStore.svelte";
+import { dataUrlToPngDataUrl } from "../annotation/signatureUpload";
 import {
 	CAVEAT_FAMILY,
 	isCaveatTextStamp,
@@ -126,6 +127,19 @@ async function embedCaveatFont(
 		fontCache.set(CAVEAT_FAMILY, fontPromise);
 	}
 	return fontPromise;
+}
+
+/** embedPng rejects JPEG/WebP/GIF data URLs. Convert those, then embed. */
+async function embedStampPng(
+	destDoc: PDFDocument,
+	dataUrl: string,
+): Promise<PDFImage> {
+	try {
+		return await destDoc.embedPng(dataUrl);
+	} catch (err) {
+		if (/^data:image\/png/i.test(dataUrl.trim())) throw err;
+		return destDoc.embedPng(await dataUrlToPngDataUrl(dataUrl));
+	}
 }
 
 function getDashArray(lineStyle?: string): number[] | undefined {
@@ -331,7 +345,7 @@ async function drawAnnotationsOnPage(
 			if (s.dataUrl) {
 				let imgPromise = imageCache.get(s.dataUrl);
 				if (!imgPromise) {
-					imgPromise = destDoc.embedPng(s.dataUrl);
+					imgPromise = embedStampPng(destDoc, s.dataUrl);
 					imageCache.set(s.dataUrl, imgPromise);
 				}
 				const embeddedImageDest = await imgPromise;
