@@ -21,7 +21,8 @@ use windows::Win32::UI::Shell::PropertiesSystem::{IInitializeWithFile, IInitiali
 use windows::Win32::UI::Shell::{IPreviewHandler, SHCreateMemStream, SHCreateStreamOnFileEx};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DestroyWindow, DispatchMessageW, GetClassNameW, GetClientRect,
-    GetWindowTextW, IsWindow, PeekMessageW, SendMessageW, ShowWindow, TranslateMessage, MSG,
+    GetWindowTextW, IsWindow, IsWindowVisible, PeekMessageW, SendMessageW, ShowWindow,
+    TranslateMessage, MSG,
     PM_REMOVE, SW_SHOW, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 use windows::Win32::System::Ole::{IObjectWithSite, IOleWindow};
@@ -41,6 +42,7 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let _ = std::fs::remove_file(log_path());
+    let _restore_log = RestoreLogIntegrity;
     let dll = dll_path()?;
     if !dll.exists() {
         return Err(format!("missing {}", dll.display()));
@@ -108,17 +110,33 @@ fn exercise_loaded(module: HMODULE) -> Result<(), String> {
     };
     unsafe { preview.SetWindow(parent, &rect) }.map_err(|err| format!("SetWindow {err}"))?;
     unsafe { preview.DoPreview() }.map_err(|err| format!("DoPreview {err}"))?;
-    pump(Duration::from_millis(200));
+    pump_until_webview();
 
     let child = find_child(parent, "SpeedDFPreviewPane").ok_or("child window missing")?;
-    let color = pixel(child).map_err(|err| err)?;
-    if color != PREVIEW_BG {
-        return Err(format!("pixel 0x{color:08X} expected 0x{PREVIEW_BG:08X}"));
-    }
     let caption = window_text(child);
     if !caption.starts_with("SPEEDDF-SPIKE-TOKEN") {
         return Err(format!("caption was {caption:?}"));
     }
+    assert_painted(child)?;
+    expect_client(child, 480, 280, "SetWindow")?;
+
+    let empty = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    unsafe { preview.SetRect(&empty) }.map_err(|err| format!("empty SetRect {err}"))?;
+    expect_client(child, 480, 280, "empty SetRect")?;
+
+    let zero_width = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 201,
+    };
+    unsafe { preview.SetRect(&zero_width) }.map_err(|err| format!("zero-width SetRect {err}"))?;
+    expect_client(child, 480, 280, "zero-width SetRect")?;
 
     let resized = RECT {
         left: 8,
@@ -127,14 +145,10 @@ fn exercise_loaded(module: HMODULE) -> Result<(), String> {
         bottom: 156,
     };
     unsafe { preview.SetRect(&resized) }.map_err(|err| format!("SetRect {err}"))?;
-    let mut client = RECT::default();
-    unsafe { GetClientRect(child, &mut client) }.map_err(|err| err.to_string())?;
-    if client.right != 300 || client.bottom != 150 {
-        return Err(format!(
-            "SetRect size {}x{}, expected 300x150",
-            client.right, client.bottom
-        ));
-    }
+    expect_client(child, 300, 150, "SetRect")?;
+
+    unsafe { preview.SetRect(&empty) }.map_err(|err| format!("empty SetRect after resize {err}"))?;
+    expect_client(child, 300, 150, "empty SetRect after resize")?;
 
     let window = site_window(&preview)?;
     if window != child {
@@ -150,9 +164,15 @@ fn exercise_loaded(module: HMODULE) -> Result<(), String> {
     }
 
     unsafe { preview.Unload() }.map_err(|err| format!("Unload {err}"))?;
-    if unsafe { IsWindow(Some(child)) }.as_bool() {
-        return Err("Unload left the child window alive".to_string());
+    if !unsafe { IsWindow(Some(child)) }.as_bool() {
+        return Err("Unload destroyed the preview pane".to_string());
     }
+    if !unsafe { IsWindowVisible(child) }.as_bool() {
+        return Err("Unload hid the preview pane".to_string());
+    }
+    expect_client(child, 300, 150, "Unload")?;
+    unsafe { preview.SetWindow(parent, &empty) }.map_err(|err| format!("empty SetWindow {err}"))?;
+    expect_client(child, 300, 150, "empty SetWindow after Unload")?;
 
     exercise_file(&factory)?;
     check_log()?;
@@ -189,17 +209,18 @@ fn exercise_file(factory: &windows::Win32::System::Com::IClassFactory) -> Result
     };
     unsafe { preview.SetWindow(parent, &rect) }.map_err(|err| err.to_string())?;
     unsafe { preview.DoPreview() }.map_err(|err| err.to_string())?;
-    pump(Duration::from_millis(100));
+    pump(Duration::from_millis(400));
     let child = find_child(parent, "SpeedDFPreviewPane").ok_or("file child missing")?;
     let caption = window_text(child);
     if caption != "spike.md" {
-        return Err(format!("file caption was {caption:?}, expected spike.md"));
+        return Err(format!("file caption was {caption:?}"));
     }
-    let color = pixel(child)?;
-    if color != PREVIEW_BG {
-        return Err(format!("file pixel 0x{color:08X}"));
-    }
+    assert_painted(child)?;
     unsafe { preview.Unload() }.map_err(|err| err.to_string())?;
+    if !unsafe { IsWindow(Some(child)) }.as_bool() || !unsafe { IsWindowVisible(child) }.as_bool()
+    {
+        return Err("Unload hid the file preview pane".to_string());
+    }
     unsafe { DestroyWindow(parent) }.map_err(|err| err.to_string())?;
     let _ = stream;
     Ok(())
@@ -207,12 +228,101 @@ fn exercise_file(factory: &windows::Win32::System::Com::IClassFactory) -> Result
 
 fn check_log() -> Result<(), String> {
     let text = std::fs::read_to_string(log_path()).map_err(|err| format!("log {err}"))?;
-    for token in ["CoCreate", "Initialize", "SetWindow", "SetRect", "DoPreview", "Unload", "hr=0x"] {
+    for token in [
+        "CoCreate",
+        "Initialize",
+        "SetWindow",
+        "SetRect",
+        "DoPreview",
+        "Unload",
+        "hr=0x",
+        "WebView",
+        "host=",
+        "paint=",
+        "rect=",
+        "ignored kept=",
+    ] {
         if !text.contains(token) {
             return Err(format!("log missing {token}\n{text}"));
         }
     }
+    if text.contains("WebView ready") {
+        println!("webview ready");
+    } else {
+        println!("webview fallback");
+    }
     println!("log {}", log_path().display());
+    Ok(())
+}
+
+struct RestoreLogIntegrity;
+
+impl Drop for RestoreLogIntegrity {
+    fn drop(&mut self) {
+        let path = log_path();
+        if path.exists() {
+            let _ = std::process::Command::new("icacls")
+                .arg(&path)
+                .args(["/setintegritylevel", "L"])
+                .status();
+        }
+    }
+}
+
+fn pump_until_webview() {
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(12) {
+        pump(Duration::from_millis(50));
+        if let Ok(text) = std::fs::read_to_string(log_path()) {
+            if text.contains("WebView ready") || text.contains("WebView fallback") {
+                return;
+            }
+        }
+    }
+}
+
+fn assert_painted(child: HWND) -> Result<(), String> {
+    let classes = descendant_classes(child);
+    if classes.iter().any(|name| name.contains("Chrome_WidgetWin") || name.contains("WebView")) {
+        return Ok(());
+    }
+    let color = pixel(child).map_err(|err| format!("{err}; classes={classes:?}"))?;
+    if color != PREVIEW_BG {
+        return Err(format!("pixel 0x{color:08X}; classes={classes:?}"));
+    }
+    Ok(())
+}
+
+fn descendant_classes(parent: HWND) -> Vec<String> {
+    use windows::Win32::UI::WindowsAndMessaging::EnumChildWindows;
+    struct Collect(Vec<String>);
+    unsafe extern "system" fn each(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let collect = &mut *(lparam.0 as *mut Collect);
+        let mut buf = [0u16; 128];
+        let n = GetClassNameW(hwnd, &mut buf);
+        collect.0.push(String::from_utf16_lossy(&buf[..n as usize]));
+        BOOL(1)
+    }
+    let mut collect = Collect(Vec::new());
+    let _ = unsafe {
+        EnumChildWindows(
+            Some(parent),
+            Some(each),
+            LPARAM(&mut collect as *mut Collect as isize),
+        )
+    };
+    collect.0
+}
+
+fn expect_client(hwnd: HWND, width: i32, height: i32, why: &str) -> Result<(), String> {
+    let mut client = RECT::default();
+    unsafe { GetClientRect(hwnd, &mut client) }.map_err(|err| err.to_string())?;
+    if client.right != width || client.bottom != height {
+        return Err(format!(
+            "{why} size {}x{}, expected {width}x{height}",
+            client.right, client.bottom
+        ));
+    }
     Ok(())
 }
 

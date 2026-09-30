@@ -3,16 +3,24 @@ name = "speeddf-preview"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "64-bit Windows preview-handler spike for .md files"
+description = "64-bit Windows preview handler for .md files"
 
 [lib]
 name = "speeddf_preview"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+ammonia = "4"
+pulldown-cmark = "0.13"
+webview2-com = "0.39"
 windows-core = "0.62"
+windows-numerics = "0.3"
 windows = { version = "0.62", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Direct2D",
+    "Win32_Graphics_Direct2D_Common",
+    "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_System_Com",

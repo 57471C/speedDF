@@ -1,6 +1,7 @@
-//! 64-bit in-process preview handler spike for `.md` files.
-//! The host passes a stream and a parent HWND. This DLL creates a child window,
-//! fills it, and draws the stream file name or the first 80 UTF-8 characters.
+//! 64-bit in-process preview handler for `.md` files.
+//! The host passes a stream and a parent HWND. This DLL creates a child window
+//! and paints sanitized Markdown in a WebView2 child, or the source text if
+//! WebView2 is missing.
 
 #![cfg_attr(not(all(windows, target_arch = "x86_64")), allow(dead_code))]
 
@@ -9,7 +10,9 @@ compile_error!("speeddf-preview is a Windows x64 preview handler");
 
 mod handler;
 mod logutil;
+mod markdown;
 mod paint;
+mod webview;
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicI32, Ordering};

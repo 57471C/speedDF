@@ -1,10 +1,11 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use windows::core::Result;
 use windows::Win32::Foundation::E_FAIL;
+use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
 use windows::Win32::System::SystemInformation::GetLocalTime;
 use windows::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThreadId};
 
@@ -36,6 +37,24 @@ fn candidate_paths() -> Vec<PathBuf> {
     paths
 }
 
+pub(crate) fn host_exe() -> &'static str {
+    static HOST: OnceLock<String> = OnceLock::new();
+    HOST.get_or_init(|| {
+        let mut buf = [0u16; 520];
+        let n = unsafe { GetModuleFileNameW(None, &mut buf) } as usize;
+        if n == 0 {
+            return "unknown".to_string();
+        }
+        let full = String::from_utf16_lossy(&buf[..n.min(buf.len())]);
+        full.rsplit(['\\', '/'])
+            .next()
+            .filter(|name| !name.is_empty())
+            .unwrap_or("unknown")
+            .to_string()
+    })
+    .as_str()
+}
+
 pub(crate) fn log_event(op: &str, detail: &str, hr: i32) {
     let detail = detail.trim();
     let line = if detail.is_empty() {
@@ -65,7 +84,8 @@ pub(crate) fn log_raw(message: &str) {
     let stamp = timestamp();
     let pid = unsafe { GetCurrentProcessId() };
     let tid = unsafe { GetCurrentThreadId() };
-    let _ = writeln!(file, "{stamp} pid={pid} tid={tid} {message}");
+    let host = host_exe();
+    let _ = writeln!(file, "{stamp} pid={pid} tid={tid} host={host} {message}");
     let _ = file.flush();
 }
 

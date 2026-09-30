@@ -8,9 +8,7 @@ use windows::Win32::Foundation::{
     GetLastError, HINSTANCE, HWND, RECT, S_FALSE,
 };
 use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
-use windows::Win32::System::Com::{
-    CoTaskMemFree, IStream, STATFLAG_DEFAULT, STATSTG, STREAM_SEEK_SET,
-};
+use windows::Win32::System::Com::{CoTaskMemFree, IStream, STATFLAG_DEFAULT, STATSTG, STREAM_SEEK_SET};
 use windows::Win32::System::Ole::{
     IObjectWithSite, IObjectWithSite_Impl, IOleWindow, IOleWindow_Impl,
 };
@@ -20,27 +18,35 @@ use windows::Win32::UI::Shell::PropertiesSystem::{
 };
 use windows::Win32::UI::Shell::{IPreviewHandler, IPreviewHandler_Impl};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, GetClientRect, GetParent, IsWindow, LoadCursorW, MoveWindow,
-    RegisterClassW, SetWindowTextW, CS_HREDRAW, CS_VREDRAW, HMENU, IDC_ARROW, MSG,
-    WINDOW_EX_STYLE, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_VISIBLE,
+    CreateWindowExW, DestroyWindow, GetClientRect, GetParent, IsWindow, IsWindowVisible,
+    LoadCursorW, MoveWindow, RegisterClassW, SetWindowTextW, ShowWindow, CS_HREDRAW, CS_VREDRAW,
+    HMENU, IDC_ARROW, MSG, SW_SHOWNA, WINDOW_EX_STYLE, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN,
+    WS_CLIPSIBLINGS, WS_VISIBLE,
 };
 
 use crate::logutil::finish;
+use crate::markdown::markdown_document;
 use crate::paint::wnd_proc;
+use crate::webview::{self, WebSession};
 
 pub(crate) static MODULE: AtomicIsize = AtomicIsize::new(0);
 static CLASS_READY: AtomicBool = AtomicBool::new(false);
 
-const PREVIEW_CHARS: usize = 80;
+const READ_CAP: usize = 2 * 1024 * 1024;
 
 pub(crate) struct PreviewState {
     pub parent: isize,
     pub hwnd: isize,
     pub rect: RECT,
     pub text: String,
+    pub caption: String,
+    pub filename: String,
+    pub html: String,
+    pub source_chars: usize,
     pub stream: Option<IStream>,
     pub site: Option<IUnknown>,
     pub shown: bool,
+    pub web: WebSession,
 }
 
 impl Default for PreviewState {
@@ -50,9 +56,14 @@ impl Default for PreviewState {
             hwnd: 0,
             rect: RECT::default(),
             text: String::new(),
+            caption: String::new(),
+            filename: String::new(),
+            html: String::new(),
+            source_chars: 0,
             stream: None,
             site: None,
             shown: false,
+            web: WebSession::default(),
         }
     }
 }
@@ -79,6 +90,7 @@ impl PreviewHandler {
 
 impl Drop for PreviewHandler {
     fn drop(&mut self) {
+        webview::close(&self.state);
         let hwnd = {
             let mut state = self.state.borrow_mut();
             let hwnd = state.hwnd;
@@ -104,16 +116,18 @@ impl IInitializeWithStream_Impl for PreviewHandler_Impl {
 
 impl IPreviewHandler_Impl for PreviewHandler_Impl {
     fn SetWindow(&self, hwnd: HWND, prc: *const RECT) -> windows::core::Result<()> {
-        let detail = describe_window(hwnd, prc);
+        let mut detail = describe_window(hwnd, prc);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.set_window_inner(hwnd, prc)
+            self.set_window_inner(hwnd, prc, &mut detail)
         }));
         finish("SetWindow", &detail, result)
     }
 
     fn SetRect(&self, prc: *const RECT) -> windows::core::Result<()> {
-        let detail = describe_rect(prc);
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.set_rect_inner(prc)));
+        let mut detail = describe_rect(prc);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.set_rect_inner(prc, &mut detail)
+        }));
         finish("SetRect", &detail, result)
     }
 
@@ -122,10 +136,15 @@ impl IPreviewHandler_Impl for PreviewHandler_Impl {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.do_preview_inner()));
         let detail = {
             let state = self.state.borrow();
+            let paint = if test_host() { "webview" } else { "gdi" };
             format!(
-                "source_len={} hwnd=0x{:X}",
-                state.text.chars().count(),
-                state.hwnd as usize
+                "source_len={} hwnd=0x{:X} rect={},{},{},{} paint={paint}",
+                state.source_chars,
+                state.hwnd as usize,
+                state.rect.left,
+                state.rect.top,
+                state.rect.right,
+                state.rect.bottom
             )
         };
         finish("DoPreview", &detail, result)
@@ -133,7 +152,20 @@ impl IPreviewHandler_Impl for PreviewHandler_Impl {
 
     fn Unload(&self) -> windows::core::Result<()> {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.unload_inner()));
-        finish("Unload", "", result)
+        let detail = {
+            let state = self.state.borrow();
+            let visible = alive(state.hwnd)
+                && unsafe { IsWindowVisible(hwnd_from(state.hwnd)) }.as_bool();
+            format!(
+                "kept hwnd=0x{:X} rect={},{},{},{} visible={visible}",
+                state.hwnd as usize,
+                state.rect.left,
+                state.rect.top,
+                state.rect.right,
+                state.rect.bottom
+            )
+        };
+        finish("Unload", &detail, result)
     }
 
     fn SetFocus(&self) -> windows::core::Result<()> {
@@ -216,15 +248,34 @@ impl PreviewHandler_Impl {
         Ok(())
     }
 
-    fn set_window_inner(&self, hwnd: HWND, prc: *const RECT) -> windows::core::Result<()> {
+    fn set_window_inner(
+        &self,
+        hwnd: HWND,
+        prc: *const RECT,
+        detail: &mut String,
+    ) -> windows::core::Result<()> {
         if hwnd.is_invalid() || prc.is_null() {
             return Err(E_INVALIDARG.into());
         }
         let rect = unsafe { *prc };
         let shown = {
             let mut state = self.state.borrow_mut();
-            state.parent = hwnd.0 as isize;
-            state.rect = rect;
+            if alive_hwnd(hwnd) {
+                state.parent = hwnd.0 as isize;
+            }
+            if rect_has_area(rect) {
+                state.rect = rect;
+            } else {
+                let kept = state.rect;
+                *detail = format!(
+                    "{} ignored kept={},{},{},{}",
+                    describe_window(hwnd, prc),
+                    kept.left,
+                    kept.top,
+                    kept.right,
+                    kept.bottom
+                );
+            }
             state.shown
         };
         if shown {
@@ -233,11 +284,25 @@ impl PreviewHandler_Impl {
         Ok(())
     }
 
-    fn set_rect_inner(&self, prc: *const RECT) -> windows::core::Result<()> {
+    fn set_rect_inner(&self, prc: *const RECT, detail: &mut String) -> windows::core::Result<()> {
         if prc.is_null() {
             return Err(E_INVALIDARG.into());
         }
         let rect = unsafe { *prc };
+        // Explorer follows a real SetWindow with SetRect(0,0,0,0) or a zero-width
+        // rect. Applying that collapses the child. Keep the last rect that has area.
+        if !rect_has_area(rect) {
+            let kept = self.state.borrow().rect;
+            *detail = format!(
+                "{} ignored kept={},{},{},{}",
+                describe_rect(prc),
+                kept.left,
+                kept.top,
+                kept.right,
+                kept.bottom
+            );
+            return Ok(());
+        }
         let hwnd = {
             let mut state = self.state.borrow_mut();
             state.rect = rect;
@@ -246,6 +311,7 @@ impl PreviewHandler_Impl {
         if alive(hwnd) {
             // MoveWindow can dispatch WM_PAINT. The RefCell borrow is already dropped.
             move_child(hwnd_from(hwnd), rect);
+            webview::resize(&self.state);
         }
         Ok(())
     }
@@ -261,10 +327,29 @@ impl PreviewHandler_Impl {
         let Some(stream) = stream else {
             return Err(E_UNEXPECTED.into());
         };
-        let text = preview_text(&stream);
+        let source = read_stream_utf8(&stream);
+        let source_chars = source.chars().count();
+        let html = if test_host() {
+            markdown_document(&source)
+        } else {
+            String::new()
+        };
+        let filename = stream_file_name(&stream)
+            .map(|name| file_label(&name))
+            .filter(|label| !label.is_empty())
+            .unwrap_or_default();
+        let caption = if filename.is_empty() {
+            caption_of(&source)
+        } else {
+            filename.clone()
+        };
         {
             let mut state = self.state.borrow_mut();
-            state.text = text;
+            state.text = source;
+            state.caption = caption;
+            state.filename = filename;
+            state.html = html;
+            state.source_chars = source_chars;
             state.shown = true;
         }
         self.ensure_child()?;
@@ -280,25 +365,36 @@ impl PreviewHandler_Impl {
     }
 
     fn unload_inner(&self) -> windows::core::Result<()> {
+        webview::close(&self.state);
         let hwnd = {
             let mut state = self.state.borrow_mut();
-            let hwnd = state.hwnd;
-            state.hwnd = 0;
-            state.shown = false;
+            // Release the stream so the file is not locked. Keep the child
+            // HWND, the last rect, and the last paint so the pane stays up.
             state.stream = None;
-            state.text.clear();
-            hwnd
+            state.html.clear();
+            state.hwnd
         };
-        destroy_hwnd(hwnd);
+        if alive(hwnd) {
+            let window = hwnd_from(hwnd);
+            unsafe {
+                let _ = ShowWindow(window, SW_SHOWNA);
+                let _ = InvalidateRect(Some(window), None, true);
+            }
+        }
         Ok(())
     }
 
     fn ensure_child(&self) -> windows::core::Result<()> {
         ensure_class()?;
         let state_ptr = &self.state as *const RefCell<PreviewState>;
-        let (parent, rect, existing, text) = {
+        let (parent, rect, existing, caption) = {
             let state = self.state.borrow();
-            (state.parent, state.rect, state.hwnd, state.text.clone())
+            (
+                state.parent,
+                state.rect,
+                state.hwnd,
+                state.caption.clone(),
+            )
         };
         if !alive(parent) {
             return Err(E_UNEXPECTED.into());
@@ -309,11 +405,13 @@ impl PreviewHandler_Impl {
             let current_parent = unsafe { GetParent(hwnd) }.unwrap_or_default();
             if current_parent == parent_hwnd {
                 move_child(hwnd, rect);
-                set_caption(hwnd, &text);
+                set_caption(hwnd, &caption);
+                webview::resize(&self.state);
                 return Ok(());
             }
             // The host handed us a new parent. Recreate the child with CreateWindowEx
             // rather than SetParent onto whatever window the host is.
+            webview::close(&self.state);
             destroy_hwnd(existing);
             self.state.borrow_mut().hwnd = 0;
         }
@@ -337,7 +435,8 @@ impl PreviewHandler_Impl {
             )?
         };
         self.state.borrow_mut().hwnd = hwnd.0 as isize;
-        set_caption(hwnd, &text);
+        set_caption(hwnd, &caption);
+        webview::attach(hwnd, &self.state);
         Ok(())
     }
 }
@@ -375,19 +474,35 @@ fn ensure_class() -> windows::core::Result<()> {
     Ok(())
 }
 
-fn preview_text(stream: &IStream) -> String {
-    if let Some(name) = stream_file_name(stream) {
-        let label = file_label(&name);
-        if !label.is_empty() {
-            return label;
+fn read_stream_utf8(stream: &IStream) -> String {
+    let _ = unsafe { stream.Seek(0, STREAM_SEEK_SET, None) };
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 64 * 1024];
+    while buf.len() < READ_CAP {
+        let want = ((READ_CAP - buf.len()) as u32).min(chunk.len() as u32);
+        let mut read = 0u32;
+        let hr = unsafe {
+            stream.Read(
+                chunk.as_mut_ptr() as *mut core::ffi::c_void,
+                want,
+                Some(&mut read),
+            )
+        };
+        if hr.is_err() || read == 0 {
+            break;
         }
+        buf.extend_from_slice(&chunk[..read as usize]);
     }
-    let body = content_prefix(stream, PREVIEW_CHARS);
-    if body.is_empty() {
-        "(empty)".to_string()
-    } else {
-        body
+    if buf.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        buf.drain(..3);
     }
+    let mut text = String::from_utf8_lossy(&buf).into_owned();
+    text.retain(|ch| ch != '\0');
+    text
+}
+
+fn test_host() -> bool {
+    crate::logutil::host_exe().eq_ignore_ascii_case("host.exe")
 }
 
 fn stream_file_name(stream: &IStream) -> Option<String> {
@@ -411,31 +526,21 @@ fn file_label(full: &str) -> String {
         .to_string()
 }
 
-fn content_prefix(stream: &IStream, max_chars: usize) -> String {
-    let _ = unsafe { stream.Seek(0, STREAM_SEEK_SET, None) };
-    let mut buf = vec![0u8; 512];
-    let mut read = 0u32;
-    let hr = unsafe {
-        stream.Read(
-            buf.as_mut_ptr() as *mut core::ffi::c_void,
-            buf.len() as u32,
-            Some(&mut read),
-        )
-    };
-    if hr.is_err() {
-        return String::new();
+fn caption_of(source: &str) -> String {
+    let line = source.lines().next().unwrap_or("").trim();
+    if line.is_empty() {
+        "(empty)".to_string()
+    } else {
+        line.chars().take(200).collect()
     }
-    let bytes = &buf[..read as usize];
-    let bytes = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
-    let text = String::from_utf8_lossy(bytes);
-    let mut out = String::new();
-    for (index, ch) in text.chars().enumerate() {
-        if index >= max_chars || ch == '\u{0}' {
-            break;
-        }
-        out.push(ch);
-    }
-    out
+}
+
+fn alive_hwnd(hwnd: HWND) -> bool {
+    !hwnd.is_invalid() && unsafe { IsWindow(Some(hwnd)) }.as_bool()
+}
+
+fn rect_has_area(rect: RECT) -> bool {
+    rect.right > rect.left && rect.bottom > rect.top
 }
 
 fn effective_rect(parent: HWND, given: RECT) -> RECT {
