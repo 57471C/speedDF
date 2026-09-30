@@ -28,6 +28,7 @@ describe("Settings Preview section", () => {
 			explorer: "yes",
 			outlook_clicktorun: "yes",
 			svg: "no",
+			pdf: "no",
 			dll_path: "C:\\speeddf_preview.dll",
 			cancelled: false,
 			message: "",
@@ -48,6 +49,7 @@ describe("Settings Preview section", () => {
 		expect(screen.queryByRole("button", { name: "Disable" })).toBeNull();
 		expect(screen.queryByText("Markdown preview in Explorer and Outlook")).toBeNull();
 		expect(screen.queryByText("SVG preview in Explorer and Outlook")).toBeNull();
+		expect(screen.queryByText("PDF preview in Explorer and Outlook")).toBeNull();
 		expect(previewTest.invoke).not.toHaveBeenCalled();
 	});
 
@@ -57,6 +59,7 @@ describe("Settings Preview section", () => {
 		expect(screen.getByRole("heading", { name: "Preview" })).toBeTruthy();
 		expect(screen.getByText("Markdown preview in Explorer and Outlook")).toBeTruthy();
 		expect(screen.getByText("SVG preview in Explorer and Outlook")).toBeTruthy();
+		expect(screen.getByText("PDF preview in Explorer and Outlook")).toBeTruthy();
 		for (const name of ["Enable", "Repair", "Disable"]) {
 			const button = screen.getByRole("button", { name });
 			const html = button.innerHTML.toLowerCase();
@@ -84,6 +87,20 @@ describe("Settings Preview section", () => {
 		expect(previewTest.invoke).not.toHaveBeenCalledWith("preview_registration_apply", {
 			action: "register",
 		});
+		expect((markdownBox as HTMLInputElement).checked).toBe(true);
+		const pdfBox = screen.getByRole("checkbox", {
+			name: "PDF preview in Explorer and Outlook",
+		});
+		expect((pdfBox as HTMLInputElement).checked).toBe(false);
+		expect(screen.getByText(/pdf=no/)).toBeTruthy();
+		await fireEvent.click(pdfBox);
+		expect(previewTest.invoke).toHaveBeenCalledWith("preview_registration_apply", {
+			action: "register-pdf",
+		});
+		expect(previewTest.invoke).not.toHaveBeenCalledWith("preview_registration_apply", {
+			action: "unregister",
+		});
+		expect((svgBox as HTMLInputElement).checked).toBe(false);
 		expect((markdownBox as HTMLInputElement).checked).toBe(true);
 	});
 });

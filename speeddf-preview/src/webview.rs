@@ -13,11 +13,11 @@ use std::time::{Duration, Instant};
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     CreateCoreWebView2EnvironmentWithOptions, GetAvailableCoreWebView2BrowserVersionString,
-    COREWEBVIEW2_WEB_ERROR_STATUS, ICoreWebView2, ICoreWebView2Controller,
-    ICoreWebView2DownloadStartingEventArgs, ICoreWebView2Environment,
-    ICoreWebView2EnvironmentOptions, ICoreWebView2NavigationCompletedEventArgs,
-    ICoreWebView2NavigationStartingEventArgs,
-    ICoreWebView2NewWindowRequestedEventArgs, ICoreWebView2_4,
+    COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS, COREWEBVIEW2_WEB_ERROR_STATUS,
+    ICoreWebView2, ICoreWebView2Controller, ICoreWebView2DownloadStartingEventArgs,
+    ICoreWebView2Environment, ICoreWebView2EnvironmentOptions,
+    ICoreWebView2NavigationCompletedEventArgs, ICoreWebView2NavigationStartingEventArgs,
+    ICoreWebView2NewWindowRequestedEventArgs, ICoreWebView2_3, ICoreWebView2_4,
 };
 use webview2_com::{
     CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
@@ -55,6 +55,7 @@ thread_local! {
     static IN_PUMP: Cell<bool> = const { Cell::new(false) };
     static IN_START: Cell<bool> = const { Cell::new(false) };
     static ALLOW_DATA: Cell<bool> = const { Cell::new(false) };
+    static PDF_NAV: Cell<bool> = const { Cell::new(false) };
     static LOCAL_ENV: RefCell<Option<ICoreWebView2Environment>> = const { RefCell::new(None) };
 }
 
@@ -85,7 +86,11 @@ impl Default for WebSession {
 }
 
 pub(crate) fn present(hwnd: HWND, state: &RefCell<PreviewState>) {
-    if !alive_window(hwnd) || state.borrow().html.is_empty() || state.borrow().web.failed {
+    let skip = {
+        let guard = state.borrow();
+        guard.web.failed || (guard.html.is_empty() && guard.pdf_uri.is_empty())
+    };
+    if !alive_window(hwnd) || skip {
         return;
     }
     if show_current(state) {
@@ -110,7 +115,13 @@ pub(crate) fn present(hwnd: HWND, state: &RefCell<PreviewState>) {
     }
     if !settled(state) {
         log_event("WebView", "timeout paint=gdi", 0);
+        let pdf = !state.borrow().pdf_uri.is_empty();
         close(state);
+        if pdf {
+            let mut guard = state.borrow_mut();
+            guard.text = crate::pdf::PDF_REFUSE.to_string();
+            guard.pdf_uri.clear();
+        }
         if alive_window(hwnd) {
             let _ = unsafe { InvalidateRect(Some(hwnd), None, true) };
         }
@@ -583,6 +594,9 @@ fn should_cancel(uri: &str) -> bool {
     if lower.is_empty() || lower.starts_with("about:") {
         return false;
     }
+    if PDF_NAV.with(|flag| flag.get()) {
+        return !crate::pdf::pdf_navigation_allowed(&lower);
+    }
     // NavigateToString is a data:text/html navigation. Allow only the one
     // send_html just started. Later data:, file:, and network navigations cancel.
     if lower.starts_with("data:text/html") && ALLOW_DATA.with(|flag| flag.replace(false)) {
@@ -702,12 +716,22 @@ fn on_nav_completed(
 }
 
 fn send_html(state: &RefCell<PreviewState>, webview: &ICoreWebView2) -> Result<(), Error> {
-    let html = {
+    let (html, pdf_uri, pdf_folder) = {
         let mut guard = state.borrow_mut();
         guard.web.capture_nav = true;
         guard.web.navigated_epoch = 0;
-        guard.html.clone()
+        (
+            guard.html.clone(),
+            guard.pdf_uri.clone(),
+            guard.pdf_folder.clone(),
+        )
     };
+    if !pdf_uri.is_empty() {
+        return send_pdf(webview, &pdf_uri, &pdf_folder);
+    }
+    PDF_NAV.with(|flag| flag.set(false));
+    let _ = clear_pdf_host(webview);
+    set_script(webview, false);
     ALLOW_DATA.with(|flag| flag.set(true));
     let result = navigate(webview, &html);
     if result.is_ok() {
@@ -716,18 +740,70 @@ fn send_html(state: &RefCell<PreviewState>, webview: &ICoreWebView2) -> Result<(
     result
 }
 
+fn send_pdf(webview: &ICoreWebView2, uri: &str, folder: &str) -> Result<(), Error> {
+    // Edge's PDF viewer is the built-in extension and does not paint when
+    // script is off. Script is on only for this navigation. should_cancel
+    // still drops every URI except the staged document and that extension.
+    set_script(webview, true);
+    map_pdf_host(webview, folder)?;
+    PDF_NAV.with(|flag| flag.set(true));
+    ALLOW_DATA.with(|flag| flag.set(false));
+    let wide = wide_from_str(uri);
+    let result = unsafe { webview.Navigate(PCWSTR(wide.as_ptr())) };
+    if result.is_ok() {
+        log_event("WebView", "navigate pdf paint=webview", 0);
+    }
+    result
+}
+
+fn set_script(webview: &ICoreWebView2, enabled: bool) {
+    if let Ok(settings) = unsafe { webview.Settings() } {
+        let _ = unsafe { settings.SetIsScriptEnabled(enabled) };
+    }
+}
+
+fn map_pdf_host(webview: &ICoreWebView2, folder: &str) -> Result<(), Error> {
+    let host = webview.cast::<ICoreWebView2_3>()?;
+    let name = wide_from_str(crate::pdf::PDF_HOST);
+    let path = wide_from_str(folder);
+    unsafe {
+        host.SetVirtualHostNameToFolderMapping(
+            PCWSTR(name.as_ptr()),
+            PCWSTR(path.as_ptr()),
+            COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS,
+        )
+    }
+}
+
+fn clear_pdf_host(webview: &ICoreWebView2) -> Result<(), Error> {
+    let host = webview.cast::<ICoreWebView2_3>()?;
+    let name = wide_from_str(crate::pdf::PDF_HOST);
+    unsafe { host.ClearVirtualHostNameToFolderMapping(PCWSTR(name.as_ptr())) }
+}
+
 fn navigate(webview: &ICoreWebView2, html: &str) -> Result<(), Error> {
     let wide = wide_from_str(html);
     unsafe { webview.NavigateToString(PCWSTR(wide.as_ptr())) }
 }
 
 fn mark_failed(state: &RefCell<PreviewState>, detail: &str, hr: i32) {
-    let controller = {
+    let (controller, pdf, hwnd) = {
         let mut guard = state.borrow_mut();
         guard.web.pending = false;
         guard.web.failed = true;
-        guard.web.controller.take()
+        let pdf = !guard.pdf_uri.is_empty();
+        if pdf {
+            guard.text = crate::pdf::PDF_REFUSE.to_string();
+            guard.pdf_uri.clear();
+        }
+        (guard.web.controller.take(), pdf, guard.hwnd)
     };
+    if pdf && hwnd != 0 {
+        let window = hwnd_from(hwnd);
+        if alive_window(window) {
+            let _ = unsafe { InvalidateRect(Some(window), None, true) };
+        }
+    }
     if let Some(controller) = controller {
         let _ = unsafe { controller.Close() };
         release_controller_slot();

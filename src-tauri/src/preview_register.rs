@@ -12,6 +12,7 @@ pub struct PreviewRegistration {
     pub explorer: String,
     pub outlook_clicktorun: String,
     pub svg: String,
+    pub pdf: String,
     pub dll_path: String,
     pub cancelled: bool,
     pub message: String,
@@ -69,6 +70,7 @@ pub async fn preview_registration_apply(
         status.explorer = parsed.explorer;
         status.outlook_clicktorun = parsed.outlook_clicktorun;
         status.svg = parsed.svg;
+        status.pdf = parsed.pdf;
         status.dll_path = parsed.dll_path;
     }
     Ok(status)
@@ -117,23 +119,29 @@ fn parse_status(stdout: &str) -> Result<PreviewRegistration, String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let svg = value
-        .get("svg")
-        .and_then(|v| v.as_str())
-        .filter(|v| *v == "yes" || *v == "no")
-        .unwrap_or("no")
-        .to_string();
+    let svg = yes_no_field(&value, "svg");
+    let pdf = yes_no_field(&value, "pdf");
     Ok(PreviewRegistration {
         explorer,
         outlook_clicktorun: outlook,
         svg,
+        pdf,
         dll_path,
         cancelled: false,
         message: String::new(),
     })
 }
 
-/// Markdown actions never pass `--svg`. SVG actions never pass a markdown-only register.
+fn yes_no_field(value: &serde_json::Value, name: &str) -> String {
+    value
+        .get(name)
+        .and_then(|v| v.as_str())
+        .filter(|v| *v == "yes" || *v == "no")
+        .unwrap_or("no")
+        .to_string()
+}
+
+/// Markdown actions never pass `--svg` or `--pdf`. Each extension has its own action.
 fn helper_args(action: &str, dll: &Path) -> Result<Vec<String>, String> {
     let dll_arg = dll.to_string_lossy().to_string();
     match action {
@@ -150,15 +158,22 @@ fn helper_args(action: &str, dll: &Path) -> Result<Vec<String>, String> {
             dll_arg,
         ]),
         "unregister-svg" => Ok(vec!["unregister".to_string(), "--svg".to_string()]),
+        "register-pdf" => Ok(vec![
+            "register".to_string(),
+            "--pdf".to_string(),
+            "--dll".to_string(),
+            dll_arg,
+        ]),
+        "unregister-pdf" => Ok(vec!["unregister".to_string(), "--pdf".to_string()]),
         _ => Err(
-            "Preview action must be register, unregister, register-svg, or unregister-svg."
+            "Preview action must be register, unregister, register-svg, unregister-svg, register-pdf, or unregister-pdf."
                 .to_string(),
         ),
     }
 }
 
 fn needs_dll(action: &str) -> bool {
-    action == "register" || action == "register-svg"
+    action == "register" || action == "register-svg" || action == "register-pdf"
 }
 
 fn stdout_text(output: &Output) -> String {
@@ -341,24 +356,42 @@ mod tests {
             helper_args("unregister-svg", &dll).unwrap(),
             vec!["unregister".to_string(), "--svg".to_string()]
         );
-        assert!(helper_args("register-pdf", &dll).is_err());
-        assert!(needs_dll("register") && needs_dll("register-svg"));
-        assert!(!needs_dll("unregister") && !needs_dll("unregister-svg"));
+        assert!(!register.iter().any(|arg| arg == "--pdf"));
+        assert!(!svg.iter().any(|arg| arg == "--pdf"));
+        let pdf = helper_args("register-pdf", &dll).unwrap();
+        assert_eq!(
+            pdf,
+            vec![
+                "register".to_string(),
+                "--pdf".to_string(),
+                "--dll".to_string(),
+                r"C:\speeddf_preview.dll".to_string()
+            ]
+        );
+        assert!(!pdf.iter().any(|arg| arg == "--svg"));
+        assert_eq!(
+            helper_args("unregister-pdf", &dll).unwrap(),
+            vec!["unregister".to_string(), "--pdf".to_string()]
+        );
+        assert!(needs_dll("register") && needs_dll("register-svg") && needs_dll("register-pdf"));
+        assert!(!needs_dll("unregister") && !needs_dll("unregister-svg") && !needs_dll("unregister-pdf"));
     }
 
     #[test]
-    fn missing_svg_field_is_off() {
+    fn missing_svg_and_pdf_fields_are_off() {
         let parsed = parse_status(
             r#"{"explorer":"yes","outlook_clicktorun":"no","dll_path":"C:\\speeddf_preview.dll"}"#,
         )
         .unwrap();
         assert_eq!(parsed.svg, "no");
+        assert_eq!(parsed.pdf, "no");
         assert_eq!(parsed.explorer, "yes");
         let svg = parse_status(
-            r#"{"explorer":"no","outlook_clicktorun":"yes","svg":"yes","dll_path":""}"#,
+            r#"{"explorer":"no","outlook_clicktorun":"yes","svg":"yes","pdf":"yes","dll_path":""}"#,
         )
         .unwrap();
         assert_eq!(svg.svg, "yes");
+        assert_eq!(svg.pdf, "yes");
         assert_eq!(svg.outlook_clicktorun, "yes");
     }
 }

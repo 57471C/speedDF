@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	isWindowsPlatform,
 	previewIsOn,
+	previewPdfOn,
 	previewStatusLine,
 	previewSvgOn,
 	type PreviewRegistration,
@@ -12,6 +13,7 @@ function status(partial: Partial<PreviewRegistration>): PreviewRegistration {
 		explorer: "no",
 		outlook_clicktorun: "no",
 		svg: "no",
+		pdf: "no",
 		dll_path: "",
 		cancelled: false,
 		message: "",
@@ -53,6 +55,13 @@ describe("preview registration status", () => {
 		expect(previewSvgOn(null)).toBe(false);
 		expect(previewSvgOn(status({ explorer: "yes" }))).toBe(false);
 		expect(previewSvgOn(status({ svg: "yes", explorer: "no" }))).toBe(true);
+		expect(previewSvgOn(status({ pdf: "yes" }))).toBe(false);
+	});
+
+	it("keeps PDF off unless the helper reports pdf=yes", () => {
+		expect(previewPdfOn(null)).toBe(false);
+		expect(previewPdfOn(status({ explorer: "yes", svg: "yes" }))).toBe(false);
+		expect(previewPdfOn(status({ pdf: "yes", explorer: "no" }))).toBe(true);
 	});
 
 	it("prints the helper fields", () => {
@@ -63,18 +72,22 @@ describe("preview registration status", () => {
 					explorer: "yes",
 					outlook_clicktorun: "no",
 					svg: "yes",
+					pdf: "no",
 					dll_path: "C:\\speeddf_preview.dll",
 				}),
 			),
-		).toBe("Explorer: yes · Outlook: no · svg=yes · DLL: C:\\speeddf_preview.dll");
+		).toBe(
+			"Explorer: yes · Outlook: no · svg=yes · pdf=no · DLL: C:\\speeddf_preview.dll",
+		);
 		const missing = status({
 			explorer: "yes",
 			outlook_clicktorun: "no",
 			dll_path: "C:\\speeddf_preview.dll",
 		});
 		missing.svg = "";
+		missing.pdf = "";
 		expect(previewStatusLine(missing)).toBe(
-			"Explorer: yes · Outlook: no · svg=no · DLL: C:\\speeddf_preview.dll",
+			"Explorer: yes · Outlook: no · svg=no · pdf=no · DLL: C:\\speeddf_preview.dll",
 		);
 	});
 });
