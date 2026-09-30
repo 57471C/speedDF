@@ -212,7 +212,7 @@ fn wrap(fragment: &str) -> String {
     format!(
         concat!(
             "<!DOCTYPE html><html><head><meta charset=\"utf-8\">",
-            "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:;\">",
+            "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:;\">",
             "<style>",
             "body{{margin:16px;font:16px/1.45 'Segoe UI',sans-serif;color:#1b1b1b;background:#fff;}}",
             "pre,code{{font-family:Consolas,'Cascadia Mono',monospace;}}",
@@ -246,6 +246,7 @@ mod tests {
         assert!(!lower.contains("onerror"));
         assert!(!lower.contains("javascript:"));
         assert!(lower.contains("content-security-policy"));
+        assert!(lower.contains("script-src 'none'"));
     }
 
     #[test]

@@ -213,6 +213,18 @@ if (-not (Test-Path -LiteralPath $logFile)) {
 # for a file the current user owns.
 & icacls.exe $logFile /setintegritylevel L | Out-Null
 
+$dataRoot = Join-Path $env:LOCALAPPDATA "speedDF\preview-wv2"
+if (-not (Test-Path -LiteralPath $dataRoot)) {
+    New-Item -ItemType Directory -Path $dataRoot -Force | Out-Null
+}
+# Inherited AppContainer allow ACEs from Local make Low IL CreateDirectory
+# return access denied. Drop inheritance, grant the user, and label the root Low.
+# prevhost then creates preview-wv2\<pid> itself.
+$userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+& icacls.exe $dataRoot /inheritance:r | Out-Null
+& icacls.exe $dataRoot /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "*${userSid}:(OI)(CI)F" | Out-Null
+& icacls.exe $dataRoot /setintegritylevel "(OI)(CI)L" | Out-Null
+
 Write-Host "Registered $Clsid"
 Write-Host "DLL $DllPath"
 Write-Host "Log $logFile"

@@ -42,6 +42,7 @@ pub(crate) struct PreviewState {
     pub caption: String,
     pub filename: String,
     pub html: String,
+    pub html_epoch: u64,
     pub source_chars: usize,
     pub stream: Option<IStream>,
     pub site: Option<IUnknown>,
@@ -59,6 +60,7 @@ impl Default for PreviewState {
             caption: String::new(),
             filename: String::new(),
             html: String::new(),
+            html_epoch: 0,
             source_chars: 0,
             stream: None,
             site: None,
@@ -136,7 +138,11 @@ impl IPreviewHandler_Impl for PreviewHandler_Impl {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.do_preview_inner()));
         let detail = {
             let state = self.state.borrow();
-            let paint = if test_host() { "webview" } else { "gdi" };
+            let paint = if state.web.controller.is_some() {
+                "webview"
+            } else {
+                "gdi"
+            };
             format!(
                 "source_len={} hwnd=0x{:X} rect={},{},{},{} paint={paint}",
                 state.source_chars,
@@ -329,11 +335,7 @@ impl PreviewHandler_Impl {
         };
         let source = read_stream_utf8(&stream);
         let source_chars = source.chars().count();
-        let html = if test_host() {
-            markdown_document(&source)
-        } else {
-            String::new()
-        };
+        let html = markdown_document(&source);
         let filename = stream_file_name(&stream)
             .map(|name| file_label(&name))
             .filter(|label| !label.is_empty())
@@ -349,6 +351,7 @@ impl PreviewHandler_Impl {
             state.caption = caption;
             state.filename = filename;
             state.html = html;
+            state.html_epoch = state.html_epoch.wrapping_add(1);
             state.source_chars = source_chars;
             state.shown = true;
         }
@@ -406,7 +409,7 @@ impl PreviewHandler_Impl {
             if current_parent == parent_hwnd {
                 move_child(hwnd, rect);
                 set_caption(hwnd, &caption);
-                webview::resize(&self.state);
+                webview::present(hwnd, &self.state);
                 return Ok(());
             }
             // The host handed us a new parent. Recreate the child with CreateWindowEx
@@ -436,7 +439,7 @@ impl PreviewHandler_Impl {
         };
         self.state.borrow_mut().hwnd = hwnd.0 as isize;
         set_caption(hwnd, &caption);
-        webview::attach(hwnd, &self.state);
+        webview::present(hwnd, &self.state);
         Ok(())
     }
 }
@@ -499,10 +502,6 @@ fn read_stream_utf8(stream: &IStream) -> String {
     let mut text = String::from_utf8_lossy(&buf).into_owned();
     text.retain(|ch| ch != '\0');
     text
-}
-
-fn test_host() -> bool {
-    crate::logutil::host_exe().eq_ignore_ascii_case("host.exe")
 }
 
 fn stream_file_name(stream: &IStream) -> Option<String> {
