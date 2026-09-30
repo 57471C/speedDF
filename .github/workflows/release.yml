@@ -87,18 +87,17 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          $release = Join-Path "speeddf-preview" "target/release"
-          $dllName = "speeddf_preview.dll"
-          $helperName = "speeddf-preview-register.exe"
-          $dll = Join-Path $release $dllName
-          $depsDll = Join-Path $release "deps/$dllName"
-          $helper = Join-Path $release $helperName
-          if (Test-Path $depsDll) {
-            Copy-Item $depsDll $dll -Force
+          $release = Join-Path "speeddf-preview" "target" | Join-Path -ChildPath "release"
+          $dll = Join-Path $release "speeddf_preview.dll"
+          $depsDll = Join-Path $release "deps" | Join-Path -ChildPath "speeddf_preview.dll"
+          $helper = Join-Path $release "speeddf-preview-register.exe"
+
+          if (-not (Test-Path -LiteralPath $dll) -and (Test-Path -LiteralPath $depsDll)) {
+            Copy-Item -LiteralPath $depsDll -Destination $dll
           }
-          if (-not (Test-Path $dll)) { throw "Missing $dll" }
-          if (-not (Test-Path $helper)) { throw "Missing $helper" }
-          Get-Item $dll, $helper | ForEach-Object { Write-Host "$($_.FullName) $($_.Length)" }
+          if (-not (Test-Path -LiteralPath $dll)) { throw "Missing $dll" }
+          if (-not (Test-Path -LiteralPath $helper)) { throw "Missing $helper" }
+          Get-Item -LiteralPath $dll, $helper | ForEach-Object { Write-Host "$($_.FullName) $($_.Length)" }
 
       - name: Build & Release
         uses: tauri-apps/tauri-action@v0
