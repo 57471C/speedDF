@@ -12,6 +12,7 @@ mod handler;
 mod logutil;
 mod markdown;
 mod paint;
+mod svg;
 mod webview;
 
 use std::ffi::c_void;
@@ -31,6 +32,9 @@ pub use paint::PREVIEW_BG;
 
 /// `{E7A4C2B1-9D58-4F63-A1E0-6C8B3D5F27A4}` — keep in sync with register.ps1.
 pub const CLSID_SPEEDDF_PREVIEW: GUID = GUID::from_u128(0xE7A4C2B1_9D58_4F63_A1E0_6C8B3D5F27A4);
+
+/// `{C3B7A91E-5D24-4E68-8F10-6A2D9C4B7E15}` — Explorer `.svg` only. Same DLL.
+pub const CLSID_SPEEDDF_SVG: GUID = GUID::from_u128(0xC3B7A91E_5D24_4E68_8F10_6A2D9C4B7E15);
 
 static LOCK_COUNT: AtomicI32 = AtomicI32::new(0);
 
@@ -131,7 +135,8 @@ fn dll_get_class_object(rclsid: *const GUID, riid: *const GUID, ppv: *mut *mut c
         return E_POINTER;
     }
     unsafe { *ppv = std::ptr::null_mut() };
-    if unsafe { *rclsid } != CLSID_SPEEDDF_PREVIEW {
+    let clsid = unsafe { *rclsid };
+    if clsid != CLSID_SPEEDDF_PREVIEW && clsid != CLSID_SPEEDDF_SVG {
         logutil::log_event("CoCreate", "DllGetClassObject class", CLASS_E_CLASSNOTAVAILABLE.0);
         return CLASS_E_CLASSNOTAVAILABLE;
     }

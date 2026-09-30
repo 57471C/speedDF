@@ -13,28 +13,38 @@ export function isWindowsPlatform(platform: string, userAgent: string): boolean 
 export type PreviewRegistration = {
 	explorer: string;
 	outlook_clicktorun: string;
+	/** Explorer `.svg` shellex. Missing from an older helper means off. */
+	svg: string;
 	dll_path: string;
 	cancelled: boolean;
 	message: string;
 };
 
+export type PreviewAction = "register" | "unregister" | "register-svg" | "unregister-svg";
+
 export function previewIsOn(status: PreviewRegistration | null): boolean {
 	return status?.explorer === "yes";
+}
+
+/** SVG preview is independent of the Markdown checkbox. */
+export function previewSvgOn(status: PreviewRegistration | null): boolean {
+	return status?.svg === "yes";
 }
 
 export function previewStatusLine(status: PreviewRegistration | null): string {
 	if (!status) return "Checking Explorer and Outlook registration…";
 	const dll = status.dll_path ? status.dll_path : "(none)";
-	return `Explorer: ${status.explorer} · Outlook: ${status.outlook_clicktorun} · DLL: ${dll}`;
+	const svg = status.svg === "yes" ? "yes" : "no";
+	return `Explorer: ${status.explorer} · Outlook: ${status.outlook_clicktorun} · svg=${svg} · DLL: ${dll}`;
 }
 
 export function fetchPreviewRegistration(): Promise<PreviewRegistration> {
 	return invoke<PreviewRegistration>("preview_registration_status");
 }
 
-/** Register or unregister. The helper shows one UAC prompt. Cancel leaves status unchanged. */
+/** Register or unregister Markdown, or the separate SVG shellex. The helper shows one UAC prompt. */
 export function applyPreviewRegistration(
-	action: "register" | "unregister",
+	action: PreviewAction,
 ): Promise<PreviewRegistration> {
 	return invoke<PreviewRegistration>("preview_registration_apply", { action });
 }

@@ -43,10 +43,25 @@ use windows::Win32::UI::Shell::{
 };
 
 const CLSID: &str = "{E7A4C2B1-9D58-4F63-A1E0-6C8B3D5F27A4}";
+/// Explorer and Outlook `.svg`. Same DLL, separate from the markdown CLSID.
+const SVG_CLSID: &str = "{C3B7A91E-5D24-4E68-8F10-6A2D9C4B7E15}";
 const SHELLEX: &str = "{8895b1c6-b41f-4c1c-a562-0d564250836f}";
 const APP_ID: &str = "{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}";
 const DISPLAY: &str = "speedDF Markdown Preview";
+const SVG_DISPLAY: &str = "speedDF SVG Preview";
+const CLICKTORUN_PREVIEW_HANDLERS: &str =
+    "SOFTWARE\\Microsoft\\Office\\ClickToRun\\REGISTRY\\MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers";
 const EXIT_CANCELLED: i32 = 1223;
+
+/// Value name and data for the Click-to-Run PreviewHandlers key.
+/// `svg` selects the SVG CLSID. Markdown registration never passes true.
+fn clicktorun_entry(svg: bool) -> (&'static str, &'static str) {
+    if svg {
+        (SVG_CLSID, SVG_DISPLAY)
+    } else {
+        (CLSID, DISPLAY)
+    }
+}
 
 #[cfg(windows)]
 fn main() {
@@ -86,6 +101,44 @@ impl ToolError {
 struct Args {
     command: CommandKind,
     dll: Option<PathBuf>,
+    svg: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RegPlan {
+    markdown: bool,
+    svg: bool,
+    /// Markdown CLSID on the Click-to-Run key.
+    clicktorun: bool,
+    /// SVG CLSID on that same key. Does not replace the markdown value.
+    svg_clicktorun: bool,
+    pdf: bool,
+}
+
+fn plan_for(command: CommandKind, svg: bool) -> RegPlan {
+    match (command, svg) {
+        (CommandKind::Register, false) | (CommandKind::Unregister, false) => RegPlan {
+            markdown: true,
+            svg: false,
+            clicktorun: true,
+            svg_clicktorun: false,
+            pdf: false,
+        },
+        (CommandKind::Register, true) | (CommandKind::Unregister, true) => RegPlan {
+            markdown: false,
+            svg: true,
+            clicktorun: false,
+            svg_clicktorun: true,
+            pdf: false,
+        },
+        (CommandKind::Status, _) => RegPlan {
+            markdown: false,
+            svg: false,
+            clicktorun: false,
+            svg_clicktorun: false,
+            pdf: false,
+        },
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,12 +151,14 @@ enum CommandKind {
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, ToolError> {
     let mut command = None;
     let mut dll = None;
+    let mut svg = false;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "register" if command.is_none() => command = Some(CommandKind::Register),
             "unregister" if command.is_none() => command = Some(CommandKind::Unregister),
             "status" if command.is_none() => command = Some(CommandKind::Status),
+            "--svg" => svg = true,
             "--dll" => {
                 let path = iter.next().ok_or_else(|| {
                     ToolError::new("register needs --dll <absolute path>", 2)
@@ -112,7 +167,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, ToolError>
             }
             "-h" | "--help" => {
                 return Err(ToolError::new(
-                    "usage: speeddf-preview-register register|unregister|status [--dll <absolute dll>]",
+                    "usage: speeddf-preview-register register|unregister|status [--svg] [--dll <absolute dll>]",
                     2,
                 ));
             }
@@ -126,11 +181,11 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, ToolError>
     }
     let command = command.ok_or_else(|| {
         ToolError::new(
-            "usage: speeddf-preview-register register|unregister|status [--dll <absolute dll>]",
+            "usage: speeddf-preview-register register|unregister|status [--svg] [--dll <absolute dll>]",
             2,
         )
     })?;
-    Ok(Args { command, dll })
+    Ok(Args { command, dll, svg })
 }
 
 #[cfg(windows)]
@@ -150,7 +205,10 @@ fn run() -> Result<i32, ToolError> {
                 println!("{}", status_json()?);
                 return Ok(0);
             }
+            let plan = plan_for(args.command, args.svg);
             match args.command {
+                CommandKind::Register if plan.svg => register_svg(args.dll)?,
+                CommandKind::Unregister if plan.svg => unregister_svg()?,
                 CommandKind::Register => register(args.dll)?,
                 CommandKind::Unregister => unregister()?,
                 CommandKind::Status => {}
@@ -183,6 +241,144 @@ fn unregister() -> Result<(), ToolError> {
     remove_hkcu()?;
     let _ = unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None) };
     log_line("unregister", "removed our preview values", 0);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn register_svg(dll: Option<PathBuf>) -> Result<(), ToolError> {
+    let dll = resolve_dll(dll)?;
+    validate_dll(&dll)?;
+    let dll_text = dll.to_string_lossy().to_string();
+    write_svg_clicktorun()?;
+    if let Err(err) = write_svg_hkcu(&dll_text) {
+        let _ = delete_svg_clicktorun_value();
+        return Err(err);
+    }
+    prepare_runtime_dirs();
+    let _ = unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None) };
+    log_line("register-svg", &format!("dll={dll_text}"), 0);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn write_svg_hkcu(dll_text: &str) -> Result<(), ToolError> {
+    let path = svg_shellex_path();
+    remember_kind("svg", SVG_CLSID, &[path.clone()])?;
+    set_sz(HKEY_CURRENT_USER, &path, "", SVG_CLSID)?;
+    let clsid_key = format!("Software\\Classes\\CLSID\\{SVG_CLSID}");
+    set_sz(HKEY_CURRENT_USER, &clsid_key, "", SVG_DISPLAY)?;
+    set_sz(HKEY_CURRENT_USER, &clsid_key, "DisplayName", SVG_DISPLAY)?;
+    set_sz(HKEY_CURRENT_USER, &clsid_key, "AppID", APP_ID)?;
+    set_dword(
+        HKEY_CURRENT_USER,
+        &clsid_key,
+        "DisableLowILProcessIsolation",
+        1,
+    )?;
+    let inproc = format!("{clsid_key}\\InprocServer32");
+    set_sz(HKEY_CURRENT_USER, &inproc, "", dll_text)?;
+    set_sz(HKEY_CURRENT_USER, &inproc, "ThreadingModel", "Apartment")?;
+    set_sz(
+        HKEY_CURRENT_USER,
+        "Software\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers",
+        SVG_CLSID,
+        SVG_DISPLAY,
+    )?;
+    ensure_surrogate()?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn unregister_svg() -> Result<(), ToolError> {
+    delete_svg_clicktorun_value()?;
+    let path = svg_shellex_path();
+    restore_shellex(&path, "svg", SVG_CLSID)?;
+    delete_value(
+        HKEY_CURRENT_USER,
+        "Software\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers",
+        SVG_CLSID,
+    )?;
+    delete_tree(
+        HKEY_CURRENT_USER,
+        &format!("Software\\Classes\\CLSID\\{SVG_CLSID}"),
+    )?;
+    let mut backup = load_backup();
+    backup.retain(|entry| entry.kind != "svg");
+    if !markdown_shellex_is_ours() && backup.iter().any(|entry| entry.kind == "surrogate") {
+        delete_tree(
+            HKEY_CURRENT_USER,
+            &format!("Software\\Classes\\AppID\\{APP_ID}"),
+        )?;
+        backup.retain(|entry| entry.kind != "surrogate");
+    }
+    if backup.is_empty() {
+        let _ = fs::remove_file(backup_path());
+    } else {
+        save_backup(&backup)?;
+    }
+    let _ = unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None) };
+    log_line("unregister-svg", "removed .svg shellex and clicktorun", 0);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn svg_shellex_path() -> String {
+    format!("Software\\Classes\\.svg\\shellex\\{SHELLEX}")
+}
+
+#[cfg(windows)]
+fn markdown_shellex_is_ours() -> bool {
+    shellex_is(r"Software\Classes\.md\shellex", CLSID)
+}
+
+#[cfg(windows)]
+fn svg_shellex_is_ours() -> bool {
+    shellex_is(r"Software\Classes\.svg\shellex", SVG_CLSID)
+}
+
+#[cfg(windows)]
+fn svg_clicktorun_is_ours() -> bool {
+    let (name, data) = clicktorun_entry(true);
+    query_sz(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, name)
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some(data)
+}
+
+#[cfg(windows)]
+fn svg_is_on() -> bool {
+    svg_shellex_is_ours() && svg_clicktorun_is_ours()
+}
+
+#[cfg(windows)]
+fn shellex_is(parent: &str, clsid: &str) -> bool {
+    query_sz(HKEY_CURRENT_USER, &format!("{parent}\\{SHELLEX}"), "")
+        .ok()
+        .flatten()
+        .is_some_and(|value| same_guid(&value, clsid))
+}
+
+#[cfg(windows)]
+fn restore_shellex(path: &str, kind: &str, clsid: &str) -> Result<(), ToolError> {
+    let backup = load_backup();
+    let saved = backup
+        .iter()
+        .find(|entry| entry.kind == kind && entry.path.eq_ignore_ascii_case(path));
+    if let Some(entry) = saved {
+        if entry.existed {
+            if let Some(previous) = &entry.previous {
+                set_sz(HKEY_CURRENT_USER, path, "", previous)?;
+                return Ok(());
+            }
+        }
+    }
+    let current = query_sz(HKEY_CURRENT_USER, path, "").unwrap_or(None);
+    if current.as_deref().is_some_and(|value| same_guid(value, clsid)) || current.is_none() {
+        delete_tree(HKEY_CURRENT_USER, path)?;
+        let parent = path.rsplit_once('\\').map(|(parent, _)| parent).unwrap_or(path);
+        delete_tree_if_empty(HKEY_CURRENT_USER, parent)?;
+    }
     Ok(())
 }
 
@@ -254,21 +450,26 @@ fn validate_dll(path: &Path) -> Result<(), ToolError> {
 
 #[cfg(windows)]
 fn write_clicktorun() -> Result<(), ToolError> {
-    set_sz(
-        HKEY_LOCAL_MACHINE,
-        "SOFTWARE\\Microsoft\\Office\\ClickToRun\\REGISTRY\\MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers",
-        CLSID,
-        DISPLAY,
-    )
+    let (name, data) = clicktorun_entry(false);
+    set_sz(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, name, data)
 }
 
 #[cfg(windows)]
 fn delete_clicktorun_value() -> Result<(), ToolError> {
-    delete_value(
-        HKEY_LOCAL_MACHINE,
-        "SOFTWARE\\Microsoft\\Office\\ClickToRun\\REGISTRY\\MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers",
-        CLSID,
-    )
+    let (name, _) = clicktorun_entry(false);
+    delete_value(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, name)
+}
+
+#[cfg(windows)]
+fn write_svg_clicktorun() -> Result<(), ToolError> {
+    let (name, data) = clicktorun_entry(true);
+    set_sz(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, name, data)
+}
+
+#[cfg(windows)]
+fn delete_svg_clicktorun_value() -> Result<(), ToolError> {
+    let (name, _) = clicktorun_entry(true);
+    delete_value(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, name)
 }
 
 #[cfg(windows)]
@@ -331,13 +532,22 @@ fn remove_hkcu() -> Result<(), ToolError> {
         HKEY_CURRENT_USER,
         &format!("Software\\Classes\\CLSID\\{CLSID}"),
     )?;
-    if backup.iter().any(|e| e.kind == "surrogate") {
+    let keep_shared = svg_shellex_is_ours();
+    if backup.iter().any(|e| e.kind == "surrogate") && !keep_shared {
         delete_tree(
             HKEY_CURRENT_USER,
             &format!("Software\\Classes\\AppID\\{APP_ID}"),
         )?;
     }
-    let _ = fs::remove_file(backup_path());
+    if keep_shared {
+        let kept: Vec<BackupEntry> = backup
+            .into_iter()
+            .filter(|entry| entry.kind == "svg" || entry.kind == "surrogate")
+            .collect();
+        save_backup(&kept)?;
+    } else {
+        let _ = fs::remove_file(backup_path());
+    }
     Ok(())
 }
 
@@ -447,19 +657,27 @@ struct BackupEntry {
 
 #[cfg(windows)]
 fn remember_shellex(paths: &[String]) -> Result<(), ToolError> {
+    remember_kind("shellex", CLSID, paths)
+}
+
+#[cfg(windows)]
+fn remember_kind(kind: &str, clsid: &str, paths: &[String]) -> Result<(), ToolError> {
     let mut entries = load_backup();
     for path in paths {
-        if entries.iter().any(|e| e.kind == "shellex" && e.path.eq_ignore_ascii_case(path)) {
+        if entries
+            .iter()
+            .any(|e| e.kind == kind && e.path.eq_ignore_ascii_case(path))
+        {
             continue;
         }
         let current = query_sz(HKEY_CURRENT_USER, path, "").unwrap_or(None);
         let (existed, previous) = match current {
-            Some(value) if !same_guid(&value, CLSID) => (true, Some(value)),
+            Some(value) if !same_guid(&value, clsid) => (true, Some(value)),
             Some(_) => (false, None),
             None => (false, None),
         };
         entries.push(BackupEntry {
-            kind: "shellex".to_string(),
+            kind: kind.to_string(),
             path: path.clone(),
             existed,
             previous,
@@ -536,6 +754,7 @@ fn save_backup(entries: &[BackupEntry]) -> Result<(), ToolError> {
 struct Status {
     explorer: bool,
     outlook: bool,
+    svg: bool,
     dll_path: String,
 }
 
@@ -563,19 +782,17 @@ fn read_status() -> Status {
     .ok()
     .flatten()
     .unwrap_or_default();
-    let outlook = query_sz(
-        HKEY_LOCAL_MACHINE,
-        "SOFTWARE\\Microsoft\\Office\\ClickToRun\\REGISTRY\\MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers",
-        CLSID,
-    )
-    .ok()
-    .flatten();
+    let (markdown_name, markdown_data) = clicktorun_entry(false);
+    let outlook = query_sz(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, markdown_name)
+        .ok()
+        .flatten();
     let explorer = shellex.as_deref().is_some_and(|v| same_guid(v, CLSID))
         && listed.as_deref() == Some(DISPLAY);
-    let outlook_ok = outlook.as_deref() == Some(DISPLAY);
+    let outlook_ok = outlook.as_deref() == Some(markdown_data);
     Status {
         explorer,
         outlook: outlook_ok,
+        svg: svg_is_on(),
         dll_path: dll,
     }
 }
@@ -583,14 +800,20 @@ fn read_status() -> Status {
 #[cfg(windows)]
 fn status_json() -> Result<String, ToolError> {
     let status = read_status();
-    Ok(format_status(status.explorer, status.outlook, &status.dll_path))
+    Ok(format_status(
+        status.explorer,
+        status.outlook,
+        status.svg,
+        &status.dll_path,
+    ))
 }
 
-fn format_status(explorer: bool, outlook: bool, dll_path: &str) -> String {
+fn format_status(explorer: bool, outlook: bool, svg: bool, dll_path: &str) -> String {
     format!(
-        "{{\"explorer\":{},\"outlook_clicktorun\":{},\"dll_path\":{}}}",
+        "{{\"explorer\":{},\"outlook_clicktorun\":{},\"svg\":{},\"dll_path\":{}}}",
         yes_no(explorer),
         yes_no(outlook),
+        yes_no(svg),
         json_string(dll_path)
     )
 }
@@ -1079,7 +1302,10 @@ fn log_stamp() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{allow_progid, format_status, parse_args, parse_backup, push_progid, quote_arg, sid_from_whoami_csv, CommandKind};
+    use super::{
+        allow_progid, clicktorun_entry, format_status, parse_args, parse_backup, plan_for,
+        push_progid, quote_arg, sid_from_whoami_csv, CommandKind,
+    };
 
     #[test]
     fn parses_commands_and_rejects_other_extensions() {
@@ -1093,7 +1319,43 @@ mod tests {
         .unwrap();
         assert_eq!(args.command, CommandKind::Register);
         assert!(args.dll.unwrap().ends_with("speeddf_preview.dll"));
+        assert!(!args.svg);
         assert!(parse_args(["--preview".to_string()]).is_err());
+        assert!(parse_args(["register".to_string(), "--pdf".to_string()]).is_err());
+        let svg = parse_args([
+            "register".to_string(),
+            "--svg".to_string(),
+            "--dll".to_string(),
+            r"C:\abs\speeddf_preview.dll".to_string(),
+        ])
+        .unwrap();
+        assert!(svg.svg);
+        assert_eq!(svg.command, CommandKind::Register);
+    }
+
+    #[test]
+    fn svg_registration_does_not_touch_markdown_or_pdf() {
+        let markdown = plan_for(CommandKind::Register, false);
+        assert!(markdown.markdown && markdown.clicktorun);
+        assert!(!markdown.svg && !markdown.svg_clicktorun && !markdown.pdf);
+        let svg = plan_for(CommandKind::Register, true);
+        assert!(svg.svg && svg.svg_clicktorun);
+        assert!(!svg.markdown && !svg.clicktorun && !svg.pdf);
+        let (svg_name, svg_data) = clicktorun_entry(true);
+        let (md_name, md_data) = clicktorun_entry(false);
+        assert_eq!(svg_name, "{C3B7A91E-5D24-4E68-8F10-6A2D9C4B7E15}");
+        assert_eq!(svg_data, "speedDF SVG Preview");
+        assert_eq!(md_name, "{E7A4C2B1-9D58-4F63-A1E0-6C8B3D5F27A4}");
+        assert_eq!(md_data, "speedDF Markdown Preview");
+        assert_ne!(svg_name, md_name);
+        let off = plan_for(CommandKind::Unregister, true);
+        assert!(off.svg && off.svg_clicktorun);
+        assert!(!off.markdown && !off.clicktorun && !off.pdf);
+        let markdown_off = plan_for(CommandKind::Unregister, false);
+        assert!(markdown_off.markdown && markdown_off.clicktorun);
+        assert!(!markdown_off.svg && !markdown_off.svg_clicktorun);
+        let status = plan_for(CommandKind::Status, true);
+        assert!(!status.clicktorun && !status.svg_clicktorun && !status.pdf);
     }
 
     #[test]
@@ -1112,9 +1374,10 @@ mod tests {
 
     #[test]
     fn status_json_escapes_the_dll_path() {
-        let line = format_status(true, false, r"C:\a\speeddf_preview.dll");
+        let line = format_status(true, false, true, r"C:\a\speeddf_preview.dll");
         assert!(line.contains("\"explorer\":\"yes\""));
         assert!(line.contains("\"outlook_clicktorun\":\"no\""));
+        assert!(line.contains("\"svg\":\"yes\""));
         assert!(line.contains(r#""dll_path":"C:\\a\\speeddf_preview.dll""#));
     }
 
