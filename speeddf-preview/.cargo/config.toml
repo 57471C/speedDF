@@ -1,0 +1,3 @@
+# Static CRT so Explorer can load the cdylib without a side-by-side VC runtime.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
