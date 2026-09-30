@@ -144,3 +144,15 @@ WebView2 settings: script off, script dialogs off, web message off, dev tools of
 - Do not restart Explorer, send Alt+P, or kill `prevhost.exe` except to unlock the DLL after `LNK1104`.
 - Do not create, save, or delete mail to test Outlook.
 - Do not treat `examples/host.rs` `HOST_OK` as proof the preview host works. The counting log line is `host=prevhost.exe` with `paint=webview` or, on fallback, `paint=gdi` and a still-visible green pane.
+
+---
+
+## Settings registration
+
+Markdown preview stays off until the user turns it on. The NSIS installer remains `installMode: currentUser` and does not request administrator execution. UAC is only the helper.
+
+`speeddf-preview-register.exe` (`register` | `unregister` | `status`) lives in this crate. Settings starts it as the current user. `status` is unelevated and prints one JSON line: `explorer`, `outlook_clicktorun`, `dll_path`. `register` and `unregister` ShellExecute `runas` when the process is not elevated, and they write nothing until that prompt succeeds. Cancel exits `1223`. The checkbox and status line stay as the last `status` read.
+
+`register` is idempotent. It writes HKCU `.md` shellex (and the non-PDF ProgID), `PreviewHandlers`, CLSID `AppID` `{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}`, and `InprocServer32` with an absolute x64 DLL path. `DllSurrogate` stays on the system prevhost AppID. The helper writes an HKCU AppID `DllSurrogate` only when that system value is missing, and unregister removes that HKCU key only if this helper created it. It also sets the Click-to-Run HKLM value `{E7A4C2B1-9D58-4F63-A1E0-6C8B3D5F27A4}` = `speedDF Markdown Preview`. `unregister` deletes only that value plus our HKCU values. Word, Excel, PowerPoint, and Visio stay. Repair is `register` again.
+
+The helper appends to `%USERPROFILE%\AppData\Local\Temp\speeddf-preview.log` (the user `%TEMP%` file). It logs the operation and the DLL path, not file contents. A per-user install bundles `preview\speeddf_preview.dll` and `preview\speeddf-preview-register.exe` from `speeddf-preview/target/release`. Build that crate before packaging. Do not register `.pdf` or `.svg`, and do not add `speeddf.exe --preview`.

@@ -68,6 +68,10 @@
 			"icons/icon.icns",
 			"icons/icon.ico"
 		],
+		"resources": {
+			"../speeddf-preview/target/release/speeddf_preview.dll": "preview/speeddf_preview.dll",
+			"../speeddf-preview/target/release/speeddf-preview-register.exe": "preview/speeddf-preview-register.exe"
+		},
 		"fileAssociations": [
 			{
 				"ext": [

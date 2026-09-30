@@ -14,6 +14,14 @@
     removeFormValue,
     replaceFormMemoryValue,
   } from "../lib/forms/formMemory.svelte";
+  import {
+    applyPreviewRegistration,
+    fetchPreviewRegistration,
+    isWindowsPlatform,
+    previewIsOn,
+    previewStatusLine,
+    type PreviewRegistration,
+  } from "../lib/preview/previewRegistration";
 
   let {
     show = $bindable(false),
@@ -26,6 +34,9 @@
   let view = $state<"main" | "saved">("main");
   let editingValue = $state<string | null>(null);
   let editDraft = $state("");
+  const previewOnWindows =
+    typeof navigator !== "undefined" &&
+    isWindowsPlatform(navigator.platform, navigator.userAgent);
 
   // Reset draft when modal opens
   $effect(() => {
@@ -34,10 +45,49 @@
       view = "main";
       editingValue = null;
       editDraft = "";
+      previewMessage = "";
+      if (previewOnWindows) void refreshPreview();
     }
   });
 
   let memoryRows = $derived(listAllFormMemory());
+  let previewStatus = $state<PreviewRegistration | null>(null);
+  let previewBusy = $state(false);
+  let previewMessage = $state("");
+  let previewChecked = $derived(previewIsOn(previewStatus));
+
+  async function refreshPreview() {
+    try {
+      previewStatus = await fetchPreviewRegistration();
+    } catch (err) {
+      previewStatus = null;
+      previewMessage = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function runPreview(action: "register" | "unregister") {
+    if (previewBusy) return;
+    previewBusy = true;
+    previewMessage = "";
+    try {
+      const next = await applyPreviewRegistration(action);
+      previewStatus = next;
+      previewMessage = next.cancelled
+        ? "Administrator approval was cancelled. Registration was left unchanged."
+        : next.message;
+    } catch (err) {
+      previewMessage = err instanceof Error ? err.message : String(err);
+      await refreshPreview();
+    } finally {
+      previewBusy = false;
+    }
+  }
+
+  function onPreviewToggle(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    input.checked = previewChecked;
+    void runPreview(previewChecked ? "unregister" : "register");
+  }
 
   function closeWithoutSave() {
     show = false;
@@ -255,6 +305,94 @@
             </div>
           </section>
 
+          <!-- Markdown preview registration. Windows only. Immediate; not part of the Save draft. -->
+          {#if previewOnWindows}
+            {#snippet uacShield(id: string)}
+              <svg class="settings-shield" viewBox="0 0 24 24" aria-hidden="true">
+                <defs>
+                  <clipPath id={id} clipPathUnits="userSpaceOnUse">
+                    <path d="M12 1.15 21.25 4.55v7.6c0 5.3-3.95 9.75-9.25 11.2-5.3-1.45-9.25-5.9-9.25-11.2V4.55Z"/>
+                  </clipPath>
+                </defs>
+                <g clip-path="url(#{id})">
+                  <rect width="24" height="24" fill="#0078D4"/>
+                  <rect width="24" height="8.6" fill="#4EA6EA"/>
+                  <rect y="13.2" width="24" height="10.8" fill="#005A9E"/>
+                  <path fill="#FFB900" d="M-2 14.15 26 7.05l.15 3.45L-1.85 17.6z"/>
+                  <path fill="#FFE08A" d="M-2 13.2 26 6.1l.12 1.65L-1.88 14.85z"/>
+                </g>
+                <path
+                  d="M12 1.15 21.25 4.55v7.6c0 5.3-3.95 9.75-9.25 11.2-5.3-1.45-9.25-5.9-9.25-11.2V4.55Z"
+                  fill="none"
+                  stroke="#004578"
+                  stroke-width="0.8"
+                />
+              </svg>
+            {/snippet}
+            <section>
+              <h4 class="text-[11px] font-bold uppercase tracking-widest mb-1" style="color: var(--sdf-text-primary);">
+                Preview
+              </h4>
+              <p class="text-[10px] mb-2" style="color: var(--sdf-text-muted);">
+                Opt in to Markdown preview in Explorer and Outlook. Windows asks for administrator approval for that step only. speedDF itself stays a per-user install.
+              </p>
+              <label
+                class="settings-row flex items-center justify-between gap-3 px-3 py-2 rounded-lg border cursor-pointer"
+              >
+                <span class="text-[12px] font-medium" style="color: var(--sdf-text-primary);">
+                  Markdown preview in Explorer and Outlook
+                </span>
+                <input
+                  type="checkbox"
+                  class="settings-toggle"
+                  checked={previewChecked}
+                  disabled={previewBusy || previewStatus === null}
+                  onchange={onPreviewToggle}
+                />
+              </label>
+              <p class="text-[10px] mt-2 break-all" style="color: var(--sdf-text-muted);">
+                {previewStatus
+                  ? previewStatusLine(previewStatus)
+                  : previewMessage || "Checking Explorer and Outlook registration…"}
+              </p>
+              <div class="flex flex-wrap gap-2 mt-2">
+                <button
+                  type="button"
+                  class="settings-shield-btn"
+                  disabled={previewBusy || previewStatus === null || (previewChecked && previewStatus.outlook_clicktorun === "yes")}
+                  title="Windows will ask for administrator approval"
+                  onclick={() => runPreview("register")}
+                >
+                  {@render uacShield("speeddf-uac-enable")}
+                  Enable
+                </button>
+                <button
+                  type="button"
+                  class="settings-shield-btn"
+                  disabled={previewBusy}
+                  title="Write the Outlook registration again. Windows will ask for administrator approval"
+                  onclick={() => runPreview("register")}
+                >
+                  {@render uacShield("speeddf-uac-repair")}
+                  Repair
+                </button>
+                <button
+                  type="button"
+                  class="settings-shield-btn"
+                  disabled={previewBusy || previewStatus === null || (!previewChecked && previewStatus.outlook_clicktorun !== "yes")}
+                  title="Remove only the speedDF preview registration. Windows will ask for administrator approval"
+                  onclick={() => runPreview("unregister")}
+                >
+                  {@render uacShield("speeddf-uac-disable")}
+                  Disable
+                </button>
+              </div>
+              {#if previewStatus && previewMessage}
+                <p class="text-[10px] mt-2" style="color: var(--sdf-text-secondary);">{previewMessage}</p>
+              {/if}
+            </section>
+          {/if}
+
           <!-- Saved values -->
           <section>
             <h4 class="text-[11px] font-bold uppercase tracking-widest mb-2.5" style="color: var(--sdf-text-primary);">
@@ -447,5 +585,30 @@
     border-color: rgba(6, 182, 212, 0.6);
     background: rgba(8, 145, 178, 0.15);
     color: var(--sdf-accent-text);
+  }
+  .settings-shield-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid var(--sdf-border);
+    background: color-mix(in srgb, var(--sdf-bg-input) 40%, transparent);
+    color: var(--sdf-text-primary);
+    border-radius: 0.5rem;
+    padding: 0.4rem 0.7rem;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .settings-shield-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .settings-shield {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    display: block;
   }
 </style>

@@ -4,7 +4,9 @@ use std::io::{Read, Write};
 use std::path::{Component, Path};
 use tiff::decoder::{Decoder, DecodingResult};
 mod commands;
+mod preview_register;
 use commands::run_local_ocr;
+use preview_register::{preview_registration_apply, preview_registration_status};
 
 /// Validates that an incoming frontend path string does not contain parent directory
 /// traversal sequences (`..`) and resolves to a legitimate absolute location.
@@ -686,7 +688,9 @@ pub fn run() {
             parse_heic_document,
             run_local_ocr,
             compress_pdf_pipeline,
-            delete_file_from_disk
+            delete_file_from_disk,
+            preview_registration_status,
+            preview_registration_apply
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

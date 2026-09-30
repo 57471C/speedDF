@@ -9,6 +9,10 @@ description = "64-bit Windows preview handler for .md files"
 name = "speeddf_preview"
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "speeddf-preview-register"
+path = "src/bin/speeddf-preview-register.rs"
+
 [dependencies]
 ammonia = "4"
 pulldown-cmark = "0.13"
@@ -26,6 +30,7 @@ windows = { version = "0.62", features = [
     "Win32_System_Com",
     "Win32_System_LibraryLoader",
     "Win32_System_Ole",
+    "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
     "Win32_UI_Input_KeyboardAndMouse",
