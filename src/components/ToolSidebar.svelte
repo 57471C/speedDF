@@ -17,6 +17,12 @@
     initialsFromIdentity,
     resolveCaveatString,
   } from "../lib/annotation/signatureText";
+  import {
+    drawContainedImage,
+    SIGNATURE_UPLOAD_ACCEPT,
+    signatureFileToPngDataUrl,
+    signatureUploadError,
+  } from "../lib/annotation/signatureUpload";
 
   // ⚡ FIXED: This explicitly sets up the missing property mapping for line 118 in +page.svelte
   let { zoomScale = $bindable() }: { zoomScale: number } = $props();
@@ -36,6 +42,14 @@
   let writtenAsOpen = $state(false);
   /** null until the user edits the initials field. */
   let initialsOverride = $state<string | null>(null);
+  /** Processed PNG for a pad the user has not drawn on since upload or open. */
+  let sigUploadPng = $state<string | null>(null);
+  let initUploadPng = $state<string | null>(null);
+  let sigPadDirty = false;
+  let initPadDirty = false;
+  let dropTarget = $state<"sig" | "init" | null>(null);
+  let sigFileInput = $state<HTMLInputElement | null>(null);
+  let initFileInput = $state<HTMLInputElement | null>(null);
   let isColorMenuOpen = $state(false);
   let isShapeMenuOpen = $state(false);
   let isThicknessMenuOpen = $state(false);
@@ -228,30 +242,19 @@
     writtenAs = "";
     writtenAsOpen = false;
     initialsOverride = null;
+    sigUploadPng = null;
+    initUploadPng = null;
+    sigPadDirty = false;
+    initPadDirty = false;
+    dropTarget = null;
   }
 
   function paintDataUrlOnCanvas(
     canvas: HTMLCanvasElement,
     dataUrl: string | undefined | null,
   ): Promise<void> {
-    return new Promise((resolve) => {
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        resolve();
-        return;
-      }
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (!dataUrl) {
-        resolve();
-        return;
-      }
-      const img = new Image();
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve();
-      };
-      img.onerror = () => resolve();
-      img.src = dataUrl;
+    return drawContainedImage(canvas, dataUrl).catch(() => {
+      canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
     });
   }
 
@@ -296,6 +299,10 @@
     const savedInitials = (set.initials || "").slice(0, 4);
     initialsOverride =
       savedInitials && savedInitials !== auto ? savedInitials : null;
+    sigUploadPng = set.signatureDataUrl || null;
+    initUploadPng = set.initialDataUrl || null;
+    sigPadDirty = false;
+    initPadDirty = false;
 
     isModalOpen = true;
     isMenuOpen = false;
@@ -357,6 +364,8 @@
     const isDrawing = target === "sig" ? sigDrawing : initDrawing;
     const canvas = target === "sig" ? sigCanvas : initCanvas;
     if (!isDrawing || !canvas) return;
+    if (target === "sig") sigPadDirty = true;
+    else initPadDirty = true;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const rect = canvas.getBoundingClientRect();
@@ -383,6 +392,63 @@
     const canvas = target === "sig" ? sigCanvas : initCanvas;
     if (canvas)
       canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+    if (target === "sig") {
+      sigUploadPng = null;
+      sigPadDirty = false;
+    } else {
+      initUploadPng = null;
+      initPadDirty = false;
+    }
+  }
+
+  function storedPadPng(target: "sig" | "init"): string | null {
+    const dirty = target === "sig" ? sigPadDirty : initPadDirty;
+    const uploaded = target === "sig" ? sigUploadPng : initUploadPng;
+    const canvas = target === "sig" ? sigCanvas : initCanvas;
+    if (!dirty && uploaded) return uploaded;
+    return drawnDataUrl(canvas);
+  }
+
+  async function acceptPadFile(target: "sig" | "init", file: File) {
+    const rejection = signatureUploadError(file);
+    if (rejection) {
+      profileFormError = rejection;
+      return;
+    }
+    const canvas = target === "sig" ? sigCanvas : initCanvas;
+    if (!canvas) return;
+    try {
+      const png = await signatureFileToPngDataUrl(file);
+      await paintDataUrlOnCanvas(canvas, png);
+      if (target === "sig") {
+        sigUploadPng = png;
+        sigPadDirty = false;
+      } else {
+        initUploadPng = png;
+        initPadDirty = false;
+      }
+      profileFormError = "";
+    } catch (err) {
+      profileFormError =
+        err instanceof Error && err.message
+          ? err.message
+          : "Could not read that image.";
+    }
+  }
+
+  function onPadDragOver(event: DragEvent, target: "sig" | "init") {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    dropTarget = target;
+  }
+
+  function onPadDrop(event: DragEvent, target: "sig" | "init") {
+    event.preventDefault();
+    event.stopPropagation();
+    dropTarget = null;
+    const file = event.dataTransfer?.files?.[0];
+    if (file) void acceptPadFile(target, file);
   }
 
   function validateSignatureCanvases(): boolean {
@@ -414,8 +480,8 @@
     const existing = editingSetId
       ? (doc.savedSignatureSets || []).find((s: SignatureSet) => s.id === editingSetId)
       : null;
-    const drawnSig = drawnDataUrl(sigCanvas);
-    const drawnInit = drawnDataUrl(initCanvas);
+    const drawnSig = storedPadPng("sig");
+    const drawnInit = storedPadPng("init");
     try {
       const initials = (initialsOverride ?? initialsFromIdentity(firstName, lastName))
         .trim()
@@ -743,7 +809,7 @@
           style="color: var(--sdf-text-muted); border-bottom: 1px solid var(--sdf-border-subtle);"
           >Saved Stamp Sets</span
         >
-        <div class="max-h-48 overflow-y-auto space-y-2 pr-1 scrollbar-thin">
+        <div class="stamp-set-list max-h-72 overflow-y-auto space-y-2 pr-1">
           {#each doc.savedSignatureSets || [] as set}
             <div
               class="flex flex-col gap-1 rounded p-1.5 transition-all"
@@ -1259,22 +1325,50 @@
             <span
               class="text-[9px] font-bold text-slate-500 uppercase tracking-widest"
               >Master Signature</span
-            ><button
-              onclick={(e) => { e.stopPropagation(); clearCanvas("sig"); }}
-              class="text-[9px] text-[#00d2ff]/70 font-bold uppercase"
-              >Clear</button
             >
+            <span class="flex items-center gap-2">
+              <button
+                type="button"
+                onclick={(e) => { e.stopPropagation(); sigFileInput?.click(); }}
+                class="text-[9px] text-[#00d2ff]/70 font-bold uppercase"
+                >Upload</button
+              >
+              <button
+                type="button"
+                onclick={(e) => { e.stopPropagation(); clearCanvas("sig"); }}
+                class="text-[9px] text-[#00d2ff]/70 font-bold uppercase"
+                >Clear</button
+              >
+            </span>
           </div>
+          <input
+            bind:this={sigFileInput}
+            type="file"
+            accept={SIGNATURE_UPLOAD_ACCEPT}
+            aria-label="Upload master signature"
+            class="hidden"
+            onchange={(e) => {
+              const input = e.currentTarget;
+              const file = input.files?.[0];
+              if (file) void acceptPadFile("sig", file);
+              input.value = "";
+            }}
+          />
           <canvas
             bind:this={sigCanvas}
             width="380"
             height="160"
+            aria-label="Master signature pad"
             onclick={(e) => e.stopPropagation()}
             onpointerdown={(e) => { e.stopPropagation(); startDraw(e, "sig"); }}
             onpointermove={(e) => { e.stopPropagation(); drawMove(e, "sig"); }}
             onpointerup={() => stopDraw("sig")}
             onpointerleave={() => stopDraw("sig")}
-            class="w-full bg-white rounded-lg border border-slate-800/40 cursor-crosshair block touch-none"
+            ondragenter={(e) => onPadDragOver(e, "sig")}
+            ondragover={(e) => onPadDragOver(e, "sig")}
+            ondragleave={(e) => { e.preventDefault(); e.stopPropagation(); dropTarget = null; }}
+            ondrop={(e) => onPadDrop(e, "sig")}
+            class="w-full bg-white rounded-lg border border-slate-800/40 cursor-crosshair block touch-none {dropTarget === 'sig' ? 'outline outline-2 outline-[#00d2ff]' : ''}"
           ></canvas>
         </div>
         <div class="col-span-1 flex flex-col gap-1.5">
@@ -1282,22 +1376,50 @@
             <span
               class="text-[9px] font-bold text-slate-500 uppercase tracking-widest"
               >Initials</span
-            ><button
-              onclick={(e) => { e.stopPropagation(); clearCanvas("init"); }}
-              class="text-[9px] text-[#00d2ff]/70 font-bold uppercase"
-              >Clear</button
             >
+            <span class="flex items-center gap-2">
+              <button
+                type="button"
+                onclick={(e) => { e.stopPropagation(); initFileInput?.click(); }}
+                class="text-[9px] text-[#00d2ff]/70 font-bold uppercase"
+                >Upload</button
+              >
+              <button
+                type="button"
+                onclick={(e) => { e.stopPropagation(); clearCanvas("init"); }}
+                class="text-[9px] text-[#00d2ff]/70 font-bold uppercase"
+                >Clear</button
+              >
+            </span>
           </div>
+          <input
+            bind:this={initFileInput}
+            type="file"
+            accept={SIGNATURE_UPLOAD_ACCEPT}
+            aria-label="Upload initials"
+            class="hidden"
+            onchange={(e) => {
+              const input = e.currentTarget;
+              const file = input.files?.[0];
+              if (file) void acceptPadFile("init", file);
+              input.value = "";
+            }}
+          />
           <canvas
             bind:this={initCanvas}
             width="170"
             height="160"
+            aria-label="Initials pad"
             onclick={(e) => e.stopPropagation()}
             onpointerdown={(e) => { e.stopPropagation(); startDraw(e, "init"); }}
             onpointermove={(e) => { e.stopPropagation(); drawMove(e, "init"); }}
             onpointerup={() => stopDraw("init")}
             onpointerleave={() => stopDraw("init")}
-            class="w-full bg-white rounded-lg border border-slate-800/40 cursor-crosshair block touch-none"
+            ondragenter={(e) => onPadDragOver(e, "init")}
+            ondragover={(e) => onPadDragOver(e, "init")}
+            ondragleave={(e) => { e.preventDefault(); e.stopPropagation(); dropTarget = null; }}
+            ondrop={(e) => onPadDrop(e, "init")}
+            class="w-full bg-white rounded-lg border border-slate-800/40 cursor-crosshair block touch-none {dropTarget === 'init' ? 'outline outline-2 outline-[#00d2ff]' : ''}"
           ></canvas>
         </div>
       </div>
@@ -1445,6 +1567,26 @@
     </div>
   </div>
 {/if}
+
+<style>
+  .stamp-set-list {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sdf-scrollbar-thumb) var(--sdf-scrollbar-track);
+  }
+  .stamp-set-list::-webkit-scrollbar {
+    width: 6px;
+  }
+  .stamp-set-list::-webkit-scrollbar-track {
+    background: var(--sdf-scrollbar-track);
+  }
+  .stamp-set-list::-webkit-scrollbar-thumb {
+    background: var(--sdf-scrollbar-thumb);
+    border-radius: 9999px;
+  }
+  .stamp-set-list::-webkit-scrollbar-thumb:hover {
+    background: var(--sdf-scrollbar-hover);
+  }
+</style>
 
 <svelte:window
   onclick={() => {
