@@ -49,17 +49,27 @@ const SHELLEX: &str = "{8895b1c6-b41f-4c1c-a562-0d564250836f}";
 const APP_ID: &str = "{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}";
 const DISPLAY: &str = "speedDF Markdown Preview";
 const SVG_DISPLAY: &str = "speedDF SVG Preview";
+/// Explorer and Outlook `.pdf`. Same DLL, separate from Markdown and SVG.
+const PDF_CLSID: &str = "{8F2C1B64-7A90-4D35-B6E1-3C9A5D7F04E8}";
+const PDF_DISPLAY: &str = "speedDF PDF Preview";
 const CLICKTORUN_PREVIEW_HANDLERS: &str =
     "SOFTWARE\\Microsoft\\Office\\ClickToRun\\REGISTRY\\MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers";
 const EXIT_CANCELLED: i32 = 1223;
 
-/// Value name and data for the Click-to-Run PreviewHandlers key.
-/// `svg` selects the SVG CLSID. Markdown registration never passes true.
-fn clicktorun_entry(svg: bool) -> (&'static str, &'static str) {
-    if svg {
-        (SVG_CLSID, SVG_DISPLAY)
-    } else {
-        (CLSID, DISPLAY)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HandlerKind {
+    Markdown,
+    Svg,
+    Pdf,
+}
+
+/// Value name and data for one CLSID on the Click-to-Run PreviewHandlers key.
+/// Each kind writes only its own value.
+fn clicktorun_entry(kind: HandlerKind) -> (&'static str, &'static str) {
+    match kind {
+        HandlerKind::Markdown => (CLSID, DISPLAY),
+        HandlerKind::Svg => (SVG_CLSID, SVG_DISPLAY),
+        HandlerKind::Pdf => (PDF_CLSID, PDF_DISPLAY),
     }
 }
 
@@ -102,41 +112,57 @@ struct Args {
     command: CommandKind,
     dll: Option<PathBuf>,
     svg: bool,
+    pdf: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct RegPlan {
     markdown: bool,
     svg: bool,
+    pdf: bool,
     /// Markdown CLSID on the Click-to-Run key.
     clicktorun: bool,
     /// SVG CLSID on that same key. Does not replace the markdown value.
     svg_clicktorun: bool,
-    pdf: bool,
+    /// PDF CLSID on that same key. Does not replace the markdown or SVG value.
+    pdf_clicktorun: bool,
 }
 
-fn plan_for(command: CommandKind, svg: bool) -> RegPlan {
-    match (command, svg) {
-        (CommandKind::Register, false) | (CommandKind::Unregister, false) => RegPlan {
-            markdown: true,
-            svg: false,
-            clicktorun: true,
-            svg_clicktorun: false,
-            pdf: false,
-        },
-        (CommandKind::Register, true) | (CommandKind::Unregister, true) => RegPlan {
+fn plan_for(command: CommandKind, svg: bool, pdf: bool) -> RegPlan {
+    match (command, svg, pdf) {
+        (CommandKind::Register, false, false) | (CommandKind::Unregister, false, false) => {
+            RegPlan {
+                markdown: true,
+                svg: false,
+                pdf: false,
+                clicktorun: true,
+                svg_clicktorun: false,
+                pdf_clicktorun: false,
+            }
+        }
+        (CommandKind::Register, true, false) | (CommandKind::Unregister, true, false) => RegPlan {
             markdown: false,
             svg: true,
+            pdf: false,
             clicktorun: false,
             svg_clicktorun: true,
-            pdf: false,
+            pdf_clicktorun: false,
         },
-        (CommandKind::Status, _) => RegPlan {
+        (CommandKind::Register, false, true) | (CommandKind::Unregister, false, true) => RegPlan {
             markdown: false,
             svg: false,
+            pdf: true,
             clicktorun: false,
             svg_clicktorun: false,
+            pdf_clicktorun: true,
+        },
+        _ => RegPlan {
+            markdown: false,
+            svg: false,
             pdf: false,
+            clicktorun: false,
+            svg_clicktorun: false,
+            pdf_clicktorun: false,
         },
     }
 }
@@ -152,6 +178,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, ToolError>
     let mut command = None;
     let mut dll = None;
     let mut svg = false;
+    let mut pdf = false;
     let mut iter = args.into_iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
@@ -159,6 +186,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, ToolError>
             "unregister" if command.is_none() => command = Some(CommandKind::Unregister),
             "status" if command.is_none() => command = Some(CommandKind::Status),
             "--svg" => svg = true,
+            "--pdf" => pdf = true,
             "--dll" => {
                 let path = iter.next().ok_or_else(|| {
                     ToolError::new("register needs --dll <absolute path>", 2)
@@ -167,7 +195,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, ToolError>
             }
             "-h" | "--help" => {
                 return Err(ToolError::new(
-                    "usage: speeddf-preview-register register|unregister|status [--svg] [--dll <absolute dll>]",
+                    "usage: speeddf-preview-register register|unregister|status [--svg|--pdf] [--dll <absolute dll>]",
                     2,
                 ));
             }
@@ -179,13 +207,21 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, ToolError>
             }
         }
     }
+    if svg && pdf {
+        return Err(ToolError::new("pass only one of --svg or --pdf", 2));
+    }
     let command = command.ok_or_else(|| {
         ToolError::new(
-            "usage: speeddf-preview-register register|unregister|status [--svg] [--dll <absolute dll>]",
+            "usage: speeddf-preview-register register|unregister|status [--svg|--pdf] [--dll <absolute dll>]",
             2,
         )
     })?;
-    Ok(Args { command, dll, svg })
+    Ok(Args {
+        command,
+        dll,
+        svg,
+        pdf,
+    })
 }
 
 #[cfg(windows)]
@@ -205,10 +241,12 @@ fn run() -> Result<i32, ToolError> {
                 println!("{}", status_json()?);
                 return Ok(0);
             }
-            let plan = plan_for(args.command, args.svg);
+            let plan = plan_for(args.command, args.svg, args.pdf);
             match args.command {
                 CommandKind::Register if plan.svg => register_svg(args.dll)?,
                 CommandKind::Unregister if plan.svg => unregister_svg()?,
+                CommandKind::Register if plan.pdf => register_pdf(args.dll)?,
+                CommandKind::Unregister if plan.pdf => unregister_pdf()?,
                 CommandKind::Register => register(args.dll)?,
                 CommandKind::Unregister => unregister()?,
                 CommandKind::Status => {}
@@ -304,7 +342,10 @@ fn unregister_svg() -> Result<(), ToolError> {
     )?;
     let mut backup = load_backup();
     backup.retain(|entry| entry.kind != "svg");
-    if !markdown_shellex_is_ours() && backup.iter().any(|entry| entry.kind == "surrogate") {
+    if !markdown_shellex_is_ours()
+        && !pdf_shellex_is_ours()
+        && backup.iter().any(|entry| entry.kind == "surrogate")
+    {
         delete_tree(
             HKEY_CURRENT_USER,
             &format!("Software\\Classes\\AppID\\{APP_ID}"),
@@ -319,6 +360,103 @@ fn unregister_svg() -> Result<(), ToolError> {
     let _ = unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None) };
     log_line("unregister-svg", "removed .svg shellex and clicktorun", 0);
     Ok(())
+}
+
+#[cfg(windows)]
+fn register_pdf(dll: Option<PathBuf>) -> Result<(), ToolError> {
+    let dll = resolve_dll(dll)?;
+    validate_dll(&dll)?;
+    let dll_text = dll.to_string_lossy().to_string();
+    write_pdf_clicktorun()?;
+    if let Err(err) = write_pdf_hkcu(&dll_text) {
+        let _ = delete_pdf_clicktorun_value();
+        return Err(err);
+    }
+    prepare_runtime_dirs();
+    let _ = unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None) };
+    log_line("register-pdf", &format!("dll={dll_text}"), 0);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn write_pdf_hkcu(dll_text: &str) -> Result<(), ToolError> {
+    let path = pdf_shellex_path();
+    remember_kind("pdf", PDF_CLSID, &[path.clone()])?;
+    set_sz(HKEY_CURRENT_USER, &path, "", PDF_CLSID)?;
+    let clsid_key = format!("Software\\Classes\\CLSID\\{PDF_CLSID}");
+    set_sz(HKEY_CURRENT_USER, &clsid_key, "", PDF_DISPLAY)?;
+    set_sz(HKEY_CURRENT_USER, &clsid_key, "DisplayName", PDF_DISPLAY)?;
+    set_sz(HKEY_CURRENT_USER, &clsid_key, "AppID", APP_ID)?;
+    set_dword(
+        HKEY_CURRENT_USER,
+        &clsid_key,
+        "DisableLowILProcessIsolation",
+        1,
+    )?;
+    let inproc = format!("{clsid_key}\\InprocServer32");
+    set_sz(HKEY_CURRENT_USER, &inproc, "", dll_text)?;
+    set_sz(HKEY_CURRENT_USER, &inproc, "ThreadingModel", "Apartment")?;
+    set_sz(
+        HKEY_CURRENT_USER,
+        "Software\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers",
+        PDF_CLSID,
+        PDF_DISPLAY,
+    )?;
+    ensure_surrogate()?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn unregister_pdf() -> Result<(), ToolError> {
+    delete_pdf_clicktorun_value()?;
+    let path = pdf_shellex_path();
+    restore_shellex(&path, "pdf", PDF_CLSID)?;
+    delete_value(
+        HKEY_CURRENT_USER,
+        "Software\\Microsoft\\Windows\\CurrentVersion\\PreviewHandlers",
+        PDF_CLSID,
+    )?;
+    delete_tree(
+        HKEY_CURRENT_USER,
+        &format!("Software\\Classes\\CLSID\\{PDF_CLSID}"),
+    )?;
+    let mut backup = load_backup();
+    backup.retain(|entry| entry.kind != "pdf");
+    if !markdown_shellex_is_ours()
+        && !svg_shellex_is_ours()
+        && backup.iter().any(|entry| entry.kind == "surrogate")
+    {
+        delete_tree(
+            HKEY_CURRENT_USER,
+            &format!("Software\\Classes\\AppID\\{APP_ID}"),
+        )?;
+        backup.retain(|entry| entry.kind != "surrogate");
+    }
+    if backup.is_empty() {
+        let _ = fs::remove_file(backup_path());
+    } else {
+        save_backup(&backup)?;
+    }
+    let _ = unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None) };
+    log_line("unregister-pdf", "removed .pdf shellex and clicktorun", 0);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn write_pdf_clicktorun() -> Result<(), ToolError> {
+    let (name, data) = clicktorun_entry(HandlerKind::Pdf);
+    set_sz(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, name, data)
+}
+
+#[cfg(windows)]
+fn delete_pdf_clicktorun_value() -> Result<(), ToolError> {
+    let (name, _) = clicktorun_entry(HandlerKind::Pdf);
+    delete_value(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, name)
+}
+
+#[cfg(windows)]
+fn pdf_shellex_path() -> String {
+    format!("Software\\Classes\\.pdf\\shellex\\{SHELLEX}")
 }
 
 #[cfg(windows)]
@@ -338,7 +476,7 @@ fn svg_shellex_is_ours() -> bool {
 
 #[cfg(windows)]
 fn svg_clicktorun_is_ours() -> bool {
-    let (name, data) = clicktorun_entry(true);
+    let (name, data) = clicktorun_entry(HandlerKind::Svg);
     query_sz(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, name)
         .ok()
         .flatten()
@@ -349,6 +487,26 @@ fn svg_clicktorun_is_ours() -> bool {
 #[cfg(windows)]
 fn svg_is_on() -> bool {
     svg_shellex_is_ours() && svg_clicktorun_is_ours()
+}
+
+#[cfg(windows)]
+fn pdf_shellex_is_ours() -> bool {
+    shellex_is(r"Software\Classes\.pdf\shellex", PDF_CLSID)
+}
+
+#[cfg(windows)]
+fn pdf_clicktorun_is_ours() -> bool {
+    let (name, data) = clicktorun_entry(HandlerKind::Pdf);
+    query_sz(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, name)
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some(data)
+}
+
+#[cfg(windows)]
+fn pdf_is_on() -> bool {
+    pdf_shellex_is_ours() && pdf_clicktorun_is_ours()
 }
 
 #[cfg(windows)]
@@ -450,25 +608,25 @@ fn validate_dll(path: &Path) -> Result<(), ToolError> {
 
 #[cfg(windows)]
 fn write_clicktorun() -> Result<(), ToolError> {
-    let (name, data) = clicktorun_entry(false);
+    let (name, data) = clicktorun_entry(HandlerKind::Markdown);
     set_sz(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, name, data)
 }
 
 #[cfg(windows)]
 fn delete_clicktorun_value() -> Result<(), ToolError> {
-    let (name, _) = clicktorun_entry(false);
+    let (name, _) = clicktorun_entry(HandlerKind::Markdown);
     delete_value(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, name)
 }
 
 #[cfg(windows)]
 fn write_svg_clicktorun() -> Result<(), ToolError> {
-    let (name, data) = clicktorun_entry(true);
+    let (name, data) = clicktorun_entry(HandlerKind::Svg);
     set_sz(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, name, data)
 }
 
 #[cfg(windows)]
 fn delete_svg_clicktorun_value() -> Result<(), ToolError> {
-    let (name, _) = clicktorun_entry(true);
+    let (name, _) = clicktorun_entry(HandlerKind::Svg);
     delete_value(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, name)
 }
 
@@ -532,7 +690,7 @@ fn remove_hkcu() -> Result<(), ToolError> {
         HKEY_CURRENT_USER,
         &format!("Software\\Classes\\CLSID\\{CLSID}"),
     )?;
-    let keep_shared = svg_shellex_is_ours();
+    let keep_shared = svg_shellex_is_ours() || pdf_shellex_is_ours();
     if backup.iter().any(|e| e.kind == "surrogate") && !keep_shared {
         delete_tree(
             HKEY_CURRENT_USER,
@@ -542,7 +700,7 @@ fn remove_hkcu() -> Result<(), ToolError> {
     if keep_shared {
         let kept: Vec<BackupEntry> = backup
             .into_iter()
-            .filter(|entry| entry.kind == "svg" || entry.kind == "surrogate")
+            .filter(|entry| entry.kind == "svg" || entry.kind == "pdf" || entry.kind == "surrogate")
             .collect();
         save_backup(&kept)?;
     } else {
@@ -755,6 +913,7 @@ struct Status {
     explorer: bool,
     outlook: bool,
     svg: bool,
+    pdf: bool,
     dll_path: String,
 }
 
@@ -782,7 +941,7 @@ fn read_status() -> Status {
     .ok()
     .flatten()
     .unwrap_or_default();
-    let (markdown_name, markdown_data) = clicktorun_entry(false);
+    let (markdown_name, markdown_data) = clicktorun_entry(HandlerKind::Markdown);
     let outlook = query_sz(HKEY_LOCAL_MACHINE, CLICKTORUN_PREVIEW_HANDLERS, markdown_name)
         .ok()
         .flatten();
@@ -793,6 +952,7 @@ fn read_status() -> Status {
         explorer,
         outlook: outlook_ok,
         svg: svg_is_on(),
+        pdf: pdf_is_on(),
         dll_path: dll,
     }
 }
@@ -804,16 +964,18 @@ fn status_json() -> Result<String, ToolError> {
         status.explorer,
         status.outlook,
         status.svg,
+        status.pdf,
         &status.dll_path,
     ))
 }
 
-fn format_status(explorer: bool, outlook: bool, svg: bool, dll_path: &str) -> String {
+fn format_status(explorer: bool, outlook: bool, svg: bool, pdf: bool, dll_path: &str) -> String {
     format!(
-        "{{\"explorer\":{},\"outlook_clicktorun\":{},\"svg\":{},\"dll_path\":{}}}",
+        "{{\"explorer\":{},\"outlook_clicktorun\":{},\"svg\":{},\"pdf\":{},\"dll_path\":{}}}",
         yes_no(explorer),
         yes_no(outlook),
         yes_no(svg),
+        yes_no(pdf),
         json_string(dll_path)
     )
 }
@@ -1304,7 +1466,7 @@ fn log_stamp() -> String {
 mod tests {
     use super::{
         allow_progid, clicktorun_entry, format_status, parse_args, parse_backup, plan_for,
-        push_progid, quote_arg, sid_from_whoami_csv, CommandKind,
+        push_progid, quote_arg, sid_from_whoami_csv, CommandKind, HandlerKind,
     };
 
     #[test]
@@ -1320,8 +1482,14 @@ mod tests {
         assert_eq!(args.command, CommandKind::Register);
         assert!(args.dll.unwrap().ends_with("speeddf_preview.dll"));
         assert!(!args.svg);
+        assert!(!args.pdf);
         assert!(parse_args(["--preview".to_string()]).is_err());
-        assert!(parse_args(["register".to_string(), "--pdf".to_string()]).is_err());
+        assert!(parse_args([
+            "register".to_string(),
+            "--svg".to_string(),
+            "--pdf".to_string(),
+        ])
+        .is_err());
         let svg = parse_args([
             "register".to_string(),
             "--svg".to_string(),
@@ -1330,32 +1498,57 @@ mod tests {
         ])
         .unwrap();
         assert!(svg.svg);
+        assert!(!svg.pdf);
         assert_eq!(svg.command, CommandKind::Register);
+        let pdf = parse_args([
+            "register".to_string(),
+            "--pdf".to_string(),
+            "--dll".to_string(),
+            r"C:\abs\speeddf_preview.dll".to_string(),
+        ])
+        .unwrap();
+        assert!(pdf.pdf);
+        assert!(!pdf.svg);
+        assert_eq!(pdf.command, CommandKind::Register);
     }
 
     #[test]
-    fn svg_registration_does_not_touch_markdown_or_pdf() {
-        let markdown = plan_for(CommandKind::Register, false);
+    fn svg_and_pdf_registration_do_not_touch_markdown() {
+        let markdown = plan_for(CommandKind::Register, false, false);
         assert!(markdown.markdown && markdown.clicktorun);
-        assert!(!markdown.svg && !markdown.svg_clicktorun && !markdown.pdf);
-        let svg = plan_for(CommandKind::Register, true);
+        assert!(!markdown.svg && !markdown.svg_clicktorun);
+        assert!(!markdown.pdf && !markdown.pdf_clicktorun);
+        let svg = plan_for(CommandKind::Register, true, false);
         assert!(svg.svg && svg.svg_clicktorun);
-        assert!(!svg.markdown && !svg.clicktorun && !svg.pdf);
-        let (svg_name, svg_data) = clicktorun_entry(true);
-        let (md_name, md_data) = clicktorun_entry(false);
+        assert!(!svg.markdown && !svg.clicktorun && !svg.pdf && !svg.pdf_clicktorun);
+        let pdf = plan_for(CommandKind::Register, false, true);
+        assert!(pdf.pdf && pdf.pdf_clicktorun);
+        assert!(!pdf.markdown && !pdf.clicktorun && !pdf.svg && !pdf.svg_clicktorun);
+        let (svg_name, svg_data) = clicktorun_entry(HandlerKind::Svg);
+        let (md_name, md_data) = clicktorun_entry(HandlerKind::Markdown);
+        let (pdf_name, pdf_data) = clicktorun_entry(HandlerKind::Pdf);
         assert_eq!(svg_name, "{C3B7A91E-5D24-4E68-8F10-6A2D9C4B7E15}");
         assert_eq!(svg_data, "speedDF SVG Preview");
         assert_eq!(md_name, "{E7A4C2B1-9D58-4F63-A1E0-6C8B3D5F27A4}");
         assert_eq!(md_data, "speedDF Markdown Preview");
+        assert_eq!(pdf_name, "{8F2C1B64-7A90-4D35-B6E1-3C9A5D7F04E8}");
+        assert_eq!(pdf_data, "speedDF PDF Preview");
         assert_ne!(svg_name, md_name);
-        let off = plan_for(CommandKind::Unregister, true);
+        assert_ne!(pdf_name, md_name);
+        assert_ne!(pdf_name, svg_name);
+        let off = plan_for(CommandKind::Unregister, true, false);
         assert!(off.svg && off.svg_clicktorun);
-        assert!(!off.markdown && !off.clicktorun && !off.pdf);
-        let markdown_off = plan_for(CommandKind::Unregister, false);
+        assert!(!off.markdown && !off.clicktorun && !off.pdf && !off.pdf_clicktorun);
+        let pdf_off = plan_for(CommandKind::Unregister, false, true);
+        assert!(pdf_off.pdf && pdf_off.pdf_clicktorun);
+        assert!(!pdf_off.markdown && !pdf_off.clicktorun && !pdf_off.svg);
+        let markdown_off = plan_for(CommandKind::Unregister, false, false);
         assert!(markdown_off.markdown && markdown_off.clicktorun);
         assert!(!markdown_off.svg && !markdown_off.svg_clicktorun);
-        let status = plan_for(CommandKind::Status, true);
-        assert!(!status.clicktorun && !status.svg_clicktorun && !status.pdf);
+        assert!(!markdown_off.pdf && !markdown_off.pdf_clicktorun);
+        let status = plan_for(CommandKind::Status, true, true);
+        assert!(!status.clicktorun && !status.svg_clicktorun && !status.pdf_clicktorun);
+        assert!(!status.pdf && !status.markdown);
     }
 
     #[test]
@@ -1374,10 +1567,11 @@ mod tests {
 
     #[test]
     fn status_json_escapes_the_dll_path() {
-        let line = format_status(true, false, true, r"C:\a\speeddf_preview.dll");
+        let line = format_status(true, false, true, false, r"C:\a\speeddf_preview.dll");
         assert!(line.contains("\"explorer\":\"yes\""));
         assert!(line.contains("\"outlook_clicktorun\":\"no\""));
         assert!(line.contains("\"svg\":\"yes\""));
+        assert!(line.contains("\"pdf\":\"no\""));
         assert!(line.contains(r#""dll_path":"C:\\a\\speeddf_preview.dll""#));
     }
 

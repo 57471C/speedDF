@@ -8,7 +8,9 @@ use windows::Win32::Foundation::{
     GetLastError, HINSTANCE, HWND, RECT, S_FALSE,
 };
 use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
-use windows::Win32::System::Com::{CoTaskMemFree, IStream, STATFLAG_DEFAULT, STATSTG, STREAM_SEEK_SET};
+use windows::Win32::System::Com::{
+    CoTaskMemFree, IStream, STATFLAG_DEFAULT, STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET,
+};
 use windows::Win32::System::Ole::{
     IObjectWithSite, IObjectWithSite_Impl, IOleWindow, IOleWindow_Impl,
 };
@@ -27,6 +29,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use crate::logutil::{finish, log_event};
 use crate::markdown::markdown_document;
 use crate::paint::wnd_proc;
+use crate::pdf::{self, PDF_REFUSE};
 use crate::svg::{self, SVG_REFUSE};
 use crate::webview::{self, WebSession};
 
@@ -44,6 +47,8 @@ pub(crate) struct PreviewState {
     pub filename: String,
     pub html: String,
     pub html_epoch: u64,
+    pub pdf_uri: String,
+    pub pdf_folder: String,
     pub source_chars: usize,
     pub stream: Option<IStream>,
     pub site: Option<IUnknown>,
@@ -62,6 +67,8 @@ impl Default for PreviewState {
             filename: String::new(),
             html: String::new(),
             html_epoch: 0,
+            pdf_uri: String::new(),
+            pdf_folder: String::new(),
             source_chars: 0,
             stream: None,
             site: None,
@@ -94,14 +101,16 @@ impl PreviewHandler {
 impl Drop for PreviewHandler {
     fn drop(&mut self) {
         webview::close(&self.state);
-        let hwnd = {
+        let (hwnd, folder) = {
             let mut state = self.state.borrow_mut();
             let hwnd = state.hwnd;
             state.hwnd = 0;
             state.stream = None;
             state.site = None;
-            hwnd
+            let folder = std::mem::take(&mut state.pdf_folder);
+            (hwnd, folder)
         };
+        pdf::remove_staged(&folder);
         destroy_hwnd(hwnd);
         crate::lock_dec();
     }
@@ -341,42 +350,103 @@ impl PreviewHandler_Impl {
         } else {
             filename
         };
-        let (text, html, source_chars, caption) = if svg::is_svg_name(&filename) {
-            let (bytes, truncated) = read_stream_bytes(&stream);
-            let source_chars = bytes.len();
-            let logged = log_label(if raw_name.is_empty() {
-                &filename
-            } else {
-                &raw_name
-            });
-            match svg::prepare_svg(&bytes, truncated) {
-                Ok(page) => {
-                    log_event("svg", &format!("name={logged}"), 0);
-                    (String::new(), page, source_chars, filename.clone())
-                }
-                Err(reason) => {
-                    log_event("svg", &format!("name={logged} refuse={reason}"), E_FAIL.0);
-                    (SVG_REFUSE.to_string(), String::new(), source_chars, filename.clone())
-                }
-            }
+        let logged = log_label(if raw_name.is_empty() {
+            &filename
         } else {
-            let source = read_stream_utf8(&stream);
-            let source_chars = source.chars().count();
-            let html = markdown_document(&source);
-            let caption = if filename.is_empty() {
-                caption_of(&source)
+            &raw_name
+        });
+        let (text, html, source_chars, caption, pdf_uri, pdf_folder) =
+            if svg::is_svg_name(&filename) {
+                let (bytes, truncated) = read_stream_bytes(&stream);
+                let source_chars = bytes.len();
+                match svg::prepare_svg(&bytes, truncated) {
+                    Ok(page) => {
+                        log_event("svg", &format!("name={logged}"), 0);
+                        (
+                            String::new(),
+                            page,
+                            source_chars,
+                            filename.clone(),
+                            String::new(),
+                            String::new(),
+                        )
+                    }
+                    Err(reason) => {
+                        log_event("svg", &format!("name={logged} refuse={reason}"), E_FAIL.0);
+                        (
+                            SVG_REFUSE.to_string(),
+                            String::new(),
+                            source_chars,
+                            filename.clone(),
+                            String::new(),
+                            String::new(),
+                        )
+                    }
+                }
+            } else if pdf::is_pdf_name(&filename) {
+                match prepare_pdf(&stream) {
+                    Ok(staged) => {
+                        log_event(
+                            "pdf",
+                            &format!("path={logged} bytes={}", staged.bytes),
+                            0,
+                        );
+                        (
+                            String::new(),
+                            String::new(),
+                            staged.bytes as usize,
+                            filename.clone(),
+                            staged.uri,
+                            staged.folder.display().to_string(),
+                        )
+                    }
+                    Err((reason, bytes)) => {
+                        log_event(
+                            "pdf",
+                            &format!("path={logged} bytes={bytes} refuse={reason}"),
+                            E_FAIL.0,
+                        );
+                        (
+                            PDF_REFUSE.to_string(),
+                            String::new(),
+                            bytes as usize,
+                            filename.clone(),
+                            String::new(),
+                            String::new(),
+                        )
+                    }
+                }
             } else {
-                filename.clone()
+                let source = read_stream_utf8(&stream);
+                let source_chars = source.chars().count();
+                let html = markdown_document(&source);
+                let caption = if filename.is_empty() {
+                    caption_of(&source)
+                } else {
+                    filename.clone()
+                };
+                (
+                    source,
+                    html,
+                    source_chars,
+                    caption,
+                    String::new(),
+                    String::new(),
+                )
             };
-            (source, html, source_chars, caption)
-        };
         {
+            let previous = self.state.borrow().pdf_folder.clone();
+            if previous != pdf_folder {
+                pdf::remove_staged(&previous);
+            }
             let mut state = self.state.borrow_mut();
             state.text = text;
             state.caption = caption;
             state.filename = filename;
             state.html = html;
             state.html_epoch = state.html_epoch.wrapping_add(1);
+            state.pdf_uri = pdf_uri;
+            state.pdf_folder = pdf_folder;
             state.source_chars = source_chars;
             state.shown = true;
         }
@@ -400,6 +470,9 @@ impl PreviewHandler_Impl {
             // HWND, the last rect, and the last paint so the pane stays up.
             state.stream = None;
             state.html.clear();
+            state.pdf_uri.clear();
+            let folder = std::mem::take(&mut state.pdf_folder);
+            pdf::remove_staged(&folder);
             state.hwnd
         };
         if alive(hwnd) {
@@ -514,11 +587,50 @@ fn read_stream_utf8(stream: &IStream) -> String {
 }
 
 fn read_stream_bytes(stream: &IStream) -> (Vec<u8>, bool) {
+    read_stream_limited(stream, READ_CAP)
+}
+
+fn prepare_pdf(stream: &IStream) -> Result<pdf::StagedPdf, (&'static str, u64)> {
+    if let Some(size) = stream_byte_size(stream) {
+        if pdf::over_cap(size) {
+            return Err(("huge", size));
+        }
+    }
+    let (bytes, truncated) = read_stream_limited(stream, pdf::PDF_MAX as usize);
+    let read = bytes.len() as u64;
+    if truncated || pdf::over_cap(read) {
+        return Err(("huge", read.saturating_add(1)));
+    }
+    if bytes.is_empty() {
+        return Err(("empty", 0));
+    }
+    if !pdf::has_pdf_magic(&bytes) {
+        return Err(("not-pdf", read));
+    }
+    match pdf::stage_bytes(&bytes) {
+        Ok(staged) => Ok(staged),
+        Err(()) => Err(("io", read)),
+    }
+}
+
+fn stream_byte_size(stream: &IStream) -> Option<u64> {
+    let mut stat = STATSTG::default();
+    if unsafe { stream.Stat(&mut stat, STATFLAG_NONAME) }.is_err() {
+        return None;
+    }
+    if stat.cbSize == 0 {
+        None
+    } else {
+        Some(stat.cbSize)
+    }
+}
+
+fn read_stream_limited(stream: &IStream, cap: usize) -> (Vec<u8>, bool) {
     let _ = unsafe { stream.Seek(0, STREAM_SEEK_SET, None) };
     let mut buf = Vec::new();
     let mut chunk = [0u8; 64 * 1024];
-    while buf.len() < READ_CAP {
-        let want = ((READ_CAP - buf.len()) as u32).min(chunk.len() as u32);
+    while buf.len() < cap {
+        let want = ((cap - buf.len()) as u32).min(chunk.len() as u32);
         let mut read = 0u32;
         let hr = unsafe {
             stream.Read(

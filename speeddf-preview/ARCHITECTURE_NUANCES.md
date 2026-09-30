@@ -65,7 +65,7 @@ The list Outlook reads is:
 
 `HKLM\SOFTWARE\Microsoft\Office\ClickToRun\REGISTRY\MACHINE\Software\Microsoft\Windows\CurrentVersion\PreviewHandlers`
 
-Markdown registration adds one REG_SZ there: name `{E7A4C2B1-9D58-4F63-A1E0-6C8B3D5F27A4}`, data `speedDF Markdown Preview`. When SVG preview is enabled, `register --svg` adds a second REG_SZ on that same key: name `{C3B7A91E-5D24-4E68-8F10-6A2D9C4B7E15}`, data `speedDF SVG Preview`. `unregister --svg` deletes only that second value. Word, Excel, PowerPoint, and Visio values stay. `register.ps1` and `unregister.ps1` do not write or delete that key. It is outside git. Checking out code restores the helper only and leaves the Click-to-Run values in place.
+Markdown registration adds one REG_SZ there: name `{E7A4C2B1-9D58-4F63-A1E0-6C8B3D5F27A4}`, data `speedDF Markdown Preview`. When SVG preview is enabled, `register --svg` adds `{C3B7A91E-5D24-4E68-8F10-6A2D9C4B7E15}` = `speedDF SVG Preview`. When PDF preview is enabled, `register --pdf` adds `{8F2C1B64-7A90-4D35-B6E1-3C9A5D7F04E8}` = `speedDF PDF Preview`. Each unregister deletes only its own value. Word, Excel, PowerPoint, and Visio values stay. `register.ps1` and `unregister.ps1` do not write or delete that key. It is outside git. Checking out code restores the helper only and leaves the Click-to-Run values in place.
 
 Outlook itself is `C:\Program Files\Microsoft Office\root\Office16\OUTLOOK.EXE` (PE machine `0x8664`). The user restarts Outlook after a registry change. Do not create, save, or delete mail to test. If no `.md` preview pane is on screen, say so.
 
@@ -133,7 +133,7 @@ WebView2 settings: script off, script dialogs off, web message off, dev tools of
 ## What not to do
 
 - Do not change the CLSID, the `.md` shellex IID `{8895b1c6-b41f-4c1c-a562-0d564250836f}`, or the Click-to-Run `PreviewHandlers` value unless a host goes blank. Do not remove Word, Excel, PowerPoint, or Visio from that key.
-- Do not add `.pdf`, Adobe keys, `SystemFileAssociations`, UserChoice, OpenWith, PerceivedType, or a ProgID. The SVG opt-in writes only its own CLSID on the Click-to-Run `PreviewHandlers` key. Do not replace the Markdown value or the Office previewers.
+- Do not add Adobe keys, `SystemFileAssociations`, UserChoice, OpenWith, PerceivedType, or a ProgID. Do not make speedDF or Edge the default PDF app. The SVG and PDF opt-ins each write only their own CLSID on the Click-to-Run `PreviewHandlers` key. Do not replace the Markdown value, the other speedDF value, or the Office previewers. Do not delete another product's preview handler to make the pane ours.
 - Do not point this work at `speeddf.exe`, the Tauri webview, or the in-app markdown viewer. Do not copy another previewer tree into this crate.
 - Do not apply an empty or zero-area `SetRect` / `SetWindow`. Keep the last good rect.
 - Do not hide or destroy the pane in `Unload`. Do not `SetParent` the child onto Explorer or Outlook.
@@ -151,11 +151,11 @@ WebView2 settings: script off, script dialogs off, web message off, dev tools of
 
 Markdown preview stays off until the user turns it on. The NSIS installer remains `installMode: currentUser` and does not request administrator execution. UAC is only the helper.
 
-`speeddf-preview-register.exe` (`register` | `unregister` | `status`, plus `--svg` for the SVG shellex and its Click-to-Run value) lives in this crate. Settings starts it as the current user. `status` is unelevated and prints one JSON line: `explorer`, `outlook_clicktorun`, `svg`, `dll_path`. `outlook_clicktorun` is the Markdown value. `register` and `unregister` ShellExecute `runas` when the process is not elevated, and they write nothing until that prompt succeeds. Cancel exits `1223`. The checkboxes and status line stay as the last `status` read. Markdown `register` / `unregister` do not pass `--svg`.
+`speeddf-preview-register.exe` (`register` | `unregister` | `status`, plus `--svg` or `--pdf`) lives in this crate. Settings starts it as the current user. `status` is unelevated and prints one JSON line: `explorer`, `outlook_clicktorun`, `svg`, `pdf`, `dll_path`. `outlook_clicktorun` is the Markdown value. `register` and `unregister` ShellExecute `runas` when the process is not elevated, and they write nothing until that prompt succeeds. Cancel exits `1223`. The checkboxes and status line stay as the last `status` read. Markdown `register` / `unregister` do not pass `--svg` or `--pdf`. `--svg` and `--pdf` cannot be passed together.
 
 `register` is idempotent. It writes HKCU `.md` shellex (and the non-PDF ProgID), `PreviewHandlers`, CLSID `AppID` `{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}`, and `InprocServer32` with an absolute x64 DLL path. `DllSurrogate` stays on the system prevhost AppID. The helper writes an HKCU AppID `DllSurrogate` only when that system value is missing, and unregister removes that HKCU key only if this helper created it. It also sets the Click-to-Run HKLM value `{E7A4C2B1-9D58-4F63-A1E0-6C8B3D5F27A4}` = `speedDF Markdown Preview`. `unregister` deletes only that value plus our HKCU values. Word, Excel, PowerPoint, and Visio stay. Repair is `register` again.
 
-The helper appends to `%USERPROFILE%\AppData\Local\Temp\speeddf-preview.log` (the user `%TEMP%` file). It logs the operation and the DLL path, not file contents. Do not register `.pdf`, and do not add `speeddf.exe --preview`.
+The helper appends to `%USERPROFILE%\AppData\Local\Temp\speeddf-preview.log` (the user `%TEMP%` file). It logs the operation and the DLL path, not file contents. Do not add `speeddf.exe --preview`.
 
 ## SVG preview
 
@@ -166,6 +166,16 @@ SVG preview stays off until the separate Settings checkbox is turned on. It uses
 A file whose name ends in `.svg` is loaded as a static image: the bytes are base64 in `data:image/svg+xml` and passed to `NavigateToString`. Script stays off. A file over 1 MiB, a truncated read, or markup with script, entities, `javascript:`, `foreignObject`, frames, or an inline `on*` handler produces no HTML. GDI then draws `Can't preview this SVG.` The log records the file name and HRESULT, not the file body.
 
 A read-only check on 2026-09-30 found no `.svg` preview-handler shellex under HKCU, HKLM, or `SystemFileAssociations`, and HKLM `PreviewHandlers` had no SVG, Photos, or Edge value. The existing `.svg` UserChoice ProgID was left unchanged. If Edge or Photos later owns the pane after this shellex is set, stop. Do not hijack the default app.
+
+## PDF preview
+
+PDF preview stays off until its own Settings checkbox is turned on. It uses the same `speeddf_preview.dll` and the same prevhost AppID. Its CLSID is `{8F2C1B64-7A90-4D35-B6E1-3C9A5D7F04E8}` (`speedDF PDF Preview`). Markdown and SVG unregister do not delete it. No second executable is shipped.
+
+`register --pdf` and `unregister --pdf` are the only commands that touch `.pdf`. They write HKCU `Software\Classes\.pdf\shellex\{8895b1c6-b41f-4c1c-a562-0d564250836f}`, the PDF CLSID `InprocServer32`, the HKCU `PreviewHandlers` value, the shared HKCU AppID surrogate only when the system prevhost value is missing, and the Click-to-Run value `{8F2C1B64-7A90-4D35-B6E1-3C9A5D7F04E8}` = `speedDF PDF Preview`. `unregister --pdf` deletes only that Click-to-Run value. They do not change the Markdown or SVG values, UserChoice, OpenWith, PerceivedType, or a ProgID, and they do not set the default PDF app. `status` reports `"pdf":"yes"` only when that `.pdf` shellex default is the PDF CLSID and the Click-to-Run value is `speedDF PDF Preview`. While that shellex is still ours, Markdown unregister keeps the shared HKCU AppID and the backup entries whose kind is `pdf`.
+
+A file whose name ends in `.pdf` is copied from the preview stream into `%LOCALAPPDATA%\speedDF\preview-wv2\<pid>\pdf-stage\preview.pdf`, at most 15MB. WebView2 maps that folder to `https://speeddf-pdf.invalid` and navigates to `preview.pdf#page=1`, which is Edge's built-in PDF viewer. The viewer does not paint with script off, so script is enabled for that navigation only. Every other navigation is cancelled except that document URL and `chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai`. New windows and downloads stay cancelled. Over the cap, a truncated read, a missing `%PDF-` header, or a failed stage produces no navigation. GDI then draws `Can't preview this PDF.` The log records the path, size, and HRESULT, not the file bytes.
+
+If Edge or Adobe later owns the Explorer pane after this shellex is set, stop. Do not unregister their handler and do not change the default PDF app.
 
 The tag workflow still does not run `register` or `unregister`. The Windows bundle is still `speeddf_preview.dll` and `speeddf-preview-register.exe`.
 

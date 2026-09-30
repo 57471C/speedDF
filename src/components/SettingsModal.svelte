@@ -19,6 +19,7 @@
     fetchPreviewRegistration,
     isWindowsPlatform,
     previewIsOn,
+    previewPdfOn,
     previewStatusLine,
     previewSvgOn,
     type PreviewAction,
@@ -58,6 +59,7 @@
   let previewMessage = $state("");
   let previewChecked = $derived(previewIsOn(previewStatus));
   let previewSvgChecked = $derived(previewSvgOn(previewStatus));
+  let previewPdfChecked = $derived(previewPdfOn(previewStatus));
 
   async function refreshPreview() {
     try {
@@ -96,6 +98,12 @@
     const input = event.currentTarget as HTMLInputElement;
     input.checked = previewSvgChecked;
     void runPreview(previewSvgChecked ? "unregister-svg" : "register-svg");
+  }
+
+  function onPdfToggle(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    input.checked = previewPdfChecked;
+    void runPreview(previewPdfChecked ? "unregister-pdf" : "register-pdf");
   }
 
   function closeWithoutSave() {
@@ -343,7 +351,7 @@
                 Preview
               </h4>
               <p class="text-[10px] mb-2" style="color: var(--sdf-text-muted);">
-                Opt in to Markdown preview in Explorer and Outlook. SVG preview in Explorer and Outlook is a separate choice and stays off until you turn it on. Windows asks for administrator approval for each change. speedDF itself stays a per-user install.
+                Opt in to Markdown preview in Explorer and Outlook. SVG and PDF preview in Explorer and Outlook are separate choices and stay off until you turn them on. Windows asks for administrator approval for each change. speedDF itself stays a per-user install.
               </p>
               <label
                 class="settings-row flex items-center justify-between gap-3 px-3 py-2 rounded-lg border cursor-pointer"
@@ -372,6 +380,21 @@
                   disabled={previewBusy || previewStatus === null}
                   title="Windows will ask for administrator approval"
                   onchange={onSvgToggle}
+                />
+              </label>
+              <label
+                class="settings-row flex items-center justify-between gap-3 px-3 py-2 mt-2 rounded-lg border cursor-pointer"
+              >
+                <span class="text-[12px] font-medium" style="color: var(--sdf-text-primary);">
+                  PDF preview in Explorer and Outlook
+                </span>
+                <input
+                  type="checkbox"
+                  class="settings-toggle"
+                  checked={previewPdfChecked}
+                  disabled={previewBusy || previewStatus === null}
+                  title="Windows will ask for administrator approval"
+                  onchange={onPdfToggle}
                 />
               </label>
               <p class="text-[10px] mt-2 break-all" style="color: var(--sdf-text-muted);">
