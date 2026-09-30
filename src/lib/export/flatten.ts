@@ -26,6 +26,11 @@ import {
 	updateRecentThumbnail,
 } from "../../pdfStore.svelte";
 import {
+	CAVEAT_FAMILY,
+	isCaveatTextStamp,
+	SIGNATURE_INK,
+} from "../annotation/signatureText";
+import {
 	arrowHeadSizePct,
 	arrowHeadVertices,
 	HIGHLIGHT_COLOR,
@@ -76,6 +81,51 @@ function getHexOpacity(hexString: string): number {
 		return parseInt(hex.substring(6, 8), 16) / 255;
 	}
 	return 1.0;
+}
+
+function fittedStampSize(
+	font: PDFFont,
+	text: string,
+	boxW: number,
+	boxH: number,
+): number {
+	let size = Math.max(4, boxH * 0.78);
+	for (let i = 0; i < 8; i++) {
+		const textW = font.widthOfTextAtSize(text, size);
+		const textH = font.heightAtSize(size);
+		const fitW = boxW * 0.96;
+		const fitH = boxH * 0.92;
+		if (textW <= fitW && textH <= fitH) return size;
+		const next =
+			size *
+			Math.min(
+				fitW / Math.max(textW, 0.01),
+				fitH / Math.max(textH, 0.01),
+			);
+		if (next >= size - 0.01) return Math.max(4, next);
+		size = Math.max(4, next);
+	}
+	return size;
+}
+
+async function embedCaveatFont(
+	destDoc: PDFDocument,
+	fontCache: Map<string, Promise<PDFFont>>,
+): Promise<PDFFont> {
+	let fontPromise = fontCache.get(CAVEAT_FAMILY);
+	if (!fontPromise) {
+		fontPromise = (async () => {
+			const fontResponse = await fetch("/fonts/caveat/Caveat-Regular.ttf");
+			const fontBuffer = await fontResponse.arrayBuffer();
+			// calt/liga glyphs in Caveat are not in the Unicode cmap, so they
+			// would paint but not come back out as text.
+			return await destDoc.embedFont(fontBuffer, {
+				features: { calt: false, liga: false, dlig: false, clig: false },
+			});
+		})();
+		fontCache.set(CAVEAT_FAMILY, fontPromise);
+	}
+	return fontPromise;
 }
 
 function getDashArray(lineStyle?: string): number[] | undefined {
@@ -277,24 +327,49 @@ async function drawAnnotationsOnPage(
 				lineCap: LineCapStyle.Round,
 				opacity: getHexOpacity(shapeColorHex),
 			});
-		} else if ((s.type === "signature" || s.type === "initial") && s.dataUrl) {
-			let imgPromise = imageCache.get(s.dataUrl);
-			if (!imgPromise) {
-				imgPromise = destDoc.embedPng(s.dataUrl);
-				imageCache.set(s.dataUrl, imgPromise);
+		} else if (s.type === "signature" || s.type === "initial") {
+			if (s.dataUrl) {
+				let imgPromise = imageCache.get(s.dataUrl);
+				if (!imgPromise) {
+					imgPromise = destDoc.embedPng(s.dataUrl);
+					imageCache.set(s.dataUrl, imgPromise);
+				}
+				const embeddedImageDest = await imgPromise;
+				const imgW = embeddedImageDest.width;
+				const imgH = embeddedImageDest.height;
+				const dampedH = h * 0.8;
+				const targetW = dampedH * (imgW / imgH);
+				const dampedY = y + (h - dampedH) / 2;
+				page.drawImage(embeddedImageDest, {
+					x,
+					y: dampedY,
+					width: targetW,
+					height: dampedH,
+				});
+			} else if (isCaveatTextStamp(s)) {
+				const pdfFont = await embedCaveatFont(destDoc, fontCache);
+				let safeText = stripControlChars(s.text || "")
+					.replace(/[\r\n\t]+/g, " ")
+					.trim();
+				if (safeText.length > 5000) safeText = safeText.substring(0, 5000);
+				if (safeText && w > 0 && h > 0) {
+					const size = fittedStampSize(pdfFont, safeText, w, h);
+					const textW = pdfFont.widthOfTextAtSize(safeText, size);
+					const ascent = pdfFont.heightAtSize(size, { descender: false });
+					const fullH = pdfFont.heightAtSize(size);
+					const descent = Math.max(0, fullH - ascent);
+					const baseline = y + (h - fullH) / 2 + descent;
+					const textX = x + Math.max(0, (w - textW) / 2);
+					const ink = s.textColor || s.color || SIGNATURE_INK;
+					page.drawText(safeText, {
+						x: textX,
+						y: baseline,
+						size,
+						font: pdfFont,
+						color: hexToRgb(ink),
+					});
+				}
 			}
-			const embeddedImageDest = await imgPromise;
-			const imgW = embeddedImageDest.width;
-			const imgH = embeddedImageDest.height;
-			const dampedH = h * 0.8;
-			const targetW = dampedH * (imgW / imgH);
-			const dampedY = y + (h - dampedH) / 2;
-			page.drawImage(embeddedImageDest, {
-				x,
-				y: dampedY,
-				width: targetW,
-				height: dampedH,
-			});
 		} else if (s.type === "highlight" && s.points && s.points.length > 1) {
 			// Always neon yellow + translucent — never inherit pen/line toolbar styles
 			const highlightRgb = hexToRgb(HIGHLIGHT_COLOR);
@@ -664,6 +739,15 @@ export async function flattenWorkspaceToImage(
 		const basePageHeight = img.naturalHeight || img.height;
 
 		const shapes = activeDoc.shapes[1] || [];
+		if (shapes.some((shape) => isCaveatTextStamp(shape))) {
+			try {
+				if (document.fonts?.load) {
+					await document.fonts.load("16px Caveat");
+				}
+			} catch {
+				/* Missing face still draws with the canvas fallback. */
+			}
+		}
 		const imgElements: { [key: number]: HTMLImageElement } = {};
 		for (let i = 0; i < shapes.length; i++) {
 			const shape = shapes[i];
@@ -785,9 +869,38 @@ export async function flattenWorkspaceToImage(
 				ctx.lineTo(x + (22 / 24) * w, y + (12 / 24) * h);
 				ctx.stroke();
 			} else if (shape.type === "signature" || shape.type === "initial") {
-				const sigImg = imgElements[i];
-				if (sigImg) {
-					ctx.drawImage(sigImg, x, y, w, h);
+				if (shape.dataUrl) {
+					const sigImg = imgElements[i];
+					if (sigImg) {
+						ctx.drawImage(sigImg, x, y, w, h);
+					}
+				} else if (isCaveatTextStamp(shape)) {
+					const text = (shape.text || "").trim();
+					ctx.fillStyle = shape.textColor || shape.color || SIGNATURE_INK;
+					ctx.textAlign = "center";
+					ctx.textBaseline = "middle";
+					let size = Math.max(4, h * 0.78);
+					const family = `${CAVEAT_FAMILY}, cursive`;
+					ctx.font = `${size}px ${family}`;
+					for (let n = 0; n < 8; n++) {
+						const measured = ctx.measureText(text).width;
+						const fitW = w * 0.96;
+						const fitH = h * 0.92;
+						if (measured <= fitW && size <= fitH) break;
+						const next =
+							size *
+							Math.min(
+								fitW / Math.max(measured, 0.01),
+								fitH / Math.max(size, 0.01),
+							);
+						if (next >= size - 0.01) {
+							size = Math.max(4, next);
+							break;
+						}
+						size = Math.max(4, next);
+					}
+					ctx.font = `${size}px ${family}`;
+					ctx.fillText(text, x + w / 2, y + h / 2);
 				}
 			} else if (
 				(shape.type === "pen" || shape.type === "highlight") &&

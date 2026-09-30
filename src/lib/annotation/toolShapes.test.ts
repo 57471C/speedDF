@@ -58,6 +58,48 @@ describe("createSignatureOrInitialShape", () => {
 		expect(s.width).toBe(18);
 		expect(s.height).toBe(8);
 		expect(s.dataUrl).toBe("data:image/png;base64,xx");
+		expect(s.text).toBeUndefined();
+		expect(s.fontFamily).toBeUndefined();
+	});
+
+	it("places Caveat text when no image is set", () => {
+		const s = createSignatureOrInitialShape("signature", 50, 40, {
+			ghostW: 32,
+			ghostH: 8,
+			text: "Terry Minett",
+		});
+		expect(s.type).toBe("signature");
+		expect(s.text).toBe("Terry Minett");
+		expect(s.fontFamily).toBe("Caveat");
+		expect(s.textColor).toBe("#1a1a1a");
+		expect(s.dataUrl).toBeUndefined();
+		expect(s.x).toBe(34);
+		expect(s.y).toBe(36);
+	});
+
+	it("keeps the PNG when a data URL is set beside text", () => {
+		const s = createSignatureOrInitialShape("initial", 10, 10, {
+			ghostW: 6,
+			ghostH: 6,
+			dataUrl: "data:image/png;base64,aa",
+			text: "TM",
+		});
+		expect(s.dataUrl).toBe("data:image/png;base64,aa");
+		expect(s.text).toBeUndefined();
+		expect(s.fontFamily).toBeUndefined();
+	});
+
+	it("places initials as Caveat text", () => {
+		const s = createSignatureOrInitialShape("initial", 20, 30, {
+			ghostW: 8,
+			ghostH: 5,
+			text: "TM",
+		});
+		expect(s.type).toBe("initial");
+		expect(s.text).toBe("TM");
+		expect(s.fontFamily).toBe("Caveat");
+		expect(s.width).toBe(8);
+		expect(s.height).toBe(5);
 	});
 });
 

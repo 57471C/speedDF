@@ -143,7 +143,8 @@ export interface AnnotationShape {
 		| "Times-Roman"
 		| "Courier"
 		| "Inter"
-		| "JetBrainsMono";
+		| "JetBrainsMono"
+		| "Caveat";
 	alignment?: "left" | "center" | "right";
 }
 
@@ -230,6 +231,11 @@ export interface SignatureSet {
 	label?: string;
 	/** Short initials e.g. "TM" — also used as comment author badge. */
 	initials?: string;
+	/**
+	 * Typed signature (Caveat). Second source beside signatureDataUrl.
+	 * A saved scan is left in place when this is set.
+	 */
+	signatureText?: string;
 }
 
 export interface SharedDocumentState {
@@ -247,6 +253,8 @@ export interface SharedDocumentState {
 	selectedShapes: { pageNumber: number; index: number }[];
 	savedSignatureSets: SignatureSet[];
 	activeStampDataUrl: string | null;
+	/** Typed stamp string for the signature/initial tool. Null when placing a PNG. */
+	activeStampText: string | null;
 	pageOrder: number[];
 	fileName: string | null;
 	filePath: string | null;
@@ -468,6 +476,7 @@ let scrollHeight = $state(0);
 let clientHeight = $state(0);
 let isClickScrolling = $state(false);
 let activeStampDataUrl = $state<string | null>(null);
+let activeStampText = $state<string | null>(null);
 let savedSignatureSets = $state<SignatureSet[]>(loadSavedSets());
 
 export function loadRecents(): RecentFile[] {
@@ -1495,6 +1504,12 @@ export const activeDoc: SharedDocumentState = {
 	},
 	set activeStampDataUrl(val) {
 		activeStampDataUrl = val;
+	},
+	get activeStampText() {
+		return activeStampText;
+	},
+	set activeStampText(val) {
+		activeStampText = val;
 	},
 	get savedSignatureSets() {
 		return savedSignatureSets;
