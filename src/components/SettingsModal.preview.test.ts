@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/svelte";
+import { cleanup, fireEvent, render, screen } from "@testing-library/svelte";
 import { tick } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsModal from "./SettingsModal.svelte";
@@ -27,6 +27,7 @@ describe("Settings Preview section", () => {
 		previewTest.invoke.mockResolvedValue({
 			explorer: "yes",
 			outlook_clicktorun: "yes",
+			svg: "no",
 			dll_path: "C:\\speeddf_preview.dll",
 			cancelled: false,
 			message: "",
@@ -46,6 +47,7 @@ describe("Settings Preview section", () => {
 		expect(screen.queryByRole("button", { name: "Repair" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Disable" })).toBeNull();
 		expect(screen.queryByText("Markdown preview in Explorer and Outlook")).toBeNull();
+		expect(screen.queryByText("SVG preview in Explorer and Outlook")).toBeNull();
 		expect(previewTest.invoke).not.toHaveBeenCalled();
 	});
 
@@ -54,6 +56,7 @@ describe("Settings Preview section", () => {
 		render(SettingsModal, { show: true });
 		expect(screen.getByRole("heading", { name: "Preview" })).toBeTruthy();
 		expect(screen.getByText("Markdown preview in Explorer and Outlook")).toBeTruthy();
+		expect(screen.getByText("SVG preview in Explorer and Outlook")).toBeTruthy();
 		for (const name of ["Enable", "Repair", "Disable"]) {
 			const button = screen.getByRole("button", { name });
 			const html = button.innerHTML.toLowerCase();
@@ -62,7 +65,25 @@ describe("Settings Preview section", () => {
 			expect(html).toContain("url(#speeddf-uac-");
 			expect(button.querySelectorAll("svg")).toHaveLength(1);
 		}
-		await tick();
-		expect(previewTest.invoke).toHaveBeenCalled();
+		for (let i = 0; i < 8; i++) {
+			await tick();
+			await Promise.resolve();
+		}
+		expect(previewTest.invoke).toHaveBeenCalledWith("preview_registration_status");
+		const svgBox = screen.getByRole("checkbox", { name: "SVG preview in Explorer and Outlook" });
+		const markdownBox = screen.getByRole("checkbox", {
+			name: "Markdown preview in Explorer and Outlook",
+		});
+		expect((markdownBox as HTMLInputElement).checked).toBe(true);
+		expect((svgBox as HTMLInputElement).checked).toBe(false);
+		expect(screen.getByText(/svg=no/)).toBeTruthy();
+		await fireEvent.click(svgBox);
+		expect(previewTest.invoke).toHaveBeenCalledWith("preview_registration_apply", {
+			action: "register-svg",
+		});
+		expect(previewTest.invoke).not.toHaveBeenCalledWith("preview_registration_apply", {
+			action: "register",
+		});
+		expect((markdownBox as HTMLInputElement).checked).toBe(true);
 	});
 });

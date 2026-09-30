@@ -20,6 +20,8 @@
     isWindowsPlatform,
     previewIsOn,
     previewStatusLine,
+    previewSvgOn,
+    type PreviewAction,
     type PreviewRegistration,
   } from "../lib/preview/previewRegistration";
 
@@ -55,6 +57,7 @@
   let previewBusy = $state(false);
   let previewMessage = $state("");
   let previewChecked = $derived(previewIsOn(previewStatus));
+  let previewSvgChecked = $derived(previewSvgOn(previewStatus));
 
   async function refreshPreview() {
     try {
@@ -65,7 +68,7 @@
     }
   }
 
-  async function runPreview(action: "register" | "unregister") {
+  async function runPreview(action: PreviewAction) {
     if (previewBusy) return;
     previewBusy = true;
     previewMessage = "";
@@ -87,6 +90,12 @@
     const input = event.currentTarget as HTMLInputElement;
     input.checked = previewChecked;
     void runPreview(previewChecked ? "unregister" : "register");
+  }
+
+  function onSvgToggle(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    input.checked = previewSvgChecked;
+    void runPreview(previewSvgChecked ? "unregister-svg" : "register-svg");
   }
 
   function closeWithoutSave() {
@@ -334,7 +343,7 @@
                 Preview
               </h4>
               <p class="text-[10px] mb-2" style="color: var(--sdf-text-muted);">
-                Opt in to Markdown preview in Explorer and Outlook. Windows asks for administrator approval for that step only. speedDF itself stays a per-user install.
+                Opt in to Markdown preview in Explorer and Outlook. SVG preview in Explorer and Outlook is a separate choice and stays off until you turn it on. Windows asks for administrator approval for each change. speedDF itself stays a per-user install.
               </p>
               <label
                 class="settings-row flex items-center justify-between gap-3 px-3 py-2 rounded-lg border cursor-pointer"
@@ -348,6 +357,21 @@
                   checked={previewChecked}
                   disabled={previewBusy || previewStatus === null}
                   onchange={onPreviewToggle}
+                />
+              </label>
+              <label
+                class="settings-row flex items-center justify-between gap-3 px-3 py-2 mt-2 rounded-lg border cursor-pointer"
+              >
+                <span class="text-[12px] font-medium" style="color: var(--sdf-text-primary);">
+                  SVG preview in Explorer and Outlook
+                </span>
+                <input
+                  type="checkbox"
+                  class="settings-toggle"
+                  checked={previewSvgChecked}
+                  disabled={previewBusy || previewStatus === null}
+                  title="Windows will ask for administrator approval"
+                  onchange={onSvgToggle}
                 />
               </label>
               <p class="text-[10px] mt-2 break-all" style="color: var(--sdf-text-muted);">

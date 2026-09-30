@@ -11,6 +11,7 @@ use tauri::{AppHandle, Manager};
 pub struct PreviewRegistration {
     pub explorer: String,
     pub outlook_clicktorun: String,
+    pub svg: String,
     pub dll_path: String,
     pub cancelled: bool,
     pub message: String,
@@ -29,31 +30,21 @@ pub async fn preview_registration_apply(
     app: AppHandle,
     action: String,
 ) -> Result<PreviewRegistration, String> {
-    if action != "register" && action != "unregister" {
-        return Err("Preview action must be register or unregister.".to_string());
-    }
     let (helper, dll) = find_pair(&app)?;
-    if action == "register" && !dll.is_file() {
+    let args = helper_args(&action, &dll)?;
+    if needs_dll(&action) && !dll.is_file() {
+        let label = if action == "register" {
+            "Markdown preview DLL"
+        } else {
+            "Preview DLL"
+        };
         return Err(format!(
-            "Markdown preview DLL was not found next to the helper ({}).",
+            "{label} was not found next to the helper ({}).",
             dll.display()
         ));
     }
     let helper_for_status = helper.clone();
-    let output = tauri::async_runtime::spawn_blocking(move || {
-        run_helper(
-            &helper,
-            if action == "register" {
-                vec![
-                    "register".to_string(),
-                    "--dll".to_string(),
-                    dll.to_string_lossy().to_string(),
-                ]
-            } else {
-                vec!["unregister".to_string()]
-            },
-        )
-    })
+    let output = tauri::async_runtime::spawn_blocking(move || run_helper(&helper, args))
     .await
     .map_err(|err| err.to_string())?
     .map_err(|err| err.to_string())?;
@@ -77,6 +68,7 @@ pub async fn preview_registration_apply(
     if let Ok(parsed) = parse_status(&stdout_text(&output)) {
         status.explorer = parsed.explorer;
         status.outlook_clicktorun = parsed.outlook_clicktorun;
+        status.svg = parsed.svg;
         status.dll_path = parsed.dll_path;
     }
     Ok(status)
@@ -125,13 +117,48 @@ fn parse_status(stdout: &str) -> Result<PreviewRegistration, String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    let svg = value
+        .get("svg")
+        .and_then(|v| v.as_str())
+        .filter(|v| *v == "yes" || *v == "no")
+        .unwrap_or("no")
+        .to_string();
     Ok(PreviewRegistration {
         explorer,
         outlook_clicktorun: outlook,
+        svg,
         dll_path,
         cancelled: false,
         message: String::new(),
     })
+}
+
+/// Markdown actions never pass `--svg`. SVG actions never pass a markdown-only register.
+fn helper_args(action: &str, dll: &Path) -> Result<Vec<String>, String> {
+    let dll_arg = dll.to_string_lossy().to_string();
+    match action {
+        "register" => Ok(vec![
+            "register".to_string(),
+            "--dll".to_string(),
+            dll_arg,
+        ]),
+        "unregister" => Ok(vec!["unregister".to_string()]),
+        "register-svg" => Ok(vec![
+            "register".to_string(),
+            "--svg".to_string(),
+            "--dll".to_string(),
+            dll_arg,
+        ]),
+        "unregister-svg" => Ok(vec!["unregister".to_string(), "--svg".to_string()]),
+        _ => Err(
+            "Preview action must be register, unregister, register-svg, or unregister-svg."
+                .to_string(),
+        ),
+    }
+}
+
+fn needs_dll(action: &str) -> bool {
+    action == "register" || action == "register-svg"
 }
 
 fn stdout_text(output: &Output) -> String {
@@ -232,7 +259,7 @@ fn dll_beside(dir: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{dll_beside, push_dir, DLL_FILE, HELPER_FILE};
+    use super::{dll_beside, helper_args, needs_dll, parse_status, push_dir, DLL_FILE, HELPER_FILE};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -281,5 +308,57 @@ mod tests {
         assert_eq!(dirs.len(), 2);
         assert_eq!(dirs[0], app);
         assert!(dirs[0].join(HELPER_FILE).ends_with(HELPER_FILE));
+    }
+
+    #[test]
+    fn markdown_actions_do_not_pass_svg() {
+        let dll = PathBuf::from(r"C:\speeddf_preview.dll");
+        let register = helper_args("register", &dll).unwrap();
+        assert_eq!(
+            register,
+            vec![
+                "register".to_string(),
+                "--dll".to_string(),
+                r"C:\speeddf_preview.dll".to_string()
+            ]
+        );
+        assert!(!register.iter().any(|arg| arg == "--svg"));
+        assert_eq!(
+            helper_args("unregister", &dll).unwrap(),
+            vec!["unregister".to_string()]
+        );
+        let svg = helper_args("register-svg", &dll).unwrap();
+        assert_eq!(
+            svg,
+            vec![
+                "register".to_string(),
+                "--svg".to_string(),
+                "--dll".to_string(),
+                r"C:\speeddf_preview.dll".to_string()
+            ]
+        );
+        assert_eq!(
+            helper_args("unregister-svg", &dll).unwrap(),
+            vec!["unregister".to_string(), "--svg".to_string()]
+        );
+        assert!(helper_args("register-pdf", &dll).is_err());
+        assert!(needs_dll("register") && needs_dll("register-svg"));
+        assert!(!needs_dll("unregister") && !needs_dll("unregister-svg"));
+    }
+
+    #[test]
+    fn missing_svg_field_is_off() {
+        let parsed = parse_status(
+            r#"{"explorer":"yes","outlook_clicktorun":"no","dll_path":"C:\\speeddf_preview.dll"}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.svg, "no");
+        assert_eq!(parsed.explorer, "yes");
+        let svg = parse_status(
+            r#"{"explorer":"no","outlook_clicktorun":"yes","svg":"yes","dll_path":""}"#,
+        )
+        .unwrap();
+        assert_eq!(svg.svg, "yes");
+        assert_eq!(svg.outlook_clicktorun, "yes");
     }
 }

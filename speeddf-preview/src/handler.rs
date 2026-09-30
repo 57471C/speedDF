@@ -24,9 +24,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WS_CLIPSIBLINGS, WS_VISIBLE,
 };
 
-use crate::logutil::finish;
+use crate::logutil::{finish, log_event};
 use crate::markdown::markdown_document;
 use crate::paint::wnd_proc;
+use crate::svg::{self, SVG_REFUSE};
 use crate::webview::{self, WebSession};
 
 pub(crate) static MODULE: AtomicIsize = AtomicIsize::new(0);
@@ -333,21 +334,45 @@ impl PreviewHandler_Impl {
         let Some(stream) = stream else {
             return Err(E_UNEXPECTED.into());
         };
-        let source = read_stream_utf8(&stream);
-        let source_chars = source.chars().count();
-        let html = markdown_document(&source);
-        let filename = stream_file_name(&stream)
-            .map(|name| file_label(&name))
-            .filter(|label| !label.is_empty())
-            .unwrap_or_default();
-        let caption = if filename.is_empty() {
-            caption_of(&source)
+        let raw_name = stream_file_name(&stream).unwrap_or_default();
+        let filename = file_label(&raw_name);
+        let filename = if filename.is_empty() {
+            String::new()
         } else {
-            filename.clone()
+            filename
+        };
+        let (text, html, source_chars, caption) = if svg::is_svg_name(&filename) {
+            let (bytes, truncated) = read_stream_bytes(&stream);
+            let source_chars = bytes.len();
+            let logged = log_label(if raw_name.is_empty() {
+                &filename
+            } else {
+                &raw_name
+            });
+            match svg::prepare_svg(&bytes, truncated) {
+                Ok(page) => {
+                    log_event("svg", &format!("name={logged}"), 0);
+                    (String::new(), page, source_chars, filename.clone())
+                }
+                Err(reason) => {
+                    log_event("svg", &format!("name={logged} refuse={reason}"), E_FAIL.0);
+                    (SVG_REFUSE.to_string(), String::new(), source_chars, filename.clone())
+                }
+            }
+        } else {
+            let source = read_stream_utf8(&stream);
+            let source_chars = source.chars().count();
+            let html = markdown_document(&source);
+            let caption = if filename.is_empty() {
+                caption_of(&source)
+            } else {
+                filename.clone()
+            };
+            (source, html, source_chars, caption)
         };
         {
             let mut state = self.state.borrow_mut();
-            state.text = source;
+            state.text = text;
             state.caption = caption;
             state.filename = filename;
             state.html = html;
@@ -478,6 +503,17 @@ fn ensure_class() -> windows::core::Result<()> {
 }
 
 fn read_stream_utf8(stream: &IStream) -> String {
+    let (buf, _) = read_stream_bytes(stream);
+    let mut buf = buf;
+    if buf.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        buf.drain(..3);
+    }
+    let mut text = String::from_utf8_lossy(&buf).into_owned();
+    text.retain(|ch| ch != '\0');
+    text
+}
+
+fn read_stream_bytes(stream: &IStream) -> (Vec<u8>, bool) {
     let _ = unsafe { stream.Seek(0, STREAM_SEEK_SET, None) };
     let mut buf = Vec::new();
     let mut chunk = [0u8; 64 * 1024];
@@ -492,16 +528,27 @@ fn read_stream_utf8(stream: &IStream) -> String {
             )
         };
         if hr.is_err() || read == 0 {
-            break;
+            return (buf, false);
         }
         buf.extend_from_slice(&chunk[..read as usize]);
     }
-    if buf.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        buf.drain(..3);
-    }
-    let mut text = String::from_utf8_lossy(&buf).into_owned();
-    text.retain(|ch| ch != '\0');
-    text
+    let mut extra = [0u8; 1];
+    let mut read = 0u32;
+    let hr = unsafe {
+        stream.Read(
+            extra.as_mut_ptr() as *mut core::ffi::c_void,
+            1,
+            Some(&mut read),
+        )
+    };
+    (buf, hr.is_ok() && read > 0)
+}
+
+fn log_label(name: &str) -> String {
+    name.chars()
+        .filter(|ch| *ch != '\n' && *ch != '\r' && *ch != '\t')
+        .take(260)
+        .collect()
 }
 
 fn stream_file_name(stream: &IStream) -> Option<String> {
