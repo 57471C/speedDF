@@ -24,6 +24,10 @@
     findMarkdownContentRoot,
   } from "../lib/markdown/thumbnail";
   import { encodeMarkdownSource } from "../lib/markdown/source";
+  import {
+    rememberSaveAsDirectory,
+    resolveSaveAsDefaultPath,
+  } from "../lib/save/lastSaveDir";
 
   let {
     onMinimize,
@@ -236,9 +240,14 @@
             ? [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }]
             : [{ name: "PDF", extensions: ["pdf"] }];
 
-      // 2. Pass these filters down into the native Tauri save picker launch options
+      // 2. Pass these filters down into the native Tauri save picker launch options.
+      // Full path when the folder still exists; file name only if it does not.
+      const defaultPath = await resolveSaveAsDefaultPath(
+        activeDoc.filePath,
+        defaultName,
+      );
       const savedPath = await save({
-        defaultPath: defaultName,
+        defaultPath,
         filters: dialogFilters
       });
 
@@ -270,6 +279,7 @@
           path: savedPath,
           fileBytes: Array.from(compiledBytes),
         });
+        rememberSaveAsDirectory(savedPath);
         // Rebind path/name + rawBytes + clear dirty BEFORE unlocking the UI
         await commitActiveDocumentAfterSave({
           compiledBytes,
