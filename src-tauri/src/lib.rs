@@ -4,8 +4,10 @@ use std::io::{Read, Write};
 use std::path::{Component, Path};
 use tiff::decoder::{Decoder, DecodingResult};
 mod commands;
+mod email_attach;
 mod preview_register;
 use commands::run_local_ocr;
+use email_attach::{compose_email_with_attachment, write_mail_attachment};
 use preview_register::{preview_registration_apply, preview_registration_status};
 
 /// Validates that an incoming frontend path string does not contain parent directory
@@ -16,7 +18,7 @@ use preview_register::{preview_registration_apply, preview_registration_status};
 /// null-byte injection — not a directory sandbox.
 ///
 /// Returns a sanitized PathBuf on success, or a security error string on violation.
-fn secure_verify_path(input_path: &str) -> Result<std::path::PathBuf, String> {
+pub(crate) fn secure_verify_path(input_path: &str) -> Result<std::path::PathBuf, String> {
     if input_path.is_empty() {
         return Err("Security Violation: Empty path is not permitted.".to_string());
     }
@@ -44,7 +46,7 @@ fn secure_verify_path(input_path: &str) -> Result<std::path::PathBuf, String> {
 
 /// Extract a single path segment suitable for use as a file name (no directories).
 /// Rejects empty names, `.`, and `..`.
-fn secure_file_name(input: &str) -> Result<std::ffi::OsString, String> {
+pub(crate) fn secure_file_name(input: &str) -> Result<std::ffi::OsString, String> {
     if input.is_empty() || input.contains('\0') {
         return Err("Security Violation: Invalid file name provided.".to_string());
     }
@@ -742,6 +744,8 @@ pub fn run() {
             check_startup_file,
             unprotect_pdf,
             write_temp_file,
+            write_mail_attachment,
+            compose_email_with_attachment,
             native_spool_pdf_bytes,
             check_files_exist,
             directory_exists,
