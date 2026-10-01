@@ -3,6 +3,7 @@
 
 use std::ffi::OsString;
 use std::io::Write;
+#[cfg(windows)]
 use std::path::{Path, PathBuf};
 
 use crate::{secure_file_name, secure_verify_path};
