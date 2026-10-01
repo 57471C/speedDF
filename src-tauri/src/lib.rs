@@ -245,6 +245,56 @@ async fn native_spool_pdf_bytes(bytes: Vec<u8>) -> Result<String, String> {
     Ok("Backend hook cleared. Handled via isolated frontend channel safely.".into())
 }
 
+/// How long Save As waits for a directory probe. A disconnected network drive
+/// can block `metadata` for tens of seconds; past this the folder is treated
+/// as missing so the dialog can open on a file name alone.
+const DIRECTORY_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(2000);
+
+fn path_is_directory(path: &Path) -> bool {
+    match std::fs::metadata(path) {
+        Ok(meta) => meta.is_dir(),
+        Err(_) => false,
+    }
+}
+
+/// `true` only when `check` finishes in time and reports a directory.
+/// A timeout (typical of an unreachable network drive) is `false`.
+async fn directory_probe_with_timeout(
+    check: impl std::future::Future<Output = bool>,
+    timeout: std::time::Duration,
+) -> bool {
+    match tokio::time::timeout(timeout, check).await {
+        Ok(is_dir) => is_dir,
+        Err(_) => false,
+    }
+}
+
+/// `true` when `path` is an absolute existing directory.
+/// Relative paths, traversal, and probe timeouts report `false`.
+#[tauri::command]
+async fn directory_exists(path: String) -> bool {
+    let Ok(safe) = secure_verify_path(&path) else {
+        return false;
+    };
+    // Own thread, not the shared blocking pool: a timed-out network probe
+    // must not keep a pool thread until the OS call returns.
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    if std::thread::Builder::new()
+        .name("speeddf-dir-probe".into())
+        .spawn(move || {
+            let _ = tx.send(path_is_directory(&safe));
+        })
+        .is_err()
+    {
+        return false;
+    }
+    directory_probe_with_timeout(
+        async move { rx.await.unwrap_or(false) },
+        DIRECTORY_PROBE_TIMEOUT,
+    )
+    .await
+}
+
 #[tauri::command]
 fn check_files_exist(paths: Vec<String>) -> std::collections::HashMap<String, bool> {
     paths
@@ -682,6 +732,7 @@ pub fn run() {
             write_temp_file,
             native_spool_pdf_bytes,
             check_files_exist,
+            directory_exists,
             read_file_bytes,
             read_file_binary,
             parse_tiff_document,
@@ -804,5 +855,55 @@ mod tests {
         assert!(secure_file_name("").is_err());
         assert!(secure_file_name("..").is_err());
         assert!(secure_file_name(".").is_err());
+    }
+
+    #[test]
+    fn test_directory_probe_timeout_is_missing() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let missing = rt.block_on(directory_probe_with_timeout(
+            std::future::pending::<bool>(),
+            std::time::Duration::from_millis(30),
+        ));
+        assert!(!missing);
+
+        let present = rt.block_on(directory_probe_with_timeout(
+            async { true },
+            std::time::Duration::from_millis(200),
+        ));
+        assert!(present);
+
+        let not_dir = rt.block_on(directory_probe_with_timeout(
+            async { false },
+            std::time::Duration::from_millis(200),
+        ));
+        assert!(!not_dir);
+    }
+
+    #[test]
+    fn test_directory_exists() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+
+        let dir = std::env::temp_dir().join(format!("speeddf_dir_probe_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let file = dir.join("not_a_dir.txt");
+        std::fs::write(&file, b"x").expect("temp file");
+        let missing = dir.join("does_not_exist");
+
+        assert!(rt.block_on(directory_exists(dir.to_string_lossy().into_owned())));
+        assert!(!rt.block_on(directory_exists(file.to_string_lossy().into_owned())));
+        assert!(!rt.block_on(directory_exists(missing.to_string_lossy().into_owned())));
+        assert!(!rt.block_on(directory_exists(String::new())));
+        assert!(!rt.block_on(directory_exists("relative/dir".to_string())));
+        assert!(!rt.block_on(directory_exists(
+            r"C:\Users\..\Windows".to_string()
+        )));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
