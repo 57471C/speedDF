@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { save } from "@tauri-apps/plugin-dialog";
+  import { tick } from "svelte";
   import * as pdfjsLib from "pdfjs-dist";
   import {
     activeDoc,
@@ -64,6 +65,12 @@
     onUndo?: () => void;
     onRedo?: () => void;
   } = $props();
+
+  let emailOpen = $state(false);
+  let emailName = $state("");
+  let emailError = $state("");
+  let emailBusy = $state(false);
+  let emailInput = $state<HTMLInputElement | null>(null);
 
   interface FilePayload {
     bytes: number[];
@@ -402,6 +409,98 @@
     }
   }
 
+  function mailExtension(): ".pdf" | ".jpg" | ".md" {
+    if (activeDoc.fileType === "image") return ".jpg";
+    if (activeDoc.fileType === "markdown") return ".md";
+    return ".pdf";
+  }
+
+  function forceMailFileName(input: string): string {
+    const ext = mailExtension();
+    let stem = input.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
+    stem = stem.replace(/\.[^./\\]+$/u, "");
+    stem = stem.replace(/[. ]+$/u, "").trim();
+    if (!stem || stem === "." || stem === "..") stem = "Untitled";
+    return `${stem}${ext}`;
+  }
+
+  function prefillMailName(): string {
+    const current = activeDoc.fileName?.trim();
+    if (!current) return `Untitled${mailExtension()}`;
+    return forceMailFileName(current);
+  }
+
+  function emailErrorText(err: unknown): string {
+    if (typeof err === "string" && err.trim()) return err;
+    if (err instanceof Error && err.message.trim()) return err.message;
+    return "Could not create the email.";
+  }
+
+  async function openEmailModal() {
+    if (activeDoc.isSaving || (!activeDoc.rawBytes && !activeDoc.imageUrl)) return;
+    if (emailBusy) return;
+    emailName = prefillMailName();
+    emailError = "";
+    emailOpen = true;
+    await tick();
+    emailInput?.focus();
+    const ext = mailExtension();
+    const stemLen = Math.max(0, emailName.length - ext.length);
+    emailInput?.setSelectionRange(0, stemLen);
+  }
+
+  function cancelEmailModal() {
+    if (emailBusy) return;
+    emailOpen = false;
+    emailError = "";
+  }
+
+  function onEmailKeydown(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelEmailModal();
+    }
+  }
+
+  async function confirmEmailAttach() {
+    if (emailBusy || activeDoc.isSaving) return;
+    if (!activeDoc.rawBytes && !activeDoc.imageUrl) return;
+    const fileName = forceMailFileName(emailName);
+    emailName = fileName;
+    emailError = "";
+    if (!beginSavingLock()) return;
+    emailBusy = true;
+    try {
+      let compiledBytes: Uint8Array | null = null;
+      if (activeDoc.fileType === "markdown") {
+        compiledBytes = markdownBytesForSave();
+      } else if (activeDoc.fileType === "image") {
+        compiledBytes = await flattenWorkspaceToImage(fileName);
+      } else {
+        compiledBytes = await flattenWorkspaceToPDF();
+      }
+      if (!compiledBytes) {
+        emailError =
+          activeDoc.fileType === "markdown"
+            ? "Failed to encode markdown source."
+            : "Failed to compile the document for email.";
+        return;
+      }
+      const path = await invoke<string>("write_mail_attachment", {
+        fileName,
+        fileBytes: Array.from(compiledBytes),
+      });
+      await invoke("compose_email_with_attachment", { path });
+      emailOpen = false;
+      emailError = "";
+    } catch (err) {
+      emailError = emailErrorText(err);
+    } finally {
+      emailBusy = false;
+      endSavingLock();
+    }
+  }
+
   // Export methods to be called via bind:this reference
   export const triggerOpen = triggerFileOpen;
   export const triggerSave = triggerFileSave;
@@ -519,7 +618,19 @@
           </svg>
         </button>
 
-        <div class="w-px h-4 bg-slate-700 mx-1.5"></div>
+        <div class="w-px h-4 mx-1.5" style="background: var(--sdf-border);"></div>
+
+        <button
+          type="button"
+          onclick={openEmailModal}
+          title="Email current file"
+          class="toolbar-btn"
+          disabled={activeDoc.isSaving || (!activeDoc.rawBytes && !activeDoc.imageUrl)}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+          </svg>
+        </button>
 
         <button 
           disabled={!activeDoc.rawBytes || activeDoc.fileType === "markdown"}
@@ -695,6 +806,93 @@
     </div>
   </div>
 </div>
+
+{#if emailOpen}
+  <div
+    class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[999] flex items-center justify-center p-6 font-sans"
+    role="presentation"
+    onclick={cancelEmailModal}
+    onkeydown={onEmailKeydown}
+  >
+    <form
+      class="border w-full max-w-sm rounded-xl shadow-2xl flex flex-col overflow-hidden"
+      style="background: var(--sdf-bg-chrome); border-color: var(--sdf-border); color: var(--sdf-text-secondary);"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Email current file"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => {
+        onEmailKeydown(e);
+        e.stopPropagation();
+      }}
+      onsubmit={(e) => {
+        e.preventDefault();
+        void confirmEmailAttach();
+      }}
+    >
+      <div
+        class="px-4 py-3 border-b flex items-center justify-between"
+        style="border-color: var(--sdf-border-subtle);"
+      >
+        <span class="text-xs font-bold uppercase tracking-widest" style="color: var(--sdf-text-secondary);">
+          Email current file
+        </span>
+        <button
+          type="button"
+          onclick={cancelEmailModal}
+          disabled={emailBusy}
+          class="text-sm transition-colors disabled:opacity-40"
+          style="color: var(--sdf-text-muted);"
+          title="Cancel"
+          aria-label="Cancel"
+        >✕</button>
+      </div>
+      <div class="p-4 space-y-3">
+        <label class="block text-[11px] font-semibold" style="color: var(--sdf-text-primary);" for="email-attach-name">
+          File name
+        </label>
+        <input
+          id="email-attach-name"
+          bind:this={emailInput}
+          bind:value={emailName}
+          disabled={emailBusy}
+          class="w-full rounded-md border px-2 py-1.5 text-xs outline-none select-text"
+          style="background: var(--sdf-bg-input); border-color: var(--sdf-border); color: var(--sdf-text-primary);"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <p class="text-[11px] leading-snug" style="color: var(--sdf-text-muted);">
+          Opens an Outlook draft with this file attached.
+        </p>
+        {#if emailError}
+          <p class="text-[11px] leading-snug" style="color: #dc2626;" role="alert">{emailError}</p>
+        {/if}
+      </div>
+      <div
+        class="px-4 py-3 border-t flex items-center justify-end gap-2"
+        style="border-color: var(--sdf-border-subtle);"
+      >
+        <button
+          type="button"
+          onclick={cancelEmailModal}
+          disabled={emailBusy}
+          class="px-3 py-1.5 rounded-md text-[11px] font-semibold disabled:opacity-40"
+          style="color: var(--sdf-text-secondary);"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={emailBusy}
+          class="px-3 py-1.5 rounded-md text-[11px] font-semibold disabled:opacity-40"
+          style="background: var(--sdf-accent); color: #041016;"
+        >
+          {emailBusy ? "Creating…" : "Create email"}
+        </button>
+      </div>
+    </form>
+  </div>
+{/if}
 
 <style>
   .toolbar-btn {
