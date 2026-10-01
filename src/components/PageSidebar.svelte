@@ -860,16 +860,13 @@
           {/if}
 
           {#if activeDoc.fileType !== "markdown"}
-          <div
-            class="flex items-center justify-center gap-1 mt-2.5 w-full transition-opacity
-            {isPageMenuOpen && insertAfterPageNum === pageNum ? 'opacity-100' : 'opacity-40 group-hover:opacity-100'}"
-          >
+          <div class="flex items-center justify-center gap-1 mt-2.5 w-full">
             <button
               onclick={(e) => {
                 e.stopPropagation();
                 rotatePageAction(pageNum, "counter");
               }}
-              class="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+              class="sdf-thumb-action p-1 rounded transition-colors"
               title="Rotate Left"
             >
               <svg
@@ -897,7 +894,7 @@
                   insertAfterPageNum = pageNum;
                   isPageMenuOpen = !isPageMenuOpen;
                 }}
-                class="p-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors {isSimpleDoc ? 'opacity-30 pointer-events-none' : ''}"
+                class="sdf-thumb-action p-1 rounded transition-colors"
                 title={isSimpleDoc ? "Structural merging and page injection require a PDF layout document." : "Page Options"}
               >
                 <svg
@@ -959,10 +956,7 @@
               <button
                 type="button"
                 disabled={activeDoc.pageOrder.length <= 1}
-                class="p-1 rounded transition-all 
-                  {activeDoc.pageOrder.length <= 1 
-                    ? 'opacity-20 cursor-not-allowed pointer-events-none text-slate-600' 
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-red-400'}"
+                class="sdf-thumb-action p-1 rounded transition-colors"
                 onclick={(e) => {
                   e.stopPropagation();
                   if (activeDoc.pageOrder.length <= 1) return;
@@ -993,7 +987,7 @@
                 e.stopPropagation();
                 rotatePageAction(pageNum, "clockwise");
               }}
-              class="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+              class="sdf-thumb-action p-1 rounded transition-colors"
               title="Rotate Right"
             >
               <svg
@@ -1367,6 +1361,20 @@
 {/if}
 
 <style>
+  /* Card action glyphs stay solid in both themes. Hover brightens; hit box stays p-1. */
+  .sdf-thumb-action {
+    color: var(--sdf-text-primary);
+  }
+  .sdf-thumb-action:hover:not(:disabled) {
+    color: var(--sdf-accent-text);
+    background: var(--sdf-hover-bg);
+  }
+  .sdf-thumb-action:disabled {
+    color: var(--sdf-text-primary);
+    opacity: 0.85;
+    cursor: not-allowed;
+  }
+
   /* Styles the emulated floating card preview to track the cursor seamlessly over the modal panel layer */
   :global(.sortable-fallback) {
     position: fixed !important;
