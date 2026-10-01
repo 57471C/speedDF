@@ -65,6 +65,11 @@ If you just need to rotate a page, sign a form, highlight a clause, or merge a f
 - Dark and light themes
 - Recent documents with thumbnails
 - Optional offline OCR (models download on demand)
+- Window size, position, and maximized restored on next launch
+- Save As opens in the last saved folder when that path is still reachable
+- Rotate left/right on the centre zoom bar (PDF pages)
+- Email current file (Windows): confirm filename, flatten live doc, Outlook draft with attachment
+- Thumbnail card icons use theme tokens (readable in light and dark)
 
 ---
 

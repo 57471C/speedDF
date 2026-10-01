@@ -811,4 +811,20 @@ Source editing must **write back to `markdownSource`**, then re-project. Never t
 
 ---
 
-**Last Updated:** September 2026 — **v1.2.5** (Markdown preview-first Edit/Preview, theme-token preview ~78ch, fenced yaml/sql/go/java/c/ini, `data-md-line` scroll sync, 25–75% gutter, page sidebar hidden for markdown; prior: SVG-as-image, continuous markdown viewer, 150% open zoom, fixed-palette thumbs, secondary doc windows, image resize, multi-select, HEIC, forms, hyperlinks, workspaceId / Save As)
+## Section AA: Window Restore, Save As Folder, Email (v1.3.1)
+
+### Window state
+
+`tauri-plugin-window-state` **2.4.1** restores **SIZE | POSITION | MAXIMIZED** for the `main` window only. Plugin **2.5** expects **Tauri 2.12**; this app stays on the pinned Tauri 2.11 / plugin 2.4.1 pair. Do not bump the plugin alone.
+
+### Save As last directory
+
+Before the save dialog uses a folder, `directory_exists` probes it on a short timeout. An unreachable network drive is skipped so the picker opens on a filename only.
+
+### Email current file
+
+Windows only. The live document is flattened into `%TEMP%\speeddf-mail`, then Outlook shows a draft (`Display()`, not `Send()`). Fallback is classic `outlook.exe /a`. New Outlook has no COM automation.
+
+---
+
+**Last Updated:** October 2026 — **v1.3.1** (window state 2.4.1, Save As net-drive skip, email Display not Send; prior: **v1.2.5** Markdown preview-first Edit/Preview, theme-token preview ~78ch, fenced yaml/sql/go/java/c/ini, `data-md-line` scroll sync, 25–75% gutter, page sidebar hidden for markdown; SVG-as-image, continuous markdown viewer, 150% open zoom, fixed-palette thumbs, secondary doc windows, image resize, multi-select, HEIC, forms, hyperlinks, workspaceId / Save As)
