@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	clearLayoutMetaCache,
 	contentKeyForBytes,
 	layoutMetaStorageKey,
+	loadPersistedThumbnails,
 } from "./thumbnailPersist";
 
 describe("contentKeyForBytes", () => {
@@ -38,5 +39,19 @@ describe("layout meta cache keys", () => {
 		expect(localStorage.getItem(key)).not.toBeNull();
 		clearLayoutMetaCache(path);
 		expect(localStorage.getItem(key)).toBeNull();
+	});
+});
+
+describe("loadPersistedThumbnails", () => {
+	it("returns null and logs a warning on IDB load failure", async () => {
+		// In this test environment, indexedDB is undefined, so openDb() rejects.
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const result = await loadPersistedThumbnails("dummyPath", "dummyKey");
+		expect(result).toBeNull();
+		expect(warnSpy).toHaveBeenCalledWith(
+			"Thumbnail IDB load failed:",
+			expect.any(Error),
+		);
+		warnSpy.mockRestore();
 	});
 });
