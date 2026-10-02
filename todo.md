@@ -56,7 +56,7 @@ It puts a standard HTML input text area right on top of it, lets the user type w
 - [x] On the main page before any document is loaded: remove the green pulsing dot in the left top corner (it's not needed). landscape pages are bunched up they should be allowed more padding.
 
 ---
-- Can't OCR images (only PDF's work)
+- [x] Can't OCR images (only PDF's work)
 - Old install files clean-up
 - Sometimes undo does the last two things (possible grouping or multi select - needs investigation).
 
@@ -226,3 +226,10 @@ Review and safely update npm and Cargo dependencies without breaking the app.
 - Safe updates applied
 - App still builds and type-checks
 - Clear summary of changes for the PR description
+
+## Future (worth doing)
+- [ ] Real redaction: remove text and image bytes under the box, then flatten. A black rectangle is not redaction.
+- [ ] Click-to-edit an existing pdf.js text run and rewrite that run on save. No reflow engine.
+- [ ] Save a smaller copy: downsample images over a size cap.
+- [ ] OCR only when a page has no text layer; cache the words. Do not add a second engine.
+- [ ] Print must match screen: rotation, annotations, page order.
