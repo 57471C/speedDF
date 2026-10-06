@@ -6,6 +6,11 @@
 - [x] Split scroll follows `data-md-line`, not pane-height ratio. Gutter is 25–75% (`markdownSplitRatio`, per document). Narrow layout stacks with no gutter.
 - [x] Page sidebar is hidden for markdown. PDF/image sidebars, Recent, and document tabs stay.
 
+## Email draft (v1.3.1) ##
+- [x] Windows only. Flatten the live file into `%TEMP%\speeddf-mail`, then classic Outlook `Display()` — never `Send()`. Leave the temp attachment in place.
+- [x] If COM fails, fall back to classic `outlook.exe /a` (then Office16 `OUTLOOK.EXE`). New Outlook has no COM.
+- [x] After the draft exists, bring that inspector in front of speedDF. Do not steal focus before the window exists, and do not raise an Outlook window that was already open.
+
 ## Fixes ##
 - [x] page rotation must include pdf.js text layer + save/reload
 - [x] if the user changes the font size in the text annotation tool. ensure it's persistant. example. user changes the size from 16pt to 20pt and clicks to add text, isn't happy with the placment so they click elswhere. the size reverts to 16pt because text wasn't drawn to the page.
@@ -20,6 +25,9 @@
 4. ~~R/click tab - "Open in new window"~~ 
 5. Forms creation (NOT XFA Forms!) + hyperlinks
 6. ~~Tools: scratch pad/clip board (persistant across all docs)~~
+
+## Future ##
+- [ ] Email without classic Outlook. Today the mail command only tries Outlook COM, then outlook.exe /a. Investigate Simple MAPI so the default client (Thunderbird, new Outlook, Mail) can take the attachment. mailto: cannot attach a file. Do not implement in this pass.
 
 ## long term goals (may never do)
 
