@@ -20,7 +20,8 @@ fn optimized_loop(w: u32, h: u32) -> Vec<f32> {
     let img: Vec<u8> = vec![0; (w * h * 3) as usize];
     for c in 0..3 {
         data.extend(
-            img.chunks_exact(3).map(|p| (p[c as usize] as f32 / 255.0 - 0.5) / 0.5)
+            img.chunks_exact(3)
+                .map(|p| (p[c as usize] as f32 / 255.0 - 0.5) / 0.5),
         );
     }
     data
@@ -38,13 +39,19 @@ fn main() {
 
     let start = Instant::now();
     for _ in 0..iters {
-        std::hint::black_box(original_loop(std::hint::black_box(w), std::hint::black_box(h)));
+        std::hint::black_box(original_loop(
+            std::hint::black_box(w),
+            std::hint::black_box(h),
+        ));
     }
     println!("original_loop: {:?}", start.elapsed());
 
     let start = Instant::now();
     for _ in 0..iters {
-        std::hint::black_box(optimized_loop(std::hint::black_box(w), std::hint::black_box(h)));
+        std::hint::black_box(optimized_loop(
+            std::hint::black_box(w),
+            std::hint::black_box(h),
+        ));
     }
     println!("optimized_loop: {:?}", start.elapsed());
 }

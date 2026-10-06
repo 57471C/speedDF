@@ -19,9 +19,7 @@ pub struct PreviewRegistration {
 }
 
 #[tauri::command]
-pub async fn preview_registration_status(
-    app: AppHandle,
-) -> Result<PreviewRegistration, String> {
+pub async fn preview_registration_status(app: AppHandle) -> Result<PreviewRegistration, String> {
     let helper = find_helper(&app)?;
     read_status(&helper).await
 }
@@ -46,9 +44,9 @@ pub async fn preview_registration_apply(
     }
     let helper_for_status = helper.clone();
     let output = tauri::async_runtime::spawn_blocking(move || run_helper(&helper, args))
-    .await
-    .map_err(|err| err.to_string())?
-    .map_err(|err| err.to_string())?;
+        .await
+        .map_err(|err| err.to_string())?
+        .map_err(|err| err.to_string())?;
 
     let code = output.status.code().unwrap_or(1);
     let mut status = read_status(&helper_for_status).await?;
@@ -78,10 +76,12 @@ pub async fn preview_registration_apply(
 
 async fn read_status(helper: &Path) -> Result<PreviewRegistration, String> {
     let helper = helper.to_path_buf();
-    let output = tauri::async_runtime::spawn_blocking(move || run_helper(&helper, vec!["status".to_string()]))
-        .await
-        .map_err(|err| err.to_string())?
-        .map_err(|err| err.to_string())?;
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        run_helper(&helper, vec!["status".to_string()])
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(|err| err.to_string())?;
     if !output.status.success() {
         let detail = stderr_text(&output);
         return Err(if detail.is_empty() {
@@ -274,7 +274,9 @@ fn dll_beside(dir: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{dll_beside, helper_args, needs_dll, parse_status, push_dir, DLL_FILE, HELPER_FILE};
+    use super::{
+        dll_beside, helper_args, needs_dll, parse_status, push_dir, DLL_FILE, HELPER_FILE,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -374,7 +376,11 @@ mod tests {
             vec!["unregister".to_string(), "--pdf".to_string()]
         );
         assert!(needs_dll("register") && needs_dll("register-svg") && needs_dll("register-pdf"));
-        assert!(!needs_dll("unregister") && !needs_dll("unregister-svg") && !needs_dll("unregister-pdf"));
+        assert!(
+            !needs_dll("unregister")
+                && !needs_dll("unregister-svg")
+                && !needs_dll("unregister-pdf")
+        );
     }
 
     #[test]

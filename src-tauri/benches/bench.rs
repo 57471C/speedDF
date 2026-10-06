@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use std::hint::black_box;
 use image::{ImageBuffer, Rgb};
+use std::hint::black_box;
 
 fn original_loop(img: &ImageBuffer<Rgb<u8>, Vec<u8>>, target_w: u32, target_h: u32) -> Vec<f32> {
     let mut data = Vec::with_capacity(3 * target_h as usize * target_w as usize);

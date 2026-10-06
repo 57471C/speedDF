@@ -1,9 +1,9 @@
 use futures_util::StreamExt;
 use rayon::prelude::*;
+use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
-use sha2::{Sha256, Digest};
 use tauri::ipc::Channel;
 use tauri::{command, AppHandle, Manager};
 use tokio::sync::OnceCell;
@@ -89,7 +89,9 @@ async fn download_model_if_missing(
         let mut buffer = [0; 8192];
         use std::io::Read;
         while let Ok(count) = file.read(&mut buffer) {
-            if count == 0 { break; }
+            if count == 0 {
+                break;
+            }
             hasher.update(&buffer[..count]);
         }
         let hash = hex::encode(hasher.finalize());
@@ -138,7 +140,12 @@ async fn download_model_if_missing(
     let hash = hex::encode(hasher.finalize());
     if hash != expected_hash {
         let _ = std::fs::remove_file(file_path);
-        return Err(format!("Model hash mismatch for {}. Expected: {}, got: {}", file_path.display(), expected_hash, hash));
+        return Err(format!(
+            "Model hash mismatch for {}. Expected: {}, got: {}",
+            file_path.display(),
+            expected_hash,
+            hash
+        ));
     }
 
     Ok(())
@@ -724,7 +731,15 @@ mod tests {
         file.write_all(b"dummy data").unwrap();
 
         let channel = tauri::ipc::Channel::new(|_| Ok(()));
-        let result = download_model_if_missing(&file_path, "http://invalid-url.com", "797bb0abff798d7200af7685dca7901edffc52bf26500d5bd97282658ee24152", &channel, 0, 1.0).await;
+        let result = download_model_if_missing(
+            &file_path,
+            "http://invalid-url.com",
+            "797bb0abff798d7200af7685dca7901edffc52bf26500d5bd97282658ee24152",
+            &channel,
+            0,
+            1.0,
+        )
+        .await;
 
         assert!(result.is_ok());
 
@@ -741,7 +756,15 @@ mod tests {
         }
 
         let channel = tauri::ipc::Channel::new(|_| Ok(()));
-        let result = download_model_if_missing(&file_path, "http://127.0.0.1:0/invalid", "797bb0abff798d7200af7685dca7901edffc52bf26500d5bd97282658ee24152", &channel, 0, 1.0).await;
+        let result = download_model_if_missing(
+            &file_path,
+            "http://127.0.0.1:0/invalid",
+            "797bb0abff798d7200af7685dca7901edffc52bf26500d5bd97282658ee24152",
+            &channel,
+            0,
+            1.0,
+        )
+        .await;
 
         assert!(result.is_err());
         let err_msg = result.unwrap_err();
