@@ -559,8 +559,8 @@ fn compress_pdf_pipeline(file_path: String) -> Result<String, String> {
 async fn parse_heic_document(path: String) -> Result<Vec<u8>, String> {
     let safe_path = secure_verify_path(&path)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let data = std::fs::read(&safe_path)
-            .map_err(|e| format!("Failed to read HEIC file: {}", e))?;
+        let data =
+            std::fs::read(&safe_path).map_err(|e| format!("Failed to read HEIC file: {}", e))?;
 
         let output = heic::DecoderConfig::new()
             .decode(&data, heic::PixelLayout::Rgba8)
@@ -916,9 +916,7 @@ mod tests {
         assert!(!rt.block_on(directory_exists(missing.to_string_lossy().into_owned())));
         assert!(!rt.block_on(directory_exists(String::new())));
         assert!(!rt.block_on(directory_exists("relative/dir".to_string())));
-        assert!(!rt.block_on(directory_exists(
-            r"C:\Users\..\Windows".to_string()
-        )));
+        assert!(!rt.block_on(directory_exists(r"C:\Users\..\Windows".to_string())));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

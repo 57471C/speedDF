@@ -15,7 +15,7 @@ fn main() {
                 for x_img in 0..w {
                     // simulate get_pixel behavior on flat buffer for Rgb8
                     let pixel_idx = ((y_img * w + x_img) * 3) as usize;
-                    let pixel = &img[pixel_idx..pixel_idx+3];
+                    let pixel = &img[pixel_idx..pixel_idx + 3];
                     let raw_value = pixel[c] as f32 / 255.0;
                     data.push((raw_value - 0.5) / 0.5);
                 }
@@ -27,7 +27,8 @@ fn main() {
     let flat_map = || {
         let mut data = Vec::with_capacity(3 * h as usize * w as usize);
         data.extend((0..3).flat_map(|c| {
-            img.chunks_exact(3).map(move |p| (p[c] as f32 / 255.0 - 0.5) / 0.5)
+            img.chunks_exact(3)
+                .map(move |p| (p[c] as f32 / 255.0 - 0.5) / 0.5)
         }));
         data
     };

@@ -1,10 +1,13 @@
 //! Write a flattened document under %TEMP%\\speeddf-mail and open an Outlook draft.
 //! Display only — this never calls Send, and it never deletes the temp attachment.
+//! Once the draft exists, its inspector is brought in front of speedDF.
 
 use std::ffi::OsString;
 use std::io::Write;
 #[cfg(windows)]
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use windows::Win32::Foundation::HWND;
 
 use crate::{secure_file_name, secure_verify_path};
 
@@ -147,13 +150,18 @@ fn compose_on_windows(path: &Path) -> Result<(), String> {
 
 #[cfg(windows)]
 fn spawn_outlook_exe(path: &Path) -> Result<(), String> {
+    // Snapshot first so a window that was already open is not treated as this draft.
+    let before = outlook_top_level_keys();
     let mut tried = Vec::new();
     match std::process::Command::new("outlook.exe")
         .arg("/a")
         .arg(path)
         .spawn()
     {
-        Ok(_) => return Ok(()),
+        Ok(_) => {
+            foreground_spawned_draft(path, &before);
+            return Ok(());
+        }
         Err(err) => tried.push(format!("outlook.exe ({err})")),
     }
     for exe in office_outlook_candidates() {
@@ -161,7 +169,10 @@ fn spawn_outlook_exe(path: &Path) -> Result<(), String> {
             continue;
         }
         match std::process::Command::new(&exe).arg("/a").arg(path).spawn() {
-            Ok(_) => return Ok(()),
+            Ok(_) => {
+                foreground_spawned_draft(path, &before);
+                return Ok(());
+            }
             Err(err) => tried.push(format!("{} ({err})", exe.display())),
         }
     }
@@ -233,7 +244,305 @@ fn outlook_com_display(path: &Path, subject: &str) -> Result<(), String> {
     let attachments = get_property(&item, "Attachments")?;
     let _added = invoke_method(&attachments, "Add", Some(VARIANT::from(path_str.as_ref())))?;
     let _shown = invoke_method(&item, "Display", None)?;
+    // The draft exists. A foreground failure must not fall through to outlook.exe /a,
+    // which would open a second draft.
+    bring_displayed_inspector_forward(&item);
     Ok(())
+}
+
+/// Display() has returned. GetInspector, Activate, then raise that window.
+#[cfg(windows)]
+fn bring_displayed_inspector_forward(item: &windows::Win32::System::Com::IDispatch) {
+    let Ok(inspector) = mail_item_inspector(item) else {
+        return;
+    };
+    let _ = invoke_method(&inspector, "Activate", None);
+    for attempt in 0..20 {
+        if attempt > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        if let Some(hwnd) = inspector_hwnd(&inspector) {
+            raise_inspector_window(hwnd);
+            return;
+        }
+    }
+}
+
+#[cfg(windows)]
+fn mail_item_inspector(
+    item: &windows::Win32::System::Com::IDispatch,
+) -> Result<windows::Win32::System::Com::IDispatch, String> {
+    if let Ok(value) = invoke_method(item, "GetInspector", None) {
+        if let Ok(inspector) = as_dispatch(&value, "GetInspector") {
+            return Ok(inspector);
+        }
+    }
+    let value = get_variant(item, "GetInspector")?;
+    as_dispatch(&value, "GetInspector")
+}
+
+/// Inspector.HWND is a 32-bit Long. If that value is not a live window, ask IOleWindow.
+#[cfg(windows)]
+fn inspector_hwnd(inspector: &windows::Win32::System::Com::IDispatch) -> Option<HWND> {
+    if let Ok(value) = get_variant(inspector, "HWND") {
+        if let Some(hwnd) = hwnd_from_variant(&value) {
+            if hwnd_is_live(hwnd) {
+                return Some(hwnd);
+            }
+        }
+    }
+    use windows::core::Interface;
+    use windows::Win32::System::Ole::IOleWindow;
+    let ole: IOleWindow = inspector.cast().ok()?;
+    let hwnd = unsafe { ole.GetWindow() }.ok()?;
+    if hwnd_is_live(hwnd) {
+        Some(hwnd)
+    } else {
+        None
+    }
+}
+
+#[cfg(windows)]
+fn hwnd_from_variant(value: &windows::Win32::System::Variant::VARIANT) -> Option<HWND> {
+    use windows::Win32::System::Variant::{
+        VT_I2, VT_I4, VT_I8, VT_INT, VT_TYPEMASK, VT_UI4, VT_UI8, VT_UINT,
+    };
+    let raw_vt = value.vt().0 & VT_TYPEMASK.0;
+    let bits = unsafe {
+        let data = &value.Anonymous.Anonymous.Anonymous;
+        match raw_vt {
+            vt if vt == VT_I4.0 || vt == VT_INT.0 => data.lVal as u32 as usize,
+            vt if vt == VT_UI4.0 || vt == VT_UINT.0 => data.ulVal as usize,
+            vt if vt == VT_I8.0 => data.llVal as u64 as usize,
+            vt if vt == VT_UI8.0 => data.ullVal as usize,
+            vt if vt == VT_I2.0 => data.iVal as u16 as usize,
+            _ => return None,
+        }
+    };
+    if bits == 0 {
+        None
+    } else {
+        Some(HWND(bits as *mut core::ffi::c_void))
+    }
+}
+
+#[cfg(windows)]
+fn hwnd_is_live(hwnd: HWND) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::IsWindow;
+    !hwnd.is_invalid() && unsafe { IsWindow(Some(hwnd)).as_bool() }
+}
+
+/// ShowWindow SW_RESTORE when iconic, then attach this thread to the foreground
+/// thread, SetForegroundWindow, and detach. Does not touch the speedDF window.
+#[cfg(windows)]
+fn raise_inspector_window(hwnd: HWND) {
+    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId, IsIconic, SetForegroundWindow, ShowWindow,
+        SW_RESTORE,
+    };
+
+    if !hwnd_is_live(hwnd) {
+        return;
+    }
+    unsafe {
+        if IsIconic(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        }
+        let foreground = GetForegroundWindow();
+        let foreground_thread = if foreground.is_invalid() {
+            0
+        } else {
+            GetWindowThreadProcessId(foreground, None)
+        };
+        let current = GetCurrentThreadId();
+        let attached = foreground_thread != 0
+            && foreground_thread != current
+            && AttachThreadInput(current, foreground_thread, true).as_bool();
+        let _ = SetForegroundWindow(hwnd);
+        if attached {
+            let _ = AttachThreadInput(current, foreground_thread, false);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn foreground_spawned_draft(path: &Path, before: &[isize]) {
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+    let mut outlook_pids = std::collections::HashMap::<u32, bool>::new();
+    while std::time::Instant::now() < deadline {
+        if let Some(hwnd) = find_new_draft(before, &file_name, &mut outlook_pids) {
+            raise_inspector_window(hwnd);
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+#[cfg(windows)]
+fn outlook_top_level_keys() -> Vec<isize> {
+    let mut outlook_pids = std::collections::HashMap::<u32, bool>::new();
+    top_level_windows()
+        .into_iter()
+        .filter(|hwnd| is_outlook_window(*hwnd, &mut outlook_pids))
+        .map(|hwnd| hwnd.0 as isize)
+        .collect()
+}
+
+#[cfg(windows)]
+fn find_new_draft(
+    before: &[isize],
+    file_name: &str,
+    outlook_pids: &mut std::collections::HashMap<u32, bool>,
+) -> Option<HWND> {
+    for hwnd in top_level_windows() {
+        let key = hwnd.0 as isize;
+        if before.contains(&key) || !is_outlook_window(hwnd, outlook_pids) {
+            continue;
+        }
+        let title = window_text(hwnd);
+        if is_compose_title(&title) {
+            return Some(hwnd);
+        }
+        if is_main_outlook_title(&title) {
+            continue;
+        }
+        if title_has_attachment(&title, file_name) {
+            return Some(hwnd);
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
+fn is_compose_title(title: &str) -> bool {
+    title.to_ascii_lowercase().contains(" - message")
+}
+
+#[cfg(windows)]
+fn is_main_outlook_title(title: &str) -> bool {
+    let title = title.trim().to_ascii_lowercase();
+    title == "outlook" || title.ends_with(" - outlook")
+}
+
+#[cfg(windows)]
+fn title_has_attachment(title: &str, file_name: &str) -> bool {
+    if file_name.is_empty() {
+        return false;
+    }
+    title.to_lowercase().contains(&file_name.to_lowercase())
+}
+
+#[cfg(windows)]
+fn is_outlook_window(hwnd: HWND, outlook_pids: &mut std::collections::HashMap<u32, bool>) -> bool {
+    if !is_visible(hwnd) {
+        return false;
+    }
+    if is_outlook_process(hwnd, outlook_pids) {
+        return true;
+    }
+    window_class(hwnd).eq_ignore_ascii_case("rctrl_renwnd32")
+}
+
+#[cfg(windows)]
+fn is_visible(hwnd: HWND) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::IsWindowVisible;
+    unsafe { IsWindowVisible(hwnd).as_bool() }
+}
+
+#[cfg(windows)]
+fn is_outlook_process(hwnd: HWND, cache: &mut std::collections::HashMap<u32, bool>) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId;
+
+    let mut pid = 0u32;
+    let thread = unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid as *mut u32)) };
+    if thread == 0 || pid == 0 {
+        return false;
+    }
+    if let Some(known) = cache.get(&pid) {
+        return *known;
+    }
+    let outlook = process_image_is_outlook(pid);
+    cache.insert(pid, outlook);
+    outlook
+}
+
+#[cfg(windows)]
+fn process_image_is_outlook(pid: u32) -> bool {
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    let Ok(handle) = (unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }) else {
+        return false;
+    };
+    let mut buf = [0u16; 520];
+    let mut len = buf.len() as u32;
+    let queried = unsafe {
+        QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_WIN32,
+            PWSTR(buf.as_mut_ptr()),
+            &mut len,
+        )
+    };
+    let _ = unsafe { CloseHandle(handle) };
+    if queried.is_err() {
+        return false;
+    }
+    let n = (len as usize).min(buf.len());
+    let full = String::from_utf16_lossy(&buf[..n]);
+    let name = full.rsplit(['\\', '/']).next().unwrap_or(&full);
+    let name = name.to_ascii_lowercase();
+    name == "outlook.exe" || name == "olk.exe"
+}
+
+#[cfg(windows)]
+fn top_level_windows() -> Vec<HWND> {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::LPARAM;
+    use windows::Win32::UI::WindowsAndMessaging::EnumWindows;
+
+    unsafe extern "system" fn each(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let slots = &mut *(lparam.0 as *mut Vec<HWND>);
+        slots.push(hwnd);
+        BOOL(1)
+    }
+
+    let mut slots = Vec::new();
+    let _ = unsafe { EnumWindows(Some(each), LPARAM(&mut slots as *mut Vec<HWND> as isize)) };
+    slots
+}
+
+#[cfg(windows)]
+fn window_text(hwnd: HWND) -> String {
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowTextW;
+    let mut buf = [0u16; 512];
+    let n = unsafe { GetWindowTextW(hwnd, &mut buf) };
+    if n <= 0 {
+        String::new()
+    } else {
+        String::from_utf16_lossy(&buf[..n as usize])
+    }
+}
+
+#[cfg(windows)]
+fn window_class(hwnd: HWND) -> String {
+    use windows::Win32::UI::WindowsAndMessaging::GetClassNameW;
+    let mut buf = [0u16; 128];
+    let n = unsafe { GetClassNameW(hwnd, &mut buf) };
+    if n <= 0 {
+        String::new()
+    } else {
+        String::from_utf16_lossy(&buf[..n as usize])
+    }
 }
 
 #[cfg(windows)]
@@ -307,10 +616,10 @@ fn invoke_method(
 }
 
 #[cfg(windows)]
-fn get_property(
+fn get_variant(
     disp: &windows::Win32::System::Com::IDispatch,
     name: &str,
-) -> Result<windows::Win32::System::Com::IDispatch, String> {
+) -> Result<windows::Win32::System::Variant::VARIANT, String> {
     use windows::core::GUID;
     use windows::Win32::System::Com::DISPATCH_PROPERTYGET;
     use windows::Win32::System::Variant::VARIANT;
@@ -332,6 +641,15 @@ fn get_property(
         )
         .map_err(|err| format!("Outlook '{name}' failed ({})", com_message(&err)))?;
     }
+    Ok(result)
+}
+
+#[cfg(windows)]
+fn get_property(
+    disp: &windows::Win32::System::Com::IDispatch,
+    name: &str,
+) -> Result<windows::Win32::System::Com::IDispatch, String> {
+    let result = get_variant(disp, name)?;
     as_dispatch(&result, name)
 }
 
@@ -410,5 +728,53 @@ mod tests {
     #[test]
     fn prefixes_reserved_device_names() {
         assert_eq!(name("CON.pdf"), "_CON.pdf");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn i4_hwnd_zero_extends_into_the_low_32_bits() {
+        use windows::Win32::System::Variant::VARIANT;
+
+        let negative = VARIANT::from(-16i32);
+        let hwnd = super::hwnd_from_variant(&negative).unwrap();
+        assert_eq!(hwnd.0 as usize, 0xFFFF_FFF0);
+
+        let positive = VARIANT::from(0x12_AB34i32);
+        let hwnd = super::hwnd_from_variant(&positive).unwrap();
+        assert_eq!(hwnd.0 as usize, 0x12_AB34);
+
+        assert!(super::hwnd_from_variant(&VARIANT::from(0i32)).is_none());
+        assert!(super::hwnd_from_variant(&VARIANT::default()).is_none());
+        assert!(super::hwnd_from_variant(&VARIANT::from("nope")).is_none());
+    }
+
+    #[cfg(all(windows, target_pointer_width = "64"))]
+    #[test]
+    fn i8_hwnd_keeps_bits_above_32() {
+        use windows::Win32::System::Variant::VARIANT;
+
+        let value = VARIANT::from(0x1_8000_0000i64);
+        let hwnd = super::hwnd_from_variant(&value).unwrap();
+        assert_eq!(hwnd.0 as usize, 0x1_8000_0000);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn compose_title_is_the_inspector_not_the_main_window() {
+        assert!(super::is_compose_title("Untitled - Message (HTML)"));
+        assert!(super::is_compose_title("report.pdf - Message (Plain Text)"));
+        assert!(!super::is_compose_title("Inbox - Terry - Outlook"));
+        assert!(super::is_main_outlook_title("Inbox - Terry - Outlook"));
+        assert!(super::is_main_outlook_title("  Outlook  "));
+        assert!(!super::is_main_outlook_title("Untitled - Message (HTML)"));
+        assert!(super::title_has_attachment(
+            "notes.pdf - Message (HTML)",
+            "notes.pdf"
+        ));
+        assert!(!super::title_has_attachment(
+            "Untitled - Message (HTML)",
+            "notes.pdf"
+        ));
+        assert!(!super::title_has_attachment("notes.pdf", ""));
     }
 }
