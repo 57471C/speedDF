@@ -108,6 +108,92 @@ describe("OcrPanel", () => {
 		});
 	});
 
+	it("uses Windows OCR on Windows and does not call tract", async () => {
+		Object.defineProperty(window.navigator, "platform", {
+			value: "Win32",
+			configurable: true,
+		});
+		Object.defineProperty(window.navigator, "userAgent", {
+			value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+			configurable: true,
+		});
+		mockInvoke.mockResolvedValue({
+			lines: [{ text: "Hello", box: { x: 1, y: 2, width: 3, height: 4 } }],
+			text: "Hello from Windows OCR",
+			elapsedMs: 12,
+		});
+
+		render(OcrPanel);
+		activeDoc.rawBytes = new Uint8Array([1, 2, 3]);
+		activeDoc.currentPage = 1;
+		activeDoc.fileType = "image";
+
+		await waitFor(() => {
+			expect(screen.getByDisplayValue("Hello from Windows OCR")).toBeTruthy();
+		});
+		const commands = mockInvoke.mock.calls.map((call) => call[0]);
+		expect(commands).toContain("run_windows_ocr");
+		expect(commands).not.toContain("run_local_ocr");
+		const windowsCall = mockInvoke.mock.calls.find(
+			(call) => call[0] === "run_windows_ocr",
+		);
+		expect(windowsCall?.[1]).toEqual(
+			expect.objectContaining({ imagePng: expect.any(Array) }),
+		);
+	});
+
+	it("shows the English OCR pack message and does not retry tract", async () => {
+		Object.defineProperty(window.navigator, "platform", {
+			value: "Win32",
+			configurable: true,
+		});
+		Object.defineProperty(window.navigator, "userAgent", {
+			value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+			configurable: true,
+		});
+		mockInvoke.mockRejectedValue("ocr-language-missing");
+
+		render(OcrPanel);
+		activeDoc.rawBytes = new Uint8Array([1, 2, 3]);
+		activeDoc.currentPage = 1;
+		activeDoc.fileType = "image";
+
+		await waitFor(() => {
+			expect(
+				screen.getByText(
+					/Install the English OCR pack under Settings, Time & language, Language & region/i,
+				),
+			).toBeTruthy();
+		});
+		expect(mockInvoke.mock.calls.map((call) => call[0])).not.toContain(
+			"run_local_ocr",
+		);
+	});
+
+	it("keeps tract on Linux", async () => {
+		Object.defineProperty(window.navigator, "platform", {
+			value: "Linux x86_64",
+			configurable: true,
+		});
+		Object.defineProperty(window.navigator, "userAgent", {
+			value: "Mozilla/5.0 (X11; Linux x86_64)",
+			configurable: true,
+		});
+		mockInvoke.mockResolvedValue("tract text");
+
+		render(OcrPanel);
+		activeDoc.rawBytes = new Uint8Array([1, 2, 3]);
+		activeDoc.currentPage = 1;
+		activeDoc.fileType = "image";
+
+		await waitFor(() => {
+			expect(screen.getByDisplayValue("tract text")).toBeTruthy();
+		});
+		const commands = mockInvoke.mock.calls.map((call) => call[0]);
+		expect(commands).toContain("run_local_ocr");
+		expect(commands).not.toContain("run_windows_ocr");
+	});
+
 	it("should handle error in outer try-catch (TIFF processing setup failure)", async () => {
 		render(OcrPanel);
 
