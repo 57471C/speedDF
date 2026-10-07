@@ -1,6 +1,7 @@
 /**
  * Pure app settings model + localStorage persistence.
- * Defaults: all tools ON; OCR/dictionary OFF; update check ON; dark theme.
+ * Defaults: all tools ON; dictionary OFF; update check ON; dark theme.
+ * OCR defaults on for Windows only when the user has no saved value.
  */
 
 export const APP_SETTINGS_KEY = "speeddf_app_settings";
@@ -40,7 +41,27 @@ export const TOOL_IDS: ToolId[] = [
 	"scratchpad",
 ];
 
-export function defaultAppSettings(): AppSettings {
+/** Platform strings, same shape the preview gate uses. */
+export type SettingsHost = {
+	platform: string;
+	userAgent: string;
+};
+
+function currentHost(): SettingsHost {
+	if (typeof navigator === "undefined") {
+		return { platform: "", userAgent: "" };
+	}
+	return {
+		platform: navigator.platform ?? "",
+		userAgent: navigator.userAgent ?? "",
+	};
+}
+
+function isWindowsHost(host: SettingsHost): boolean {
+	return host.platform.includes("Win") || host.userAgent.includes("Windows");
+}
+
+export function defaultAppSettings(host: SettingsHost = currentHost()): AppSettings {
 	return {
 		version: 1,
 		theme: "dark",
@@ -51,7 +72,8 @@ export function defaultAppSettings(): AppSettings {
 			magic8ball: true,
 			scratchpad: true,
 		},
-		ocr: false,
+		// Windows-only default. A saved boolean always wins in normalizeAppSettings.
+		ocr: isWindowsHost(host),
 		dictionary: false,
 		checkUpdatesOnLaunch: true,
 	};
@@ -64,8 +86,9 @@ function coerceBool(v: unknown, fallback: boolean): boolean {
 /** Merge partial/legacy storage into a full settings object. */
 export function normalizeAppSettings(
 	raw: Partial<AppSettings> | null | undefined,
+	host: SettingsHost = currentHost(),
 ): AppSettings {
-	const d = defaultAppSettings();
+	const d = defaultAppSettings(host);
 	if (!raw || typeof raw !== "object") return d;
 	const tools = { ...d.tools };
 	if (raw.tools && typeof raw.tools === "object") {
@@ -88,14 +111,14 @@ export function normalizeAppSettings(
 	};
 }
 
-export function loadAppSettings(): AppSettings {
+export function loadAppSettings(host: SettingsHost = currentHost()): AppSettings {
 	try {
-		if (typeof localStorage === "undefined") return defaultAppSettings();
+		if (typeof localStorage === "undefined") return defaultAppSettings(host);
 		const raw = localStorage.getItem(APP_SETTINGS_KEY);
-		if (!raw) return defaultAppSettings();
-		return normalizeAppSettings(JSON.parse(raw) as Partial<AppSettings>);
+		if (!raw) return defaultAppSettings(host);
+		return normalizeAppSettings(JSON.parse(raw) as Partial<AppSettings>, host);
 	} catch {
-		return defaultAppSettings();
+		return defaultAppSettings(host);
 	}
 }
 

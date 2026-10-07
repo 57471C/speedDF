@@ -6,6 +6,45 @@
 
   let { onClose } = $props<{ onClose?: () => void }>();
 
+  type OcrBox = { x: number; y: number; width: number; height: number };
+  type OcrLine = { text: string; box: OcrBox };
+  type OcrPage = { lines: OcrLine[]; text: string; elapsedMs: number };
+
+  const WINDOWS_OCR_LANGUAGE_MISSING =
+    "Install the English OCR pack under Settings, Time & language, Language & region.";
+
+  function isWindowsOcrHost(): boolean {
+    if (typeof navigator === "undefined") return false;
+    return navigator.platform.includes("Win") || navigator.userAgent.includes("Windows");
+  }
+
+  function ocrFailureText(err: unknown): string {
+    const raw = typeof err === "string" ? err : String(err);
+    if (raw.includes("ocr-language-missing")) {
+      return WINDOWS_OCR_LANGUAGE_MISSING;
+    }
+    return raw;
+  }
+
+  /** Windows uses Windows.Media.Ocr. Mac and Linux stay on tract. No ONNX fetch on Windows. */
+  async function recognizeDocument(
+    imageBytes: Uint8Array,
+    onProgress: Channel<number>,
+  ): Promise<string> {
+    if (isWindowsOcrHost()) {
+      console.info("[BENCH] engine=windows");
+      const page = await invoke<OcrPage>("run_windows_ocr", {
+        imagePng: Array.from(imageBytes),
+      });
+      return page.text ?? "";
+    }
+    console.info("[BENCH] engine=tract");
+    return invoke<string>("run_local_ocr", {
+      imageBytes: Array.from(imageBytes),
+      onProgress,
+    });
+  }
+
   // Svelte 5 Fine-Grained Reactive State Management
   let engineStatus = $state<'idle' | 'processing' | 'error' | 'success'>('idle');
   let ocrProgress = $state<number>(0);
@@ -35,10 +74,7 @@
     }
     activeTab = "document";
 
-    const textResult = await invoke<string>("run_local_ocr", {
-      imageBytes: Array.from(imageBytes),
-      onProgress: progressChannel,
-    });
+    const textResult = await recognizeDocument(imageBytes, progressChannel);
 
     outputTextResult = textResult;
     engineStatus = "success";
@@ -91,10 +127,7 @@
         };
         activeTab = "document";
 
-        const textResult = await invoke<string>("run_local_ocr", {
-          imageBytes: Array.from(imageBytes),
-          onProgress: progressChannel,
-        });
+        const textResult = await recognizeDocument(imageBytes, progressChannel);
 
         outputTextResult = textResult;
         engineStatus = "success";
@@ -164,17 +197,14 @@
       const arrayBuffer = await blob.arrayBuffer();
       const rawBytesArray = new Uint8Array(arrayBuffer);
 
-      const textResult = await invoke<string>("run_local_ocr", {
-        imageBytes: Array.from(rawBytesArray),
-        onProgress: progressChannel,
-      });
+      const textResult = await recognizeDocument(rawBytesArray, progressChannel);
 
       outputTextResult = textResult;
       engineStatus = "success";
       activeTab = "text";
-    } catch (err: any) {
+    } catch (err: unknown) {
       engineStatus = "error";
-      errorLog = err.toString();
+      errorLog = ocrFailureText(err);
     }
   }
 

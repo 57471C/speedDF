@@ -5,9 +5,11 @@ use std::path::{Component, Path};
 use tiff::decoder::{Decoder, DecodingResult};
 mod commands;
 mod email_attach;
+mod ocr_windows;
 mod preview_register;
 use commands::run_local_ocr;
 use email_attach::{compose_email_with_attachment, write_mail_attachment};
+use ocr_windows::run_windows_ocr;
 use preview_register::{preview_registration_apply, preview_registration_status};
 
 /// Validates that an incoming frontend path string does not contain parent directory
@@ -754,6 +756,7 @@ pub fn run() {
             parse_tiff_document,
             parse_heic_document,
             run_local_ocr,
+            run_windows_ocr,
             compress_pdf_pipeline,
             delete_file_from_disk,
             preview_registration_status,

@@ -648,6 +648,7 @@ pub async fn run_local_ocr(
         let total_time = overall_start.elapsed();
 
         println!("\n========== OCR BENCHMARK ==========");
+        println!("[BENCH] engine=tract");
         println!("[BENCH] Total OCR time:       {:.2?}", total_time);
         println!("[BENCH] Detection time:       {:.2?}", detection_time);
         println!("[BENCH] Recognition time:     {:.2?}", recognition_time);
