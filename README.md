@@ -19,7 +19,7 @@ Most PDF tools are either bloated, subscription-gated, or send your documents so
 
 - **Fully local** — files never leave your PC
 - **Fast to open** — designed for quick load and a responsive workspace
-- **Lightweight** — small install; optional OCR models download only when you need them
+- **Lightweight** — small install. Windows Extract uses Windows.Media.Ocr and does not download ONNX models. Mac and Linux download the local tract models from speeddf.com/models on first Extract
 - **Real exports** — annotations and form fills bake into the PDF, not a fragile overlay
 - **Open source (MIT)** — free to use, inspect, and extend
 
@@ -64,11 +64,11 @@ If you just need to rotate a page, sign a form, highlight a clause, or merge a f
 - Always-on-top Tools window: calculator, timer, stopwatch, scratch pad, Magic 8 Ball
 - Dark and light themes
 - Recent documents with thumbnails
-- Optional offline OCR (models download on demand)
+- Optional offline OCR. Windows Extract uses Windows.Media.Ocr (no ONNX download). A missing English OCR language pack is a Settings message, not a failure into tract. Mac and Linux use the local tract models, downloaded from speeddf.com/models on first Extract
 - Window size, position, and maximized restored on next launch
 - Save As opens in the last saved folder when that path is still reachable
 - Rotate left/right on the centre zoom bar (PDF pages)
-- Email current file (Windows): confirm filename, flatten live doc, Outlook draft with attachment
+- Email current file (Windows): confirm filename, flatten the live doc, and open a classic Outlook draft with the saved file attached. The draft is raised in front of the app. It does not send. No Thunderbird or default-client fallback yet
 - Thumbnail card icons use theme tokens (readable in light and dark)
 
 ---
@@ -119,9 +119,9 @@ npm run build:exe          # production binary (see src-tauri/target/release)
 | **SvelteKit UI** | Workspace, tools, multi-tab state, annotations |
 | **pdf.js** | Page rendering and text layer |
 | **pdf-lib** | Flatten annotations, forms, outlines into the PDF |
-| **Tauri + Rust** | File I/O, dialogs, OCR pipeline, native shell |
+| **Tauri + Rust** | File I/O, dialogs, OCR, native shell |
 
-Everything runs locally. Optional OCR models are fetched only when you use Extract Text, then cached.
+Everything runs locally. Windows Extract uses Windows.Media.Ocr and does not download ONNX models. Mac and Linux fetch the tract models from speeddf.com/models on first Extract, then cache them.
 
 For deeper module maps and edge-case notes, see `AGENT_MAP.md` and `ARCHITECTURE_NUANCES.md` in the repo.
 

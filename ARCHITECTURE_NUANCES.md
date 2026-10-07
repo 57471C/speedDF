@@ -823,8 +823,16 @@ Before the save dialog uses a folder, `directory_exists` probes it on a short ti
 
 ### Email current file
 
-Windows only. The live document is flattened into `%TEMP%\speeddf-mail`, then Outlook shows a draft (`Display()`, not `Send()`). Fallback is classic `outlook.exe /a`. New Outlook has no COM automation.
+Windows only. `email_attach.rs` flattens the live document into `%TEMP%\speeddf-mail`, then opens a classic Outlook draft with Outlook COM `Display()`. It never calls `Send()`. After `Display()`, the draft is raised with `Inspector.Activate` and `SetForegroundWindow`. A failed raise does not fall through to `outlook.exe /a` (that would open a second draft). If COM fails before a draft exists, the fallback is still classic `outlook.exe /a`. New Outlook has no COM automation. There is no Thunderbird or default-client fallback yet.
 
 ---
 
-**Last Updated:** October 2026 — **v1.3.1** (window state 2.4.1, Save As net-drive skip, email Display not Send; prior: **v1.2.5** Markdown preview-first Edit/Preview, theme-token preview ~78ch, fenced yaml/sql/go/java/c/ini, `data-md-line` scroll sync, 25–75% gutter, page sidebar hidden for markdown; SVG-as-image, continuous markdown viewer, 150% open zoom, fixed-palette thumbs, secondary doc windows, image resize, multi-select, HEIC, forms, hyperlinks, workspaceId / Save As)
+## Section AB: Windows OCR (v1.3.2)
+
+Windows Extract calls `run_windows_ocr` in `ocr_windows.rs` only (`Windows.Media.Ocr`). A Windows failure does not call tract. Windows does not download ONNX models. A missing English OCR language pack returns `ocr-language-missing`. The panel shows: "Install the English OCR pack under Settings, Time & language, Language & region."
+
+The engine is created on Extract, not at startup. The OCR toggle defaults on for Windows only when the user has no saved value. An explicit saved true or false is kept. Mac and Linux stay on the local tract models in `commands.rs` (`run_local_ocr`), downloaded from speeddf.com/models on first Extract.
+
+---
+
+**Last Updated:** October 2026 — **v1.3.2** (Windows.Media.Ocr via `run_windows_ocr`, no tract fallback on Windows, OCR toggle defaults on for a fresh Windows profile, engine created on Extract; prior: **v1.3.1** window state 2.4.1, Save As net-drive skip, email Display then Activate / SetForegroundWindow; **v1.2.5** Markdown preview-first Edit/Preview, theme-token preview ~78ch, fenced yaml/sql/go/java/c/ini, `data-md-line` scroll sync, 25–75% gutter, page sidebar hidden for markdown; SVG-as-image, continuous markdown viewer, 150% open zoom, fixed-palette thumbs, secondary doc windows, image resize, multi-select, HEIC, forms, hyperlinks, workspaceId / Save As)
