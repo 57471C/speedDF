@@ -42,7 +42,7 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/lib/tools/scratchPad.ts`**: Scratch Pad persistence helpers + `stripFontStylesFromHtml` for stripping typefaces, sizes, and colors on paste.
 * **`src/lib/tools/openToolsWindow.ts`**: Opens the always-on-top Tools widget window (`tools-*` labels).
 * **`src/lib/window/openDocumentWindow.ts`**: **Open in new window** — spawns a full speedDF `WebviewWindow` (`doc-*` label) with `/?open=<encoded path>`. Leaves the original tab open (disk reload, not a move). Untitled / no-path docs return `"no-path"`.
-* **`src/lib/settings/appSettings.ts`** / **`appSettings.svelte.ts`**: Persisted app settings (`speeddf_app_settings`): theme, tool toggles, OCR/dictionary, check-updates-on-launch.
+* **`src/lib/settings/appSettings.ts`** / **`appSettings.svelte.ts`**: Persisted app settings (`speeddf_app_settings`): theme, tool toggles, OCR/dictionary, check-updates-on-launch. The OCR toggle defaults on for Windows only when the user has no saved value.
 * **`src/lib/settings/theme.ts`**: Theme apply helpers (`data-theme` on `documentElement`).
 * **`src/lib/render/pageRenderer.ts`**: PDF.js / image / TIFF canvas paint + text-layer pipeline.
 * **`src/lib/render/sharedPdfDocument.ts`**: Single shared `PDFDocumentProxy` for active workspace bytes + idle `cleanup()`; used by main paints and thumbnails (avoids per-paint `getDocument` leaks).
@@ -67,14 +67,15 @@ This document serves as a standardized reference guide for understanding the arc
 * **`src/routes/+page.svelte`**: App root wiring sidebars, workspace, titlebar, **Ctrl+F full-document search**, and toast notifications. **Main window** listens for **`startup-file-loaded`** / **`open-file-request`**. **Secondary `doc-*` windows** bootstrap via `/?open=<path>` (skip updater + startup listeners). Loads `.md`/`.markdown` as `fileType: "markdown"` + `markdownSource` and forces **preview-only** on a fresh open (`markdownSplitView = false`; already-open tabs keep their flag). **Hides `PageSidebar` for markdown**; tool sidebar stays hidden too. **Initial zoom 150%** for markdown only (PDF/image keep auto-fit). Image open list includes **`.svg`** (and webp) as `fileType: "image"` via blob URL. Document tabs and Recent stay.
 * **`src/routes/+layout.svelte`**: Reveals non-`tools-*` windows after paint (`visible: false` → show); focuses secondary `doc-*` windows.
 * **`src/routes/tools/+page.svelte`**: Always-on-top Tools window — calculator (expression memory), timer, stopwatch, Magic 8 Ball, scratch pad (`onpaste` HTML style-stripping).
-* **`src/routes/OcrPanel.svelte`**: Overlay for local AI OCR extraction.
+* **`src/routes/OcrPanel.svelte`**: Extract overlay. Windows calls `run_windows_ocr`. Mac and Linux call `run_local_ocr`.
 * **`src/global.css`**: Global design tokens system (`:root` for dark mode, `[data-theme="light"]` overrides), theme swap CSS rules (`.hero-icon-light` / `.hero-icon-dark` with `!important` display rules), and scrollbar properties.
 * **`src/app.html`**: FOUC prevention script reading `speeddf_app_settings.theme` from `localStorage` to apply `data-theme="light"` before first paint.
 
 ### Backend System (Rust / Tauri)
 * **`src-tauri/src/lib.rs`**: Backend command registry and application builder. Filesystem validation, TIFF multi-page parse, **HEIC/HEIF one-time decode** (feature-gated), native dialogs, **startup file detection** (`std::env::args` → emit `startup-file-loaded`; extensions include **`.md` / `.markdown`**, **`.svg`**, images, PDF, TIFF), and **`tauri-plugin-single-instance`** (focus existing **`main`** window + emit `open-file-request` with file bytes). **`tauri-plugin-window-state` 2.4.1** is wired here (`SIZE | POSITION | MAXIMIZED`, label `main` only). Do not bump it to 2.5. Multi-window document views are **in-process** `WebviewWindow`s, not second processes.
-* **`src-tauri/src/email_attach.rs`**: `write_mail_attachment` (`%TEMP%\speeddf-mail`) and **`compose_email_with_attachment`** (Windows Outlook COM `Display()`, else `outlook.exe /a`). Does not send. Non-Windows returns a Windows-only error.
-* **`src-tauri/src/commands.rs`**: Local ONNX OCR pipeline (DBNet + CRNN) via `tract-onnx`.
+* **`src-tauri/src/email_attach.rs`**: `write_mail_attachment` (`%TEMP%\speeddf-mail`) and **`compose_email_with_attachment`**. Outlook COM `Display()`, then `Inspector.Activate` and `SetForegroundWindow`. A failed raise does not fall through to `outlook.exe /a`. Does not send. Non-Windows returns a Windows-only error.
+* **`src-tauri/src/ocr_windows.rs`**: Windows OCR. `run_windows_ocr` only (`Windows.Media.Ocr`). A Windows failure does not call tract. The engine is created on Extract, not at startup.
+* **`src-tauri/src/commands.rs`**: Mac and Linux tract ONNX OCR (DBNet + CRNN). Models download from speeddf.com/models on first Extract.
 * **`src-tauri/src/main.rs`**: Minimal binary entry point for the Tauri v2 app.
 * **`src-tauri/capabilities/default.json`**: Permissions for **`main`** and **`doc-*`** (secondary document windows).
 * **`src-tauri/capabilities/tools.json`**: Permissions for frameless always-on-top **`tools-*`** widgets.
@@ -135,12 +136,13 @@ Located in `src/pdfStore.svelte.ts`, the `activeDoc` proxy exposes these primary
 * **`parse_heic_document()`** (`lib.rs`): HEIC/HEIF → PNG one-time conversion (requires `--features heic`; returns error stub without feature). Uses pure-Rust `heic` crate — no FFI.
 * **`applyImageResizeAction(width, height)`** (`pdfStore`): Resample active image doc to new pixel size (history + dirty + native baseline preserved for Scale %).
 * **`openDocumentInNewWindow(path, name?)`** (`lib/window/openDocumentWindow.ts`): Spawn secondary full app window for a saved path.
-* **`run_local_ocr()`** (`commands.rs`): Local OCR inference.
+* **`run_windows_ocr()`** (`ocr_windows.rs`): Windows.Media.Ocr. `run_windows_ocr` only. A Windows failure does not call tract.
+* **`run_local_ocr()`** (`commands.rs`): Mac and Linux tract OCR. Models download from speeddf.com/models on first Extract.
 * **`check_startup_file()`** (`lib.rs`): Fallback only; primary open-with path does not use it.
 * **`read_file_bytes(path)`** (`lib.rs`): Load absolute path into `FilePayload` (used by recent open, `?open=` secondary windows, etc.).
 * **`directory_exists(path)`** (`lib.rs`): Timed absolute-directory probe for Save As. Timeout, missing path, or a non-directory is “not reachable”.
 * **`rotatePageAction(page, "clockwise" | "counter")`** (`pdfStore`): Page rotation. Page sidebar and the Workspace centre zoom capsule (PDF/TIFF; hidden for image and markdown).
-* **`compose_email_with_attachment(path)`** / **`write_mail_attachment`** (`email_attach.rs`): Windows Outlook draft with a temp attachment. COM `Display()` then classic `outlook.exe /a`. Never `Send()`.
+* **`compose_email_with_attachment(path)`** / **`write_mail_attachment`** (`email_attach.rs`): Classic Outlook draft with the saved file attached. COM `Display()`, then `Inspector.Activate` and `SetForegroundWindow`. A failed raise does not fall through to `outlook.exe /a`. Never `Send()`.
 
 ---
 
@@ -388,4 +390,4 @@ This guarantees exactly one hero icon renders at a time across theme switches.
 
 ---
 
-**Last Updated:** October 2026 — **v1.3.1** (window-state 2.4.1, Save As last folder, zoom-bar rotate, email attach; prior: **v1.2.5** Markdown preview-first Edit/Preview, theme-token preview, wider page, fenced yaml/sql/go/java/c/ini, line-mapped split scroll, 25–75% gutter, page sidebar hidden for markdown; SVG-as-image, continuous markdown viewer, Open in new window, image resize, multi-select, HEIC, forms, hyperlinks, workspaceId / Save As)
+**Last Updated:** October 2026 — **v1.3.2** (Windows.Media.Ocr in `ocr_windows.rs`, tract stays on Mac/Linux, email raise does not fall through to `outlook.exe /a`; prior: **v1.3.1** window-state 2.4.1, Save As last folder, zoom-bar rotate, email attach; **v1.2.5** Markdown preview-first Edit/Preview, theme-token preview, wider page, fenced yaml/sql/go/java/c/ini, line-mapped split scroll, 25–75% gutter, page sidebar hidden for markdown; SVG-as-image, continuous markdown viewer, Open in new window, image resize, multi-select, HEIC, forms, hyperlinks, workspaceId / Save As)

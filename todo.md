@@ -9,7 +9,12 @@
 ## Email draft (v1.3.1) ##
 - [x] Windows only. Flatten the live file into `%TEMP%\speeddf-mail`, then classic Outlook `Display()` — never `Send()`. Leave the temp attachment in place.
 - [x] If COM fails, fall back to classic `outlook.exe /a` (then Office16 `OUTLOOK.EXE`). New Outlook has no COM.
-- [x] After the draft exists, bring that inspector in front of speedDF. Do not steal focus before the window exists, and do not raise an Outlook window that was already open.
+- [x] After the draft exists, bring that inspector in front of speedDF (`Inspector.Activate`, then `SetForegroundWindow`). A failed raise does not fall through to `outlook.exe /a`. Do not steal focus before the window exists, and do not raise an Outlook window that was already open.
+
+## Windows OCR (v1.3.2) ##
+- [x] Phase 1. Windows Extract uses Windows.Media.Ocr (`ocr_windows.rs`, `run_windows_ocr` only). No ONNX download. A missing English OCR language pack is a Settings message. A Windows failure does not call tract.
+- [x] The engine is created on Extract, not at startup. The OCR toggle defaults on for Windows only when the user has no saved value.
+- [x] Mac and Linux still use the local tract models, downloaded from speeddf.com/models on first Extract.
 
 ## Fixes ##
 - [x] page rotation must include pdf.js text layer + save/reload
@@ -27,7 +32,8 @@
 6. ~~Tools: scratch pad/clip board (persistant across all docs)~~
 
 ## Future ##
-- [ ] Email without classic Outlook. Today the mail command only tries Outlook COM, then outlook.exe /a. Investigate Simple MAPI so the default client (Thunderbird, new Outlook, Mail) can take the attachment. mailto: cannot attach a file. Do not implement in this pass.
+- [ ] Email without classic Outlook. The mail command opens a classic Outlook draft (COM `Display()`, then `Inspector.Activate` and `SetForegroundWindow`). If COM fails before a draft exists, it uses `outlook.exe /a`. A failed raise does not open a second draft. Investigate Simple MAPI so the default client (Thunderbird, new Outlook, Mail) can take the attachment. mailto: cannot attach a file. Do not implement in this pass.
+- [ ] Aion Instruct formatting. Do not implement in this pass.
 
 ## long term goals (may never do)
 
