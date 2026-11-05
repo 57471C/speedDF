@@ -213,6 +213,11 @@ export interface DocumentWorkspace {
 	tiffPages: Uint8Array[];
 	rotations: Record<number, number>;
 	cachedDimensions?: { width: number; height: number }[];
+	/**
+	 * Per-tab viewport zoom in percent. Absent until the first open auto-fits
+	 * (markdown seeds 150). Tab switches restore this and must not fit again.
+	 */
+	zoomScale?: number;
 	/** Per-document sidebar/save thumbnail overrides (not shared across open tabs). */
 	pageThumbnailOverrides?: Record<number, string>;
 }
@@ -1448,10 +1453,14 @@ export const activeDoc: SharedDocumentState = {
 		}
 	},
 	get zoomScale() {
+		const saved = this.current?.zoomScale;
+		if (typeof saved === "number" && Number.isFinite(saved)) return saved;
 		return zoomScale;
 	},
 	set zoomScale(val) {
 		zoomScale = val;
+		const doc = this.current;
+		if (doc && doc.zoomScale !== val) doc.zoomScale = val;
 	},
 	get defaultFont() {
 		return defaultFont;

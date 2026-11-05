@@ -101,6 +101,41 @@
   }
 
   let zoomScale = $state(120);
+  /**
+   * Which tab `zoomScale` was last restored for. Plain let so writing it
+   * does not retrigger the effect. Each document keeps its own zoom on
+   * `DocumentWorkspace.zoomScale`; this only copies that value into the
+   * view bind when the active tab changes.
+   */
+  let zoomDocId: string | null = null;
+
+  $effect.pre(() => {
+    const id = activeDoc.activeDocumentId as string | null;
+    const doc = activeDoc.current as {
+      zoomScale?: number;
+      fileType?: string | null;
+    } | null;
+    if (!id || !doc) {
+      zoomDocId = null;
+      return;
+    }
+    // Read zoom and type every run so a markdown open that sets them after
+    // the tab id (there is an await tick before ingestion) still seeds 150.
+    const saved = doc.zoomScale;
+    const fileType = doc.fileType;
+    const switched = id !== zoomDocId;
+    if (switched) zoomDocId = id;
+
+    if (typeof saved === "number" && Number.isFinite(saved)) {
+      if (switched) zoomScale = saved;
+      return;
+    }
+    // Markdown opens at 150% until this tab has a saved zoom.
+    if (fileType === "markdown") {
+      doc.zoomScale = 150;
+      zoomScale = 150;
+    }
+  });
   let showHelpModal = $state(false);
   let showSettingsModal = $state(false);
   let showUnsavedModal = $state(false);
@@ -418,9 +453,14 @@
   }
 
   async function openToolOrToast(mode: Parameters<typeof openToolsWindow>[0]) {
+    console.log("[tools] open", mode);
     const result = await openToolsWindow(mode);
     if (result === "disabled") {
       showNotification("Enable in Settings");
+      return;
+    }
+    if (typeof result === "object" && result.status === "error") {
+      showNotification(result.message);
     }
   }
 
