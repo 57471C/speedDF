@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import * as pdfjsLib from "pdfjs-dist";
   import WorkspacePage from "./WorkspacePage.svelte";
@@ -29,9 +29,10 @@
     }
   }, 150);
 
-  // Auto-fit every newly opened document (PDF / TIFF / image) to the viewport,
-  // respecting the page container's actual orientation after layout settles.
-  // Markdown opens at a fixed 150% initial zoom — skip auto-fit so it is not overwritten.
+  // Auto-fit only the first open of a PDF / TIFF / image that has no saved zoom.
+  // A tab switch remounts this component; a saved DocumentWorkspace.zoomScale
+  // must be restored as-is. Re-running shrinkToWindow is the zoom flash.
+  // Markdown opens at 150% when it has no saved zoom — never auto-fit that.
   $effect(() => {
     const bytes = activeDoc.rawBytes;
     const fileKey = activeDoc.filePath || activeDoc.fileName || "";
@@ -39,6 +40,12 @@
     const fileType = activeDoc.fileType;
     if (!bytes || !fileKey) return;
     if (fileType === "markdown") return;
+
+    const hasSavedZoom = untrack(() => {
+      const saved = activeDoc.current?.zoomScale;
+      return typeof saved === "number" && Number.isFinite(saved);
+    });
+    if (hasSavedZoom) return;
 
     // Retry a few times so page shells (and image natural size) have painted.
     // By keeping the delays, we cover slow-rendering documents.
@@ -73,6 +80,26 @@
     /** TitleBar / Ctrl+P print path (markdown uses headless iframe spool). */
     onPrint?: () => void;
   }>();
+
+  /**
+   * Display zoom. Prefer the active document's saved zoom so a remount paints
+   * that scale immediately. Fall back to the page bind only before the first fit.
+   */
+  const viewZoom = $derived.by(() => {
+    const saved = activeDoc.current?.zoomScale;
+    if (typeof saved === "number" && Number.isFinite(saved)) {
+      return Math.max(5, Math.abs(saved));
+    }
+    return Math.max(5, Math.abs(zoomScale || 120));
+  });
+
+  /** User zoom, wheel zoom, and the first auto-fit all persist on the open document. */
+  function commitZoom(next: number) {
+    const zoom = Math.max(5, Math.abs(next));
+    activeDoc.zoomScale = zoom;
+    if (zoomScale !== zoom) zoomScale = zoom;
+  }
+
   let scrollContainer = $state<HTMLDivElement | null>(null);
   let scrollObserver = $state<IntersectionObserver | null>(null);
 
@@ -171,7 +198,7 @@
 
   // ⚡ FIXED: Automatically measures the total height of the document when zoom scales or pages change
   $effect(() => {
-    if (scrollContainer && activeDoc.pageOrder.length > 0 && zoomScale) {
+    if (scrollContainer && activeDoc.pageOrder.length > 0 && viewZoom) {
       setTimeout(() => {
         if (scrollContainer) {
           activeDoc.scrollHeight = scrollContainer.scrollHeight;
@@ -179,11 +206,6 @@
         }
       }, 150);
     }
-  });
-
-  // Bind zoomScale to activeDoc.zoomScale
-  $effect(() => {
-    activeDoc.zoomScale = Math.max(5, Math.abs(zoomScale));
   });
 
   // Reactively track changes to your annotations database layer
@@ -356,8 +378,7 @@
       const prevBehavior = node.style.scrollBehavior;
       node.style.scrollBehavior = "auto";
 
-      activeDoc.zoomScale = next;
-      zoomScale = next;
+      commitZoom(next);
 
       // Reset gesture timer whenever zoom activity occurs; clear capture when wheeling settles
       if (gestureTimer != null) clearTimeout(gestureTimer);
@@ -409,7 +430,7 @@
       // Hide overflow for the gesture so WebView cannot pan the pane
       overflowLock.hold();
 
-      const oldZoom = Math.max(10, Math.abs(zoomScale || activeDoc.zoomScale || 100));
+      const oldZoom = Math.max(10, Math.abs(viewZoom || 100));
       // Continuous, delta-sensitive zoom (smoother than fixed ±10 steps).
       // Stack notches against pendingZoom so rapid wheels aren't lost before rAF.
       const intensity = Math.min(48, Math.abs(e.deltaY));
@@ -588,12 +609,12 @@
         const availableWidth = Math.max(1, hostWidth - 48);
         const rect = mdEl.getBoundingClientRect();
         if (rect.width > 1) {
-          const widthScale = (availableWidth / rect.width) * zoomScale;
-          zoomScale = Math.max(5, Math.min(200, Math.round(Math.abs(widthScale))));
+          const widthScale = (availableWidth / rect.width) * viewZoom;
+          commitZoom(Math.max(5, Math.min(200, Math.round(Math.abs(widthScale)))));
           return;
         }
       }
-      zoomScale = 100;
+      commitZoom(100);
       return;
     }
 
@@ -607,14 +628,14 @@
       const rect = pageEl.getBoundingClientRect();
       if (rect.width > 1 && rect.height > 1) {
         // Fit both axes so landscape and portrait pages fill the window correctly.
-        const widthScale = (availableWidth / rect.width) * zoomScale;
-        const heightScale = (availableHeight / rect.height) * zoomScale;
+        const widthScale = (availableWidth / rect.width) * viewZoom;
+        const heightScale = (availableHeight / rect.height) * viewZoom;
         const newScale = Math.round(Math.min(widthScale, heightScale));
-        zoomScale = Math.max(5, Math.min(400, Math.abs(newScale)));
+        commitZoom(Math.max(5, Math.min(400, Math.abs(newScale))));
         return;
       }
     }
-    zoomScale = 100;
+    commitZoom(100);
   }
 
   let isDrawingMarquee = $state(false);
@@ -648,7 +669,7 @@
       return;
     }
     // Re-measure when zoom changes (pages reflow → scroller metrics may shift)
-    void zoomScale;
+    void viewZoom;
     void activeDoc.pageOrder.length;
 
     refreshSnapshotOverlayBox();
@@ -953,14 +974,14 @@
         data-workspace-pages
         class="markdown-split-host relative z-10 w-full min-w-0 flex-1 min-h-0 pb-16"
       >
-        <MarkdownSplitView {zoomScale} />
+        <MarkdownSplitView zoomScale={viewZoom} />
       </div>
     {:else}
       <!-- Continuous markdown projection (source → HTML). No pdf.js / page boxes. -->
       <div
         data-workspace-pages
         class="relative z-10 w-full max-w-none mx-auto flex flex-col items-center pb-24 origin-top px-4"
-        style="zoom: {Math.max(5, Math.abs(zoomScale)) / 100};"
+        style="zoom: {viewZoom / 100};"
       >
         <MarkdownView source={activeDoc.markdownSource ?? ""} />
       </div>
@@ -978,7 +999,7 @@
       class="relative z-10 w-max max-w-none mx-auto flex flex-col items-center gap-6 pb-24 origin-top"
     >
       {#each activeDoc.pageOrder || [] as pageNumber (pageNumber)}
-        <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} {zoomScale} {isSystemPrinting} {scrollObserver} />
+        <WorkspacePage bytes={activeDoc.rawBytes} {pageNumber} zoomScale={viewZoom} {isSystemPrinting} {scrollObserver} />
       {/each}
     </div>
   {/if}
@@ -989,12 +1010,12 @@
       style="background: color-mix(in srgb, var(--sdf-bg-app) 90%, transparent); border-color: var(--sdf-border-subtle);"
     >
       <button
-        onclick={() => (zoomScale = Math.max(5, zoomScale - 10))}
+        onclick={() => commitZoom(Math.max(5, viewZoom - 10))}
         class="w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold transition-colors"
         style="color: var(--sdf-text-secondary);"
         >—</button
       >
-      <span class="text-[10px] font-bold w-10 text-center tracking-wider uppercase" style="color: var(--sdf-text-secondary);">{zoomScale}%</span>
+      <span class="text-[10px] font-bold w-10 text-center tracking-wider uppercase" style="color: var(--sdf-text-secondary);">{viewZoom}%</span>
       <button
         onclick={shrinkToWindow}
         class="w-6 h-6 flex items-center justify-center rounded-full transition-colors"
@@ -1006,7 +1027,7 @@
         </svg>
       </button>
       <button
-        onclick={() => (zoomScale = Math.min(400, zoomScale + 10))}
+        onclick={() => commitZoom(Math.min(400, viewZoom + 10))}
         class="w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold transition-colors"
         style="color: var(--sdf-text-secondary);"
         >+</button

@@ -35,7 +35,9 @@ export async function openDocumentInNewWindow(
 	}
 
 	try {
-		const win = new WebviewWindow(label, {
+		// Same browser arguments as the main window. A second WebView2 in the
+		// shared data folder fails with 0x8007139F when they differ.
+		const windowOptions = {
 			url: `/?open=${openParam}`,
 			title: `${baseName} — speedDF`,
 			width,
@@ -52,7 +54,10 @@ export async function openDocumentInNewWindow(
 			visible: false,
 			skipTaskbar: false,
 			zoomHotkeysEnabled: false,
-		});
+			additionalBrowserArgs:
+				"--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-pinch",
+		};
+		const win = new WebviewWindow(label, windowOptions);
 
 		win.once("tauri://error", (event) => {
 			console.error(

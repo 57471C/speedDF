@@ -16,7 +16,8 @@ onMount(() => {
   void lockWebviewPageZoom();
 
   // Main + secondary doc windows start hidden — reveal once UI is ready.
-  // Tools widgets create themselves hidden and reveal from `/tools` after paint.
+  // tools-* windows are created visible by openToolsWindow. Skip them.
+  // Do not close them.
   setTimeout(async () => {
     try {
       const win = getCurrentWindow();

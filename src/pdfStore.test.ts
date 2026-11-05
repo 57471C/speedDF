@@ -20,6 +20,7 @@ import {
 	saveSignatureSetAction,
 	setFormFieldValueAction,
 	setMarkdownSourceAction,
+	switchActiveDocument,
 	toggleMarkdownSplitView,
 	commitActiveDocumentAfterSave,
 	undoStack,
@@ -635,6 +636,42 @@ describe("purgeDocumentResources / cleanupWorkspace", () => {
 		const id = documentKey(doc);
 		await cleanupWorkspace(id);
 		await expect(cleanupWorkspace(id)).resolves.toBeUndefined();
+	});
+});
+
+describe("per-document zoom", () => {
+	afterEach(async () => {
+		const ids = activeDoc.openDocuments.map((d) => documentKey(d));
+		for (const id of ids) {
+			await cleanupWorkspace(id);
+		}
+	});
+
+	it("keeps each tab's zoom and restores it on switch", () => {
+		initializeNewDocument("zoom-a.pdf", "C:/tmp/zoom-a.pdf");
+		const aId = documentKey(activeDoc.current!);
+		activeDoc.zoomScale = 200;
+		expect(activeDoc.current?.zoomScale).toBe(200);
+		expect(activeDoc.zoomScale).toBe(200);
+
+		initializeNewDocument("zoom-b.pdf", "C:/tmp/zoom-b.pdf");
+		const bId = documentKey(activeDoc.current!);
+		expect(activeDoc.current?.zoomScale).toBeUndefined();
+		activeDoc.zoomScale = 110;
+		expect(activeDoc.current?.zoomScale).toBe(110);
+
+		const savedA = activeDoc.openDocuments.find(
+			(d) => documentKey(d) === aId,
+		);
+		expect(savedA?.zoomScale).toBe(200);
+
+		switchActiveDocument(aId);
+		expect(activeDoc.zoomScale).toBe(200);
+		expect(activeDoc.current?.zoomScale).toBe(200);
+
+		switchActiveDocument(bId);
+		expect(activeDoc.zoomScale).toBe(110);
+		expect(activeDoc.current?.zoomScale).toBe(110);
 	});
 });
 

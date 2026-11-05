@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
+  import { emitTo } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import {
     backspace,
@@ -35,6 +36,36 @@
     | "scratchpad";
 
   let mode = $state<ToolsMode>("calculator");
+  let pageError = $state("");
+  /** 0 until onMount. Escape must not close before then, or in the next second. */
+  let mountedAt = 0;
+
+  function toolsPageErrorText(err: unknown): string {
+    if (typeof err === "string" && err.trim()) return err;
+    if (err instanceof Error) {
+      return err.stack?.trim() || err.message || "Unknown tools page error";
+    }
+    if (err && typeof err === "object" && "message" in err) {
+      const message = (err as { message?: unknown }).message;
+      if (typeof message === "string" && message.trim()) return message;
+    }
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return String(err);
+    }
+  }
+
+  /** Log and show the error in this window. Never close. */
+  function reportToolsPageError(err: unknown) {
+    const text = toolsPageErrorText(err);
+    console.error("[tools] page error:", err);
+    pageError = text;
+  }
+
+  function onPageBoundaryError(error: unknown) {
+    reportToolsPageError(error);
+  }
 
   // ── Calculator ──────────────────────────────────────────
   let calc = $state<CalculatorState>(createCalculatorState());
@@ -386,6 +417,28 @@
 
   // ── Window chrome ───────────────────────────────────────
   async function closeWindow() {
+    const reason = new Error("closeWindow").stack ?? "closeWindow";
+    if (mountedAt === 0 || Date.now() - mountedAt < 1000) {
+      console.error("[tools] ignored closeWindow during the first second", reason);
+      try {
+        await emitTo("main", "tools-window-closing", {
+          label: getCurrentWindow().label,
+          reason: `ignored early closeWindow\n${reason}`,
+        });
+      } catch (err) {
+        console.error("[tools] failed to report close reason:", err);
+      }
+      return;
+    }
+    console.error("[tools] closeWindow", reason);
+    try {
+      await emitTo("main", "tools-window-closing", {
+        label: getCurrentWindow().label,
+        reason,
+      });
+    } catch (err) {
+      console.error("[tools] failed to report close reason:", err);
+    }
     try {
       await getCurrentWindow().close();
     } catch {
@@ -394,88 +447,83 @@
     }
   }
 
-  /** Frameless + reveal after first paint (avoids OS chrome / blank flash). */
+  /** Backup show + focus. Decorations stay as they were at creation. */
   async function revealToolsWindow() {
     try {
       const win = getCurrentWindow();
-      await win.setDecorations(false);
-      await win.setAlwaysOnTop(true);
-      // Double-rAF: wait until layout + CSS have applied
-      await new Promise<void>((r) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => r())),
-      );
       await win.show();
       await win.setFocus();
-    } catch {
-      /* non-Tauri / browser preview */
+    } catch (err) {
+      reportToolsPageError(err);
     }
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    // Ignore Escape while typing in an input (timer edit fields handle their own)
-    const t = e.target as HTMLElement | null;
-    const tag = t?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable) {
-      // Scratch pad / fields: allow Esc to still close the widget
+    try {
       if (e.key === "Escape") {
         e.preventDefault();
-        closeWindow();
+        if (mountedAt === 0 || Date.now() - mountedAt < 1000) {
+          console.error("[tools] ignored Escape during the first second after mount");
+          return;
+        }
+        void closeWindow();
+        return;
       }
-      return;
-    }
 
-    if (e.key === "Escape") {
-      e.preventDefault();
-      closeWindow();
-      return;
-    }
+      // Ignore other keys while typing in an input (timer edit fields handle their own)
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable) {
+        return;
+      }
 
-    if (mode === "magic8ball" && (e.key === " " || e.key === "Enter")) {
-      e.preventDefault();
-      askMagic8Ball();
-      return;
-    }
-
-    if (mode !== "calculator") return;
-
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
-      e.preventDefault();
-      void onCalcPaste();
-      return;
-    }
-
-    if (e.key === "Enter" || e.key === "=") {
-      e.preventDefault();
-      onCalcEquals();
-      return;
-    }
-    if (e.key === "Backspace") {
-      e.preventDefault();
-      onCalcBack();
-      return;
-    }
-    if (e.key === "Escape") return;
-    if (e.key === "Delete" || e.key.toLowerCase() === "c") {
-      if (!e.ctrlKey && !e.metaKey) {
+      if (mode === "magic8ball" && (e.key === " " || e.key === "Enter")) {
         e.preventDefault();
-        onCalcClear();
+        askMagic8Ball();
+        return;
       }
-      return;
-    }
-    if (e.key >= "0" && e.key <= "9") {
-      e.preventDefault();
-      onCalcDigit(e.key);
-      return;
-    }
-    if (e.key === ".") {
-      e.preventDefault();
-      onCalcDigit(".");
-      return;
-    }
-    if (e.key === "+" || e.key === "-" || e.key === "*" || e.key === "/") {
-      e.preventDefault();
-      onCalcOp(e.key);
-      return;
+
+      if (mode !== "calculator") return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        void onCalcPaste();
+        return;
+      }
+
+      if (e.key === "Enter" || e.key === "=") {
+        e.preventDefault();
+        onCalcEquals();
+        return;
+      }
+      if (e.key === "Backspace") {
+        e.preventDefault();
+        onCalcBack();
+        return;
+      }
+      if (e.key === "Delete" || e.key.toLowerCase() === "c") {
+        if (!e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          onCalcClear();
+        }
+        return;
+      }
+      if (e.key >= "0" && e.key <= "9") {
+        e.preventDefault();
+        onCalcDigit(e.key);
+        return;
+      }
+      if (e.key === ".") {
+        e.preventDefault();
+        onCalcDigit(".");
+        return;
+      }
+      if (e.key === "+" || e.key === "-" || e.key === "*" || e.key === "/") {
+        e.preventDefault();
+        onCalcOp(e.key);
+      }
+    } catch (err) {
+      reportToolsPageError(err);
     }
   }
 
@@ -495,28 +543,63 @@
   }
 
   onMount(() => {
-    const params = new URLSearchParams(window.location.search);
-    const m = params.get("mode");
-    if (
-      m === "timer" ||
-      m === "stopwatch" ||
-      m === "calculator" ||
-      m === "magic8ball" ||
-      m === "scratchpad"
-    ) {
-      mode = m;
+    mountedAt = Date.now();
+    const onError = (event: ErrorEvent) => {
+      reportToolsPageError(event.error ?? event.message);
+    };
+    const onRejection = (event: PromiseRejectionEvent) => {
+      reportToolsPageError(event.reason);
+    };
+    const onLeave = (event: Event) => {
+      const reason = `${event.type} ${window.location.href}`;
+      console.error("[tools]", reason);
+      void emitTo("main", "tools-window-closing", {
+        label: getCurrentWindow().label,
+        reason,
+      }).catch((err) => {
+        console.error("[tools] failed to report page leave:", err);
+      });
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    window.addEventListener("beforeunload", onLeave);
+    window.addEventListener("pagehide", onLeave);
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const m = params.get("mode");
+      if (
+        m === "timer" ||
+        m === "stopwatch" ||
+        m === "calculator" ||
+        m === "magic8ball" ||
+        m === "scratchpad"
+      ) {
+        mode = m;
+      }
+      document.title = modeTitle(mode);
+      void revealToolsWindow();
+    } catch (err) {
+      reportToolsPageError(err);
     }
-    document.title = modeTitle(mode);
-    void revealToolsWindow();
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+      window.removeEventListener("beforeunload", onLeave);
+      window.removeEventListener("pagehide", onLeave);
+    };
   });
 
   // Hydrate scratch pad once the contenteditable node mounts
   $effect(() => {
-    if (mode !== "scratchpad" || !padEl || padReady) return;
-    padEl.innerHTML = loadScratchPadHtml();
-    padReady = true;
-    // Focus after layout so caret is visible
-    requestAnimationFrame(() => padEl?.focus());
+    try {
+      if (mode !== "scratchpad" || !padEl || padReady) return;
+      padEl.innerHTML = loadScratchPadHtml();
+      padReady = true;
+      // Focus after layout so caret is visible
+      requestAnimationFrame(() => padEl?.focus());
+    } catch (err) {
+      reportToolsPageError(err);
+    }
   });
 
   onDestroy(() => {
@@ -532,6 +615,13 @@
   class="h-screen w-screen flex flex-col font-sans select-none overflow-hidden"
   style="background: var(--sdf-bg-app); color: var(--sdf-text-primary);"
 >
+  {#if pageError}
+    <pre
+      class="px-3 py-1 text-xs whitespace-pre-wrap break-words"
+      style="color: var(--sdf-text-primary);"
+    >{pageError}</pre>
+  {/if}
+  <svelte:boundary onerror={onPageBoundaryError}>
   <!-- Frameless custom title bar (drag region + close) -->
   <header
     class="flex items-center justify-between pl-3 pr-1 py-1.5 border-b shrink-0"
@@ -1018,6 +1108,10 @@
       </div>
     {/if}
   </main>
+  {#snippet failed(error)}
+    <p class="p-3 text-xs whitespace-pre-wrap break-words">{toolsPageErrorText(error)}</p>
+  {/snippet}
+  </svelte:boundary>
 </div>
 
 <style>
